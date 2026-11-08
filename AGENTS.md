@@ -9,3 +9,4 @@
 7. Keep custom icons as editable SVG files in a dedicated icons directory and import them; do not embed icon geometry in components. The reference project's icon directory is `apps/editor/src/icons/`.
 8. Keep builds reproducible and setup minimal. Prefer standard build tools over ad-hoc build scripts; minimize manual library, SDK, and compiler-flag setup. Document only the necessary build steps.
 9. Validate modeling changes with shape-level regression and repeatability tests. Save files also serve as test scenarios: exercise the CLI with the same command format used by the API and application, without a separate test-only document format.
+10. Keep edits narrowly scoped. Ask before rewording user-authored material unless rewriting it is the task.

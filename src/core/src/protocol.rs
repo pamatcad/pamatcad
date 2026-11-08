@@ -62,11 +62,18 @@ pub struct FaceOrigin {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct FaceRef {
-    pub scene_id: String,
-    pub body_id: String,
-    pub origin: FaceOrigin,
+#[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
+pub enum FaceRef {
+    Origin {
+        scene_id: String,
+        body_id: String,
+        origin: FaceOrigin,
+    },
+    Selected {
+        scene_id: String,
+        body_id: String,
+        face_id: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -80,7 +87,9 @@ impl SketchSupport {
     pub fn scene_id(&self) -> &str {
         match self {
             Self::Plane(p) => &p.scene_id,
-            Self::Face(f) => &f.scene_id,
+            Self::Face(FaceRef::Origin { scene_id, .. } | FaceRef::Selected { scene_id, .. }) => {
+                scene_id
+            }
         }
     }
 }
@@ -179,9 +188,25 @@ pub struct ExtrudeParameters {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum Profiles {
+    Single(RegionRef),
+    Multiple(Vec<RegionRef>),
+}
+
+impl Profiles {
+    pub fn regions(&self) -> &[RegionRef] {
+        match self {
+            Self::Single(region) => std::slice::from_ref(region),
+            Self::Multiple(regions) => regions,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct ExtrudeInputs {
-    pub profile: RegionRef,
+    pub profile: Profiles,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub targets: Option<Vec<BodyRef>>,
@@ -198,11 +223,54 @@ pub enum Operation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct ExtrudeFeature {
+pub struct Feature {
     pub id: String,
     pub operation: Operation,
     pub new_solids: Vec<BodyRef>,
     pub affected_solids: Vec<BodyRef>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FeaturePreview {
+    pub operation: Operation,
+    pub new_solids: Vec<BodyProperties>,
+    pub affected_solids: Vec<BodyRef>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(untagged)]
+pub enum FeatureResult {
+    Feature(Feature),
+    Preview(FeaturePreview),
+}
+
+// Existing Rust and SDK clients can keep their operation-specific type names.
+pub type ExtrudeFeature = Feature;
+pub type ExtrudePreview = FeaturePreview;
+pub type ExtrudeResult = FeatureResult;
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TimelineEntry {
+    Sketch { id: String },
+    Extrude { id: String },
+}
+
+impl Feature {
+    pub(crate) fn timeline_entry(&self) -> TimelineEntry {
+        match self.operation {
+            Operation::Extrude { .. } => TimelineEntry::Extrude {
+                id: self.id.clone(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SceneQuery {
+    pub scene_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -250,7 +318,9 @@ pub struct SketchQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Extrude {
-    pub profile: RegionRef,
+    #[ts(optional)]
+    pub preview: Option<bool>,
+    pub profile: Profiles,
     pub parameters: ExtrudeParameters,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -264,10 +334,10 @@ pub struct BodyQuery {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(deny_unknown_fields)]
-pub struct FaceQuery {
-    pub body: BodyRef,
-    pub origin: FaceOrigin,
+#[serde(untagged, deny_unknown_fields)]
+pub enum FaceQuery {
+    Origin { body: BodyRef, origin: FaceOrigin },
+    Normal { body: BodyRef, normal: [f64; 3] },
 }
 
 // Each entry defines the request and response types for the same method.
@@ -291,7 +361,9 @@ api! {
     PrimitiveAdd(AddPrimitive) -> PrimitiveData = "sketch.primitives.add",
     SketchComplete(SketchQuery) -> SketchData = "sketch.complete",
     RegionOnly(SketchQuery) -> RegionRef = "sketch.regions.only",
-    SolidExtrude(Extrude) -> ExtrudeFeature = "solid.extrude",
+    RegionsAll(SketchQuery) -> Vec<RegionRef> = "sketch.regions.all",
+    TimelineList(SceneQuery) -> Vec<TimelineEntry> = "scene.timeline.list",
+    SolidExtrude(Extrude) -> ExtrudeResult = "solid.extrude",
     BodyGet(BodyQuery) -> BodyRef = "body.get",
     FaceOnly(FaceQuery) -> FaceRef = "body.faces.only",
     BodyProperties(BodyQuery) -> BodyProperties = "body.properties",
@@ -323,9 +395,14 @@ pub fn typescript() -> String {
         Primitive::decl(),
         ExtrudeMode::decl(),
         ExtrudeParameters::decl(),
+        Profiles::decl(),
         ExtrudeInputs::decl(),
         Operation::decl(),
-        ExtrudeFeature::decl(),
+        Feature::decl(),
+        FeaturePreview::decl(),
+        FeatureResult::decl(),
+        TimelineEntry::decl(),
+        SceneQuery::decl(),
         VolumeUnit::decl(),
         Volume::decl(),
         BodyProperties::decl(),
@@ -346,5 +423,10 @@ pub fn typescript() -> String {
         output.push_str(&declaration);
         output.push('\n');
     }
+    output.push_str(concat!(
+        "export type ExtrudeFeature = Feature & { operation: Extract<Operation, { type: \"extrude\" }> };\n",
+        "export type ExtrudePreview = FeaturePreview & { operation: ExtrudeFeature[\"operation\"] };\n",
+        "export type ExtrudeResult = ExtrudeFeature | ExtrudePreview;\n",
+    ));
     output
 }

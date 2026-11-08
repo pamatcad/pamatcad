@@ -30,9 +30,18 @@ extern "C" {
         error: *mut c_char,
         error_size: usize,
     ) -> i32;
-    fn pamat_end_cap_count(shape: *const c_void) -> usize;
-    fn pamat_end_cap_frame(
+    fn pamat_face_count(shape: *const c_void, face_id: usize) -> usize;
+    fn pamat_face_by_normal(
+        shape: *mut c_void,
+        normal: *const f64,
+        count: *mut usize,
+        face_id: *mut usize,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+    fn pamat_face_frame(
         shape: *const c_void,
+        face_id: usize,
         frame: *mut f64,
         error: *mut c_char,
         error_size: usize,
@@ -129,27 +138,54 @@ impl Shape {
         Ok(NonNull::new(output).map(Self))
     }
 
-    pub fn end_cap_frame(&self) -> Result<Frame> {
-        match unsafe { pamat_end_cap_count(self.0.as_ptr()) } {
-            0 => {
-                return Err(CoreError::new(
-                    ErrorCode::NotFound,
-                    "The end cap no longer exists",
-                ))
-            }
-            1 => (),
-            _ => {
-                return Err(CoreError::new(
-                    ErrorCode::AmbiguousFace,
-                    "The end cap has multiple descendants",
-                ))
-            }
+    pub fn face_by_normal(&self, direction: [f64; 3]) -> Result<usize> {
+        let norm = direction[0].hypot(direction[1]).hypot(direction[2]);
+        if !norm.is_finite() || norm == 0. {
+            return Err(CoreError::new(
+                ErrorCode::InvalidParameter,
+                "Face normal must be finite and nonzero",
+            ));
         }
+        let normal = direction.map(|x| x / norm);
+        let mut count = 0;
+        let mut id = 0;
+        let mut error = [0; 1024];
+        let status = unsafe {
+            pamat_face_by_normal(
+                self.0.as_ptr(),
+                normal.as_ptr(),
+                &mut count,
+                &mut id,
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        if status != 0 {
+            return Err(failure(&error));
+        }
+        Self::require_one_face(count)?;
+        Ok(id)
+    }
+
+    fn require_one_face(count: usize) -> Result<()> {
+        match count {
+            1 => Ok(()),
+            0 => Err(CoreError::new(ErrorCode::NotFound, "No matching face")),
+            _ => Err(CoreError::new(
+                ErrorCode::AmbiguousFace,
+                "Multiple matching faces",
+            )),
+        }
+    }
+
+    pub fn face_frame(&self, id: usize) -> Result<Frame> {
+        Self::require_one_face(unsafe { pamat_face_count(self.0.as_ptr(), id) })?;
         let mut coords = [[0.; 3]; 4];
         let mut error = [0; 1024];
         let status = unsafe {
-            pamat_end_cap_frame(
+            pamat_face_frame(
                 self.0.as_ptr(),
+                id,
                 coords.as_mut_ptr().cast(),
                 error.as_mut_ptr(),
                 error.len(),

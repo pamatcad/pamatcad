@@ -26,10 +26,13 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <vector>
+#include <Precision.hxx>
 
 struct PamatShape {
     TopoDS_Shape value;
-    TopTools_IndexedMapOfShape end_caps;
+    // Slot zero belongs to the prism end cap. Further slots retain faces selected by a client.
+    std::vector<TopTools_IndexedMapOfShape> named_faces;
 };
 
 template <typename Operation>
@@ -77,7 +80,7 @@ static void extrude_face(const TopoDS_Face& face, const double* direction, Pamat
     TopExp::MapShapes(shape->value, TopAbs_FACE, faces);
     const int index = faces.FindIndex(prism.LastShape());
     if (!index) throw std::runtime_error("Prism end face is missing from its solid");
-    shape->end_caps.Add(faces.FindKey(index));
+    shape->named_faces.emplace_back().Add(faces.FindKey(index));
     *output = shape.release();
 }
 
@@ -114,18 +117,55 @@ extern "C" int pamat_extrude_circle(const double* center, double radius, const d
     }, error, error_size);
 }
 
-extern "C" size_t pamat_end_cap_count(const PamatShape* shape) {
-    return shape->end_caps.Extent();
+static gp_Dir outward_normal(const TopoDS_Face& face, const gp_Pln& plane) {
+    gp_Dir normal = plane.Axis().Direction();
+    if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+    return normal;
 }
 
-extern "C" int pamat_end_cap_frame(const PamatShape* shape, double* frame, char* error, size_t error_size) {
+extern "C" size_t pamat_face_count(const PamatShape* shape, size_t face_id) {
+    return face_id < shape->named_faces.size() ? shape->named_faces[face_id].Extent() : 0;
+}
+
+extern "C" int pamat_face_by_normal(PamatShape* shape, const double* direction, size_t* count,
+                                    size_t* face_id, char* error, size_t error_size) {
     return checked([&] {
-        const TopoDS_Face& face = TopoDS::Face(shape->end_caps.FindKey(1));
+        const gp_Dir wanted(direction[0], direction[1], direction[2]);
+        *count = 0;
+        TopoDS_Face match;
+        TopTools_IndexedMapOfShape faces;
+        TopExp::MapShapes(shape->value, TopAbs_FACE, faces);
+        for (int i = 1; i <= faces.Extent(); ++i) {
+            const auto& face = TopoDS::Face(faces.FindKey(i));
+            BRepAdaptor_Surface surface(face);
+            if (surface.GetType() == GeomAbs_Plane &&
+                outward_normal(face, surface.Plane()).IsEqual(wanted, Precision::Angular())) {
+                ++*count;
+                match = face;
+            }
+        }
+        if (*count != 1) return;
+        for (size_t i = 0; i < shape->named_faces.size(); ++i) {
+            const auto& descendants = shape->named_faces[i];
+            if (descendants.Extent() == 1 && descendants.Contains(match)) {
+                *face_id = i;
+                return;
+            }
+        }
+        *face_id = shape->named_faces.size();
+        shape->named_faces.emplace_back().Add(match);
+    }, error, error_size);
+}
+
+extern "C" int pamat_face_frame(const PamatShape* shape, size_t face_id, double* frame, char* error, size_t error_size) {
+    return checked([&] {
+        const auto& descendants = shape->named_faces.at(face_id);
+        if (descendants.Extent() != 1) throw std::runtime_error("Sketch support must resolve to one face");
+        const auto& face = TopoDS::Face(descendants.FindKey(1));
         BRepAdaptor_Surface surface(face);
         if (surface.GetType() != GeomAbs_Plane) throw std::runtime_error("Sketch support is not planar");
         const gp_Pln plane = surface.Plane();
-        gp_Vec n(plane.Axis().Direction());
-        if (face.Orientation() == TopAbs_REVERSED) n.Reverse();
+        const gp_Vec n(outward_normal(face, plane));
         // Project the body origin and X axis onto the face. Use Y on a face normal to X.
         const gp_Vec origin = n * gp_Vec(gp_Pnt(0, 0, 0), plane.Location()).Dot(n);
         const gp_Vec axis = std::abs(n.X()) < 1.0 - 1e-12 ? gp_Vec(1, 0, 0) : gp_Vec(0, 1, 0);
@@ -164,15 +204,18 @@ extern "C" int pamat_cut(const PamatShape* body, const PamatShape* tool, PamatSh
         if (before - after <= 8 * std::numeric_limits<double>::epsilon() * before) return;
         TopTools_IndexedMapOfShape faces;
         TopExp::MapShapes(result->value, TopAbs_FACE, faces);
-        const auto keep_face = [&](const TopoDS_Shape& candidate) {
-            const int index = faces.FindIndex(candidate);
-            if (index) result->end_caps.Add(faces.FindKey(index));
-        };
-        for (int i = 1; i <= body->end_caps.Extent(); ++i) {
-            const auto& cap = body->end_caps.FindKey(i);
-            const auto& descendants = cut.Modified(cap);
-            if (descendants.IsEmpty() && !cut.IsDeleted(cap)) keep_face(cap);
-            for (const auto& face : descendants) keep_face(face);
+        for (const auto& previous : body->named_faces) {
+            auto& updated = result->named_faces.emplace_back();
+            const auto keep_face = [&](const TopoDS_Shape& candidate) {
+                const int index = faces.FindIndex(candidate);
+                if (index) updated.Add(faces.FindKey(index));
+            };
+            for (int i = 1; i <= previous.Extent(); ++i) {
+                const auto& source = previous.FindKey(i);
+                const auto& descendants = cut.Modified(source);
+                if (descendants.IsEmpty() && !cut.IsDeleted(source)) keep_face(source);
+                for (const auto& face : descendants) keep_face(face);
+            }
         }
         *output = result.release();
     }, error, error_size);

@@ -9,11 +9,13 @@ export class Scene {
   readonly construction;
   readonly sketches;
   readonly bodies;
+  readonly timeline;
 
   constructor(transport: Transport, data: SceneData) {
     this.id = data.id;
     this.name = data.name;
     this.construction = data.construction;
+    this.timeline = { list: () => transport.request("scene.timeline.list", { sceneId: this.id }) };
     this.sketches = {
       create: async <P extends SketchSupport>(plane: P): Promise<Sketch<P>> => {
         if (plane.sceneId !== this.id) throw new Error("Sketch support belongs to another scene");

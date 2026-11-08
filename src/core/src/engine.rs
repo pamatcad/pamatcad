@@ -1,11 +1,12 @@
+pub(crate) mod modeling;
+
 use crate::{
     error::{CoreError, ErrorCode, Result},
     model::{Body, Scene},
     protocol::*,
     sketch::{self, Frame, Sketch},
-    solid,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub struct Engine {
@@ -42,100 +43,43 @@ impl Engine {
     }
 
     fn face_frame(&self, face: &FaceRef) -> Result<Frame> {
-        let scene = self.scene(&face.scene_id)?;
-        let body = BodyRef {
-            scene_id: face.scene_id.clone(),
-            id: face.body_id.clone(),
-        };
-        let generated_by_feature = scene
-            .features
-            .get(&face.origin.feature)
-            .is_some_and(|f| f.new_solids.contains(&body));
-        if !generated_by_feature {
-            return Err(CoreError::new(
-                ErrorCode::NotFound,
-                "This feature did not create the selected body",
-            ));
-        }
-        match face.origin.role {
-            FaceRole::EndCap => self.body(&body)?.shape.end_cap_frame(),
-        }
-    }
-
-    fn extrude(&mut self, input: Extrude) -> Result<ExtrudeFeature> {
-        let scene_id = input.profile.scene_id.clone();
-        let sketch = self.sketch(&SketchRef {
-            scene_id: scene_id.clone(),
-            id: input.profile.sketch_id.clone(),
-        })?;
-        let shape = solid::extrude::evaluate(sketch, &input.profile, &input.parameters)?;
-        let mut new_solids = Vec::new();
-        let mut affected_solids = Vec::new();
-        // No body is changed until every candidate solid has been built and validated.
-        let bodies = match input.parameters.mode.unwrap_or(ExtrudeMode::NewBody) {
-            ExtrudeMode::NewBody => {
-                if input.targets.is_some() {
-                    return Err(CoreError::new(
-                        ErrorCode::InvalidParameter,
-                        "New-body extrusion does not accept targets",
-                    ));
-                }
-                let reference = BodyRef {
+        match face {
+            FaceRef::Origin {
+                scene_id,
+                body_id,
+                origin,
+            } => {
+                let scene = self.scene(scene_id)?;
+                let body = BodyRef {
                     scene_id: scene_id.clone(),
-                    id: self.id("body"),
+                    id: body_id.clone(),
                 };
-                new_solids.push(reference.clone());
-                vec![Body { reference, shape }]
-            }
-            ExtrudeMode::Cut => {
-                let scene = self.scene(&scene_id)?;
-                let targets = input.targets.clone().unwrap_or_else(|| {
-                    scene.bodies.values().map(|b| b.reference.clone()).collect()
-                });
-                let mut candidates = Vec::new();
-                let mut seen = BTreeSet::new();
-                for target in targets {
-                    if target.scene_id != scene_id || !seen.insert(target.id.clone()) {
-                        return Err(CoreError::new(
-                            ErrorCode::InvalidParameter,
-                            "Cut targets must be distinct bodies in the profile's scene",
-                        ));
-                    }
-                    if let Some(result) = self.body(&target)?.shape.cut(&shape)? {
-                        affected_solids.push(target.clone());
-                        candidates.push(Body {
-                            reference: target,
-                            shape: result,
-                        });
-                    }
-                }
-                if candidates.is_empty() {
+                if !scene
+                    .features
+                    .get(&origin.feature)
+                    .is_some_and(|f| f.new_solids.contains(&body))
+                {
                     return Err(CoreError::new(
-                        ErrorCode::InvalidParameter,
-                        "Cut removes no material from its targets",
+                        ErrorCode::NotFound,
+                        "This feature did not create the selected body",
                     ));
                 }
-                candidates
+                match origin.role {
+                    FaceRole::EndCap => self.body(&body)?.shape.face_frame(0),
+                }
             }
-        };
-        let feature = ExtrudeFeature {
-            id: self.id("feature"),
-            operation: Operation::Extrude {
-                inputs: ExtrudeInputs {
-                    profile: input.profile,
-                    targets: input.targets,
-                },
-                parameters: input.parameters,
-            },
-            new_solids,
-            affected_solids,
-        };
-        let scene = self.scenes.get_mut(&scene_id).unwrap();
-        for body in bodies {
-            scene.bodies.insert(body.reference.id.clone(), body);
+            FaceRef::Selected {
+                scene_id,
+                body_id,
+                face_id,
+            } => self
+                .body(&BodyRef {
+                    scene_id: scene_id.clone(),
+                    id: body_id.clone(),
+                })?
+                .shape
+                .face_frame(*face_id),
         }
-        scene.features.insert(feature.id.clone(), feature.clone());
-        Ok(feature)
     }
 
     pub fn execute(&mut self, request: Request) -> Result<Response> {
@@ -196,26 +140,49 @@ impl Engine {
             }
             Request::SketchComplete(input) => {
                 self.sketch(&input.sketch)?;
-                let sketch = self
-                    .scenes
-                    .get_mut(&input.sketch.scene_id)
-                    .unwrap()
+                let scene = self.scenes.get_mut(&input.sketch.scene_id).unwrap();
+                let data = scene
                     .sketches
                     .get_mut(&input.sketch.id)
-                    .unwrap();
-                Ok(Response::SketchComplete(sketch.complete()?))
+                    .unwrap()
+                    .complete()?;
+                scene.timeline.push(TimelineEntry::Sketch {
+                    id: data.id.clone(),
+                });
+                Ok(Response::SketchComplete(data))
             }
+            Request::TimelineList(input) => Ok(Response::TimelineList(
+                self.scene(&input.scene_id)?.timeline.clone(),
+            )),
+            Request::RegionsAll(input) => Ok(Response::RegionsAll(
+                self.sketch(&input.sketch)?.all_regions()?,
+            )),
             Request::RegionOnly(input) => Ok(Response::RegionOnly(
                 self.sketch(&input.sketch)?.only_region()?,
             )),
-            Request::SolidExtrude(input) => Ok(Response::SolidExtrude(self.extrude(input)?)),
+            Request::SolidExtrude(input) => self
+                .execute_modeling(input.preview.unwrap_or(false), input)
+                .map(Response::SolidExtrude),
             Request::FaceOnly(input) => {
-                let face = FaceRef {
-                    scene_id: input.body.scene_id,
-                    body_id: input.body.id,
-                    origin: input.origin,
+                let face = match input {
+                    FaceQuery::Origin { body, origin } => {
+                        let face = FaceRef::Origin {
+                            scene_id: body.scene_id,
+                            body_id: body.id,
+                            origin,
+                        };
+                        self.face_frame(&face)?;
+                        face
+                    }
+                    FaceQuery::Normal { body, normal } => {
+                        let face_id = self.body(&body)?.shape.face_by_normal(normal)?;
+                        FaceRef::Selected {
+                            scene_id: body.scene_id,
+                            body_id: body.id,
+                            face_id,
+                        }
+                    }
                 };
-                self.face_frame(&face)?;
                 Ok(Response::FaceOnly(face))
             }
             Request::BodyGet(input) => {

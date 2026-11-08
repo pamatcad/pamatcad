@@ -25,6 +25,7 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
     }
     this.primitives = { add };
     this.regions = {
+      all: () => transport.request("sketch.regions.all", { sketch: this.reference }),
       only: () => transport.request("sketch.regions.only", { sketch: this.reference }),
     };
   }

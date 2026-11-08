@@ -87,6 +87,16 @@ impl Sketch {
         Ok(self.data.clone())
     }
 
+    pub fn all_regions(&self) -> Result<Vec<RegionRef>> {
+        if !self.data.completed {
+            return Err(CoreError::new(
+                ErrorCode::InvalidState,
+                "Complete the sketch before selecting regions",
+            ));
+        }
+        Ok(self.regions.iter().map(|r| r.reference.clone()).collect())
+    }
+
     pub fn only_region(&self) -> Result<RegionRef> {
         if !self.data.completed {
             return Err(CoreError::new(

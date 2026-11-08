@@ -1,4 +1,4 @@
-import type { BodyRef, FaceOrigin } from "./generated/protocol.js";
+import type { BodyRef, FaceOrigin, FaceRef } from "./generated/protocol.js";
 import type { Transport } from "./transport.js";
 
 export class Body {
@@ -9,11 +9,12 @@ export class Body {
   constructor(private readonly transport: Transport, private readonly reference: BodyRef) {
     this.id = reference.id;
     this.sceneId = reference.sceneId;
-    this.faces = {
-      query: ({ origin }: { origin: FaceOrigin }) => ({
-        only: () => transport.request("body.faces.only", { body: reference, origin }),
-      }),
-    };
+    function query(filter: { origin: FaceOrigin }): { only(): Promise<Extract<FaceRef, { origin: FaceOrigin }>> };
+    function query(filter: { normal: [number, number, number] }): { only(): Promise<Extract<FaceRef, { faceId: number }>> };
+    function query(filter: { origin: FaceOrigin } | { normal: [number, number, number] }) {
+      return { only: () => transport.request("body.faces.only", { body: reference, ...filter }) };
+    }
+    this.faces = { query };
   }
 
   properties() {

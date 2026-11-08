@@ -10,7 +10,8 @@ pub struct Scene {
     pub data: SceneData,
     pub sketches: BTreeMap<String, Sketch>,
     pub bodies: BTreeMap<String, Body>,
-    pub features: BTreeMap<String, ExtrudeFeature>,
+    pub timeline: Vec<TimelineEntry>,
+    pub features: BTreeMap<String, Feature>,
 }
 
 impl Scene {
@@ -35,6 +36,7 @@ impl Scene {
             },
             sketches: BTreeMap::new(),
             bodies: BTreeMap::new(),
+            timeline: Vec::new(),
             features: BTreeMap::new(),
         }
     }
