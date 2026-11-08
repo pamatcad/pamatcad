@@ -1,0 +1,17 @@
+[package]
+name = "pamatcad-host"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "pamatcad"
+path = "src/main.rs"
+
+[dependencies]
+pamatcad-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+clap = { version = "4", features = ["derive"] }
+

@@ -1,0 +1,22 @@
+{
+  "name": "pamatcad",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["sdk/javascript"],
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build:core": "cargo build --locked -p pamatcad-host",
+    "generate:protocol": "cargo run --locked --quiet -p pamatcad-host -- bindings --output sdk/javascript/src/generated/protocol.ts",
+    "build:sdk": "npm run generate:protocol && npm run build --workspace @pamatcad/sdk",
+    "build": "npm run build:core && npm run build:sdk",
+    "test": "npm run test:sdk",
+    "pretest:sdk": "node -e \"require('node:fs').rmSync('tests/sdk/javascript/dist', { recursive: true, force: true })\"",
+    "test:sdk": "npm run build && tsc -p tests/sdk/javascript && node --test \"tests/sdk/javascript/dist/api/**/*.js\""
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}
+

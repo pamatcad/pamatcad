@@ -1,0 +1,7 @@
+/target/
+/node_modules/
+/sdk/javascript/dist/
+/tests/sdk/javascript/dist/
+/.idea/
+.DS_Store
+
