@@ -1,6 +1,6 @@
 #include "bridge_internal.hxx"
 #include <BRepAdaptor_Surface.hxx>
-#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_BooleanOperation.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <TopExp.hxx>
@@ -47,8 +47,10 @@ static double validated_volume(const TopoDS_Shape& solid) {
     return volume(solid);
 }
 
-static void extrude_face(const TopoDS_Face& face, const double* direction, PamatShape** output) {
-    BRepPrimAPI_MakePrism prism(face, gp_Vec(direction[0], direction[1], direction[2]));
+static void extrude_face(const TopoDS_Face& face, const std::vector<TopoDS_Edge>& edges,
+                         const double* direction, PamatShape** output,
+                         bool copy_profile = false) {
+    BRepPrimAPI_MakePrism prism(face, gp_Vec(direction[0], direction[1], direction[2]), copy_profile);
     if (!prism.IsDone()) throw std::runtime_error("Could not extrude the profile");
     auto shape = std::make_unique<PamatShape>();
     shape->value = prism.Shape();
@@ -56,10 +58,36 @@ static void extrude_face(const TopoDS_Face& face, const double* direction, Pamat
     // Use the face's outward orientation in the finished solid.
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(shape->value, TopAbs_FACE, faces);
-    const int index = faces.FindIndex(prism.LastShape());
-    if (!index) throw std::runtime_error("Prism end face is missing from its solid");
-    shape->named_faces.emplace_back().Add(faces.FindKey(index));
+    const auto keep = [&](TopTools_IndexedMapOfShape& slot, const TopoDS_Shape& generated) {
+        const int index = faces.FindIndex(generated);
+        if (!index) throw std::runtime_error("Generated prism face is missing from its solid");
+        slot.Add(faces.FindKey(index));
+    };
+    keep(shape->named_faces.emplace_back(), prism.LastShape());
+    keep(shape->named_faces.emplace_back(), prism.FirstShape());
+    for (const auto& edge : edges) {
+        auto& side = shape->named_faces.emplace_back();
+        for (const auto& generated : prism.Generated(edge)) {
+            if (generated.ShapeType() == TopAbs_FACE) keep(side, generated);
+        }
+    }
     *output = shape.release();
+}
+
+extern "C" int pamat_extrude_face(const PamatShape* body, size_t face_id, const double* direction,
+                                  PamatShape** output, char* error, size_t error_size) {
+    if (output) *output = nullptr;
+    return checked([&] {
+        if (!body || !direction || !output) throw std::runtime_error("Invalid extrusion arguments");
+        const auto& faces = body->named_faces.at(face_id);
+        if (faces.Extent() != 1) throw std::runtime_error("Extrusion profile must resolve to one face");
+        const auto& face = TopoDS::Face(faces.FindKey(1));
+        TopTools_IndexedMapOfShape boundary;
+        TopExp::MapShapes(face, TopAbs_EDGE, boundary);
+        std::vector<TopoDS_Edge> edges;
+        for (const auto& edge : boundary) edges.push_back(TopoDS::Edge(edge));
+        extrude_face(face, edges, direction, output, true);
+    }, error, error_size);
 }
 
 extern "C" int pamat_extrude(const double* points, size_t count, const double* direction,
@@ -70,14 +98,17 @@ extern "C" int pamat_extrude(const double* points, size_t count, const double* d
             throw std::runtime_error("Invalid extrusion arguments");
         }
         BRepBuilderAPI_MakePolygon polygon;
+        std::vector<TopoDS_Edge> edges;
         for (size_t i = 0; i < count; ++i) {
             polygon.Add(gp_Pnt(points[3 * i], points[3 * i + 1], points[3 * i + 2]));
+            if (i > 0) edges.push_back(polygon.Edge());
         }
         polygon.Close();
         if (!polygon.IsDone()) throw std::runtime_error("Could not construct the profile wire");
+        edges.push_back(polygon.Edge());
         BRepBuilderAPI_MakeFace face(polygon.Wire(), true);
         if (!face.IsDone()) throw std::runtime_error("Could not construct the profile face");
-        extrude_face(face.Face(), direction, output);
+        extrude_face(face.Face(), edges, direction, output);
     }, error, error_size);
 }
 
@@ -91,7 +122,7 @@ extern "C" int pamat_extrude_circle(const double* center, double radius, const d
         BRepBuilderAPI_MakeWire wire(edge.Edge());
         BRepBuilderAPI_MakeFace face(wire.Wire(), true);
         if (!face.IsDone()) throw std::runtime_error("Could not construct the circular profile");
-        extrude_face(face.Face(), direction, output);
+        extrude_face(face.Face(), {edge.Edge()}, direction, output);
     }, error, error_size);
 }
 
@@ -103,6 +134,45 @@ static gp_Dir outward_normal(const TopoDS_Face& face, const gp_Pln& plane) {
 
 extern "C" size_t pamat_face_count(const PamatShape* shape, size_t face_id) {
     return face_id < shape->named_faces.size() ? shape->named_faces[face_id].Extent() : 0;
+}
+
+extern "C" size_t pamat_face_slots(const PamatShape* shape) {
+    return shape->named_faces.size();
+}
+
+extern "C" int pamat_face_ids(PamatShape* shape, size_t first, size_t count,
+                              void (*sink)(void*, size_t), void* context,
+                              char* error, size_t error_size) {
+    return checked([&] {
+        TopTools_IndexedMapOfShape faces;
+        const size_t unassigned = shape->named_faces.size();
+        // SIZE_MAX requests the whole body. Otherwise collect the current descendants
+        // of the requested slots, including split faces and excluding deleted ones.
+        if (count == std::numeric_limits<size_t>::max()) {
+            TopExp::MapShapes(shape->value, TopAbs_FACE, faces);
+        } else {
+            if (first > unassigned || count > unassigned - first)
+                throw std::runtime_error("Invalid face slot range");
+            for (size_t i = first; i < first + count; ++i) {
+                for (const auto& face : shape->named_faces[i]) faces.Add(face);
+            }
+        }
+        std::vector<size_t> ids(faces.Extent() + 1, unassigned);
+        for (size_t id = 0; id < unassigned; ++id) {
+            const auto& descendants = shape->named_faces[id];
+            if (descendants.Extent() == 1) {
+                const int index = faces.FindIndex(descendants.FindKey(1));
+                if (index && ids[index] == unassigned) ids[index] = id;
+            }
+        }
+        for (int index = 1; index <= faces.Extent(); ++index) {
+            if (ids[index] == unassigned) {
+                ids[index] = shape->named_faces.size();
+                shape->named_faces.emplace_back().Add(faces.FindKey(index));
+            }
+            sink(context, ids[index]);
+        }
+    }, error, error_size);
 }
 
 extern "C" int pamat_face_by_normal(PamatShape* shape, const double* direction, size_t* count,
@@ -157,46 +227,66 @@ extern "C" int pamat_face_frame(const PamatShape* shape, size_t face_id, double*
     }, error, error_size);
 }
 
-extern "C" int pamat_cut(const PamatShape* body, const PamatShape* tool, PamatShape** output,
-                         char* error, size_t error_size) {
+static int boolean_solid(BOPAlgo_Operation operation, const PamatShape* body, const PamatShape* tool,
+                         PamatShape** output, char* error, size_t error_size) {
     if (output) *output = nullptr;
     return checked([&] {
-        if (!body || !tool || !output) throw std::runtime_error("Invalid cut arguments");
-        BRepAlgoAPI_Cut cut;
+        if (!body || !tool || !output) throw std::runtime_error("Invalid boolean arguments");
+        const bool join = operation == BOPAlgo_FUSE;
+        BRepAlgoAPI_BooleanOperation builder;
+        builder.SetOperation(operation);
         NCollection_List<TopoDS_Shape> arguments, tools;
         arguments.Append(body->value);
         tools.Append(tool->value);
-        cut.SetArguments(arguments);
-        cut.SetTools(tools);
-        cut.SetNonDestructive(true);
-        cut.Build();
-        if (!cut.IsDone() || cut.HasErrors()) throw std::runtime_error("Boolean cut failed");
-        TopExp_Explorer solids(cut.Shape(), TopAbs_SOLID);
-        if (!solids.More()) throw std::runtime_error("Cut would remove the entire body");
+        builder.SetArguments(arguments);
+        builder.SetTools(tools);
+        builder.SetNonDestructive(true);
+        builder.Build();
+        if (!builder.IsDone() || builder.HasErrors()) throw std::runtime_error(join ? "Boolean join failed" : "Boolean cut failed");
+        if (join) builder.SimplifyResult();
+        TopExp_Explorer solids(builder.Shape(), TopAbs_SOLID);
+        if (!solids.More()) throw std::runtime_error(join ? "Join produced no solid" : "Cut would remove the entire body");
         auto result = std::make_unique<PamatShape>();
         result->value = solids.Current();
         solids.Next();
-        if (solids.More()) throw std::runtime_error("Cuts that split the target are not supported");
+        if (solids.More()) {
+            if (join) return; // The tool does not form one solid with this target.
+            throw std::runtime_error("Cuts that split the target are not supported");
+        }
         const double before = volume(body->value);
         const double after = validated_volume(result->value);
-        if (before - after <= 8 * std::numeric_limits<double>::epsilon() * before) return;
+        const double change = join ? after - before : before - after;
+        if (change <= 8 * std::numeric_limits<double>::epsilon() * before) return;
         TopTools_IndexedMapOfShape faces;
         TopExp::MapShapes(result->value, TopAbs_FACE, faces);
-        for (const auto& previous : body->named_faces) {
-            auto& updated = result->named_faces.emplace_back();
-            const auto keep_face = [&](const TopoDS_Shape& candidate) {
-                const int index = faces.FindIndex(candidate);
-                if (index) updated.Add(faces.FindKey(index));
-            };
-            for (int i = 1; i <= previous.Extent(); ++i) {
-                const auto& source = previous.FindKey(i);
-                const auto& descendants = cut.Modified(source);
-                if (descendants.IsEmpty() && !cut.IsDeleted(source)) keep_face(source);
-                for (const auto& face : descendants) keep_face(face);
+        // Preserve target slots and append the tool slots at a known offset.
+        for (const PamatShape* input : {body, tool}) {
+            for (const auto& previous : input->named_faces) {
+                auto& updated = result->named_faces.emplace_back();
+                const auto keep_face = [&](const TopoDS_Shape& candidate) {
+                    const int index = faces.FindIndex(candidate);
+                    if (index) updated.Add(faces.FindKey(index));
+                };
+                for (int i = 1; i <= previous.Extent(); ++i) {
+                    const auto& source = previous.FindKey(i);
+                    const auto& descendants = builder.Modified(source);
+                    if (descendants.IsEmpty() && !builder.IsDeleted(source)) keep_face(source);
+                    for (const auto& face : descendants) keep_face(face);
+                }
             }
         }
         *output = result.release();
     }, error, error_size);
+}
+
+extern "C" int pamat_cut(const PamatShape* body, const PamatShape* tool, PamatShape** output,
+                         char* error, size_t error_size) {
+    return boolean_solid(BOPAlgo_CUT, body, tool, output, error, error_size);
+}
+
+extern "C" int pamat_join(const PamatShape* body, const PamatShape* tool, PamatShape** output,
+                          char* error, size_t error_size) {
+    return boolean_solid(BOPAlgo_FUSE, body, tool, output, error, error_size);
 }
 
 extern "C" int pamat_volume(const PamatShape* shape, double* output, char* error, size_t error_size) {

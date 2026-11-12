@@ -9,7 +9,8 @@
 
 struct PamatShape {
     TopoDS_Shape value;
-    // Slot zero belongs to the prism end cap. Further slots retain faces selected by a client.
+    // A prism starts with end cap, start cap, then one slot per source edge.
+    // Slots keep their positions as booleans update the surviving descendants.
     std::vector<TopTools_IndexedMapOfShape> named_faces;
 };
 

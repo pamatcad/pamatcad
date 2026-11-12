@@ -14,7 +14,7 @@ export class Body {
     function query(filter: { origin: FaceOrigin } | { normal: [number, number, number] }) {
       return { only: () => transport.request("body.faces.only", { body: reference, ...filter }) };
     }
-    this.faces = { query };
+    this.faces = { query, all: () => transport.request("body.faces.all", { body: reference }) };
   }
 
   properties() {

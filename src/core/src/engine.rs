@@ -43,43 +43,8 @@ impl Engine {
     }
 
     fn face_frame(&self, face: &FaceRef) -> Result<Frame> {
-        match face {
-            FaceRef::Origin {
-                scene_id,
-                body_id,
-                origin,
-            } => {
-                let scene = self.scene(scene_id)?;
-                let body = BodyRef {
-                    scene_id: scene_id.clone(),
-                    id: body_id.clone(),
-                };
-                if !scene
-                    .features
-                    .get(&origin.feature)
-                    .is_some_and(|f| f.new_solids.contains(&body))
-                {
-                    return Err(CoreError::new(
-                        ErrorCode::NotFound,
-                        "This feature did not create the selected body",
-                    ));
-                }
-                match origin.role {
-                    FaceRole::EndCap => self.body(&body)?.shape.face_frame(0),
-                }
-            }
-            FaceRef::Selected {
-                scene_id,
-                body_id,
-                face_id,
-            } => self
-                .body(&BodyRef {
-                    scene_id: scene_id.clone(),
-                    id: body_id.clone(),
-                })?
-                .shape
-                .face_frame(*face_id),
-        }
+        let (body, slot) = self.scene(face.scene_id())?.resolve_face(face)?;
+        body.shape.face_frame(slot)
     }
 
     pub fn execute(&mut self, request: Request) -> Result<Response> {
@@ -170,6 +135,45 @@ impl Engine {
             Request::SolidExtrude(input) => self
                 .execute_modeling(input.preview.unwrap_or(false), input)
                 .map(Response::SolidExtrude),
+            Request::BodiesAll(input) => Ok(Response::BodiesAll(
+                self.scene(&input.scene_id)?
+                    .bodies
+                    .values()
+                    .map(|body| body.reference.clone())
+                    .collect(),
+            )),
+            Request::ExtrudeFacesAll(input) => Ok(Response::ExtrudeFacesAll(
+                self.scene(input.profile.scene_id())?
+                    .extrude_faces_for(&input)?,
+            )),
+            Request::ExtrudeFaceOnly(input) => {
+                let matches = self
+                    .scene(input.profile.scene_id())?
+                    .extrude_faces_for(&input)?;
+                match matches.as_slice() {
+                    [face] => Ok(Response::ExtrudeFaceOnly(face.clone())),
+                    [] => Err(CoreError::new(
+                        ErrorCode::NotFound,
+                        "No surviving face matches this extrusion selector",
+                    )),
+                    _ => Err(CoreError::new(
+                        ErrorCode::AmbiguousFace,
+                        "Multiple faces match this extrusion selector",
+                    )),
+                }
+            }
+            Request::FacesAll(input) => {
+                let ids = self.body(&input.body)?.shape.face_ids(None)?;
+                Ok(Response::FacesAll(
+                    ids.into_iter()
+                        .map(|face_id| FaceRef::Selected {
+                            scene_id: input.body.scene_id.clone(),
+                            body_id: input.body.id.clone(),
+                            face_id,
+                        })
+                        .collect(),
+                ))
+            }
             Request::FaceOnly(input) => {
                 let face = match input {
                     FaceQuery::Origin { body, origin } => {

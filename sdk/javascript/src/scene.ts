@@ -32,6 +32,7 @@ export class Scene {
       },
     };
     this.bodies = {
+      all: () => transport.request("scene.bodies.all", { sceneId: this.id }),
       get: async (id: string): Promise<Body> => new Body(transport,
         await transport.request("body.get", { body: { sceneId: this.id, id } })),
     };

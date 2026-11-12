@@ -24,27 +24,29 @@ Goal: basic CAD operations
 - feature and body patterns
 - fillets and chamfers
 - body split
+- STL export
 
-## M3 - UI
-
-Goal: it is live and interactable
-
-- desktop UI
-- browser UI
-
-## M2 - branching timeline
+## M3 - branching timeline
 
 Goal: establish branching timelines early
 
 - branching timeline, switching between branches
 - timeline recalculation, timeline dependencies, cached geometry and error states
 
+
+## M2 - UI
+
+Goal: it is live and interactable
+
+- desktop UI
+- browser UI
+
 ## M1 - it works!!!
 
 Goal: just make it work
 
 - headless code, geometry and sketch kernel abstraction, basic editing and test suite
-- STEP and STL file export
+- STEP export and scene capture
 - basic timeline operations & parameters
 - unconstrained sketches, extrusions, revolve, and boolean operations
 

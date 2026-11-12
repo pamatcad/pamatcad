@@ -41,6 +41,13 @@ impl Frame {
     pub fn point(self, [u, v]: [f64; 2]) -> [f64; 3] {
         std::array::from_fn(|i| self.origin[i] + u * self.u[i] + v * self.v[i])
     }
+
+    pub(crate) fn coplanar_with(self, other: Self) -> bool {
+        let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let delta = std::array::from_fn(|i| other.origin[i] - self.origin[i]);
+        dot(other.normal, self.u).hypot(dot(other.normal, self.v)) <= 1e-12
+            && dot(delta, self.normal).abs() <= LINEAR_TOLERANCE
+    }
 }
 
 pub struct Sketch {

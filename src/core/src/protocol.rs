@@ -61,7 +61,7 @@ pub struct FaceOrigin {
     pub role: FaceRole,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
 pub enum FaceRef {
     Origin {
@@ -76,6 +76,14 @@ pub enum FaceRef {
     },
 }
 
+impl FaceRef {
+    pub(crate) fn scene_id(&self) -> &str {
+        match self {
+            Self::Origin { scene_id, .. } | Self::Selected { scene_id, .. } => scene_id,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(untagged)]
 pub enum SketchSupport {
@@ -87,9 +95,7 @@ impl SketchSupport {
     pub fn scene_id(&self) -> &str {
         match self {
             Self::Plane(p) => &p.scene_id,
-            Self::Face(FaceRef::Origin { scene_id, .. } | FaceRef::Selected { scene_id, .. }) => {
-                scene_id
-            }
+            Self::Face(face) => face.scene_id(),
         }
     }
 }
@@ -176,6 +182,7 @@ pub enum Primitive {
 pub enum ExtrudeMode {
     NewBody,
     Cut,
+    Join,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -192,6 +199,43 @@ pub struct ExtrudeParameters {
 pub enum Profiles {
     Single(RegionRef),
     Multiple(Vec<RegionRef>),
+    Face(FaceRef),
+    Faces(Vec<FaceRef>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum ProfileRef {
+    Region(RegionRef),
+    Face(FaceRef),
+}
+
+impl ProfileRef {
+    pub(crate) fn scene_id(&self) -> &str {
+        match self {
+            Self::Region(r) => &r.scene_id,
+            Self::Face(f) => f.scene_id(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(tag = "role", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ExtrudeFaceSelector {
+    StartCap,
+    EndCap,
+    SideFaces {
+        #[ts(optional)]
+        edge: Option<LineRef>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExtrudeFaceQuery {
+    pub feature: String,
+    pub profile: ProfileRef,
+    pub selector: ExtrudeFaceSelector,
 }
 
 impl Profiles {
@@ -199,6 +243,7 @@ impl Profiles {
         match self {
             Self::Single(region) => std::slice::from_ref(region),
             Self::Multiple(regions) => regions,
+            Self::Face(_) | Self::Faces(_) => &[],
         }
     }
 }
@@ -438,8 +483,12 @@ api! {
     RegionsAll(SketchQuery) -> Vec<RegionRef> = "sketch.regions.all",
     TimelineList(SceneQuery) -> Vec<TimelineEntry> = "scene.timeline.list",
     SolidExtrude(Extrude) -> ExtrudeResult = "solid.extrude",
+    ExtrudeFacesAll(ExtrudeFaceQuery) -> Vec<FaceRef> = "solid.extrude.faces.all",
+    ExtrudeFaceOnly(ExtrudeFaceQuery) -> FaceRef = "solid.extrude.faces.only",
+    BodiesAll(SceneQuery) -> Vec<BodyRef> = "scene.bodies.all",
     BodyGet(BodyQuery) -> BodyRef = "body.get",
     FaceOnly(FaceQuery) -> FaceRef = "body.faces.only",
+    FacesAll(BodyQuery) -> Vec<FaceRef> = "body.faces.all",
     BodyProperties(BodyQuery) -> BodyProperties = "body.properties",
 }
 
@@ -470,6 +519,9 @@ pub fn typescript() -> String {
         ExtrudeMode::decl(),
         ExtrudeParameters::decl(),
         Profiles::decl(),
+        ProfileRef::decl(),
+        ExtrudeFaceSelector::decl(),
+        ExtrudeFaceQuery::decl(),
         ExtrudeInputs::decl(),
         Operation::decl(),
         Feature::decl(),

@@ -39,8 +39,8 @@ TK
 - Cube extrusion: extrude a 10 × 10 mm rectangle by 15 mm. Expect one new solid with a volume of 1500 mm³.
 - Cube with hole: extrude a 10 × 10 mm rectangle by 10 mm. Sketch a centered circle of diameter 8 mm on the top face. Cut by −5 mm. Expect volume (1000 − 80π) mm³, an empty `newSolids` array, and the original cube as the sole member of `affectedSolids`.
 - Multiple profiles, cut with skips: on XY, draw three 10 × 10 mm squares centered at X = −20, 0, and 20 mm, Y = 0. Extrude all three regions by 10 mm in one command. Expect two timeline entries and three cubes. On the left cube’s outward −X face, sketch a centered circle of diameter 5 mm. Preview a −50 mm cut: expect three affected bodies, three timeline entries, and all three committed volumes still 1000 mm³. From the preview results, target only the two outer cubes and commit the cut. Expect four timeline entries, no new solids, both outer volumes (1000 − 62.5π) mm³, and the middle volume 1000 mm³.
-- Face extrusion + join extrusion: extrude a 10x10mm rectangle by 10mm, verify 2 items in timeline, volume 1000. Pick top face, extrude by 5 more (join mode), volume 1500, 3 items on timeline, 1 body.
-- Smaller cube on each face: make a 10x10x10 cube (sketch + extrude), then create a sketch on each face (demo face enumeration)m and extrude a 2x2x2 cube on each. Verify 14 items in timeline and resulting volume and one output body.
+- Face extrusion + join extrusion: extrude a 10 × 10 mm rectangle by 10 mm. Expect two timeline entries and a volume of 1000 mm³. Extrude the top face by 5 mm in join mode. Expect three timeline entries and one body with a volume of 1500 mm³.
+- Smaller cube on each face: sketch and extrude a 10 mm cube. Enumerate its six faces. On each original face, sketch a centered 2 × 2 mm square and extrude it outward by 2 mm in join mode. Expect 14 timeline entries and one body with a volume of 1048 mm³.
 
 TK: face extrude, join extrude, diff extrude, offset, offset from, to object, through all
 

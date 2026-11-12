@@ -86,11 +86,22 @@ impl Engine {
             affected_solids,
         };
         let scene = self.scenes.get_mut(&scene_id).unwrap();
-        for body in bodies {
+        let mut faces_by_body = std::collections::BTreeMap::new();
+        for mut body in bodies {
+            faces_by_body.insert(
+                body.reference.id.clone(),
+                std::mem::take(&mut body.shape.profile_slots),
+            );
             scene.bodies.insert(body.reference.id.clone(), body);
         }
         scene.timeline.push(feature.timeline_entry());
-        scene.features.insert(feature.id.clone(), feature.clone());
+        scene.features.insert(
+            feature.id.clone(),
+            crate::model::StoredFeature {
+                data: feature.clone(),
+                faces_by_body,
+            },
+        );
         feature
     }
 }

@@ -9,9 +9,16 @@ int pamat_extrude(const double* points, size_t count, const double* direction,
                   PamatShape** output, char* error, size_t error_size);
 int pamat_extrude_circle(const double* center, double radius, const double* normal,
                          const double* direction, PamatShape** output, char* error, size_t error_size);
+int pamat_extrude_face(const PamatShape* body, size_t face_id, const double* direction,
+                       PamatShape** output, char* error, size_t error_size);
 int pamat_cut(const PamatShape* body, const PamatShape* tool,
               PamatShape** output, char* error, size_t error_size);
+int pamat_join(const PamatShape* body, const PamatShape* tool,
+               PamatShape** output, char* error, size_t error_size);
 size_t pamat_face_count(const PamatShape* shape, size_t face_id);
+size_t pamat_face_slots(const PamatShape* shape);
+int pamat_face_ids(PamatShape* shape, size_t first, size_t count, void (*sink)(void*, size_t), void* context,
+                   char* error, size_t error_size);
 int pamat_face_frame(const PamatShape* shape, size_t face_id, double* frame, char* error, size_t error_size);
 int pamat_face_by_normal(PamatShape* shape, const double* normal, size_t* count, size_t* face_id,
                          char* error, size_t error_size);
