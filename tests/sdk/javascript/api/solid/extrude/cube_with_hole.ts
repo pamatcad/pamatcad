@@ -3,8 +3,7 @@ import { test } from "node:test";
 import { startCore } from "../../../support/core.js";
 
 test("cut an 8 mm blind hole 5 mm into the end face of a 10 mm cube", { timeout: 30_000 }, async (t) => {
-  const { core } = await startCore(t);
-  const scene = await core.scene.create("cube-with-hole");
+  const { core, scene } = await startCore(t, "cube-with-hole");
   const base = await scene.sketches.create(scene.construction.builtin.planes.xy);
   await base.primitives.add("rectangle", { from: [0, 0], to: [10, 10] });
   await base.complete();

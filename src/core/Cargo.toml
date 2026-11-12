@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+base64 = "0.22.1"
+jpeg-encoder = "0.6.1"
 serde.workspace = true
 serde_json.workspace = true
 # Rust still enforces deny_unknown_fields; TypeScript has no matching runtime flag.

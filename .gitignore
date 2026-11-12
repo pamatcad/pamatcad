@@ -4,4 +4,4 @@
 /tests/sdk/javascript/dist/
 /.idea/
 .DS_Store
-
+/reports/tests/

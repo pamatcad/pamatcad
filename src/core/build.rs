@@ -19,7 +19,19 @@ fn main() {
     println!("cargo:rustc-link-search=native={}/lib", install.display());
     for library in [
         "pamatcad_occt",
+        "TKDESTEP",
+        "TKDE",
+        "TKXCAF",
+        "TKXSBase",
+        "TKVCAF",
+        "TKCAF",
+        "TKV3d",
         "TKBO",
+        "TKHLR",
+        "TKLCAF",
+        "TKMesh",
+        "TKService",
+        "TKCDF",
         "TKShHealing",
         "TKPrim",
         "TKTopAlgo",
@@ -36,10 +48,12 @@ fn main() {
     let target = env::var("TARGET").unwrap();
     if target.contains("apple") {
         println!("cargo:rustc-link-lib=c++");
+        println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=IOKit");
     } else if target.contains("linux") {
         println!("cargo:rustc-link-lib=stdc++");
     } else if target.contains("windows") {
-        for library in ["user32", "advapi32", "psapi"] {
+        for library in ["user32", "advapi32", "psapi", "gdi32", "winmm", "wsock32"] {
             println!("cargo:rustc-link-lib={library}");
         }
     }

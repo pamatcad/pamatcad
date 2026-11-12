@@ -1,3 +1,4 @@
+mod capture;
 mod engine;
 mod kernel;
 mod model;

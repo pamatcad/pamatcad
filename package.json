@@ -10,9 +10,9 @@
     "generate:protocol": "cargo run --locked --quiet -p pamatcad-host -- bindings --output sdk/javascript/src/generated/protocol.ts",
     "build:sdk": "npm run generate:protocol && npm run build --workspace @pamatcad/sdk",
     "build": "npm run build:core && npm run build:sdk",
-    "test": "npm run test:sdk",
+    "test": "npm run test:sdk --",
     "pretest:sdk": "node -e \"require('node:fs').rmSync('tests/sdk/javascript/dist', { recursive: true, force: true })\"",
-    "test:sdk": "npm run build && tsc -p tests/sdk/javascript && node --test \"tests/sdk/javascript/dist/api/**/*.js\""
+    "test:sdk": "npm run build && tsc -p tests/sdk/javascript && node tests/sdk/javascript/run.mjs"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

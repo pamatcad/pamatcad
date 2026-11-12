@@ -46,6 +46,21 @@ extern "C" {
         error: *mut c_char,
         error_size: usize,
     ) -> i32;
+    fn pamat_write_step(
+        shapes: *const *const c_void,
+        count: usize,
+        sink: extern "C" fn(*mut c_void, *const u8, usize),
+        context: *mut c_void,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+    fn pamat_mesh(
+        shape: *const c_void,
+        sink: extern "C" fn(*mut c_void, *const f64),
+        context: *mut c_void,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
     fn pamat_volume(
         shape: *const c_void,
         output: *mut f64,
@@ -201,6 +216,54 @@ impl Shape {
             v,
             normal,
         })
+    }
+
+    pub fn write_step(shapes: &[&Shape]) -> Result<Vec<u8>> {
+        extern "C" fn append(context: *mut c_void, data: *const u8, len: usize) {
+            // Both pointers are valid for this synchronous call; the writer owns the byte slice.
+            unsafe {
+                (*context.cast::<Vec<u8>>())
+                    .extend_from_slice(std::slice::from_raw_parts(data, len))
+            }
+        }
+        let handles: Vec<_> = shapes.iter().map(|s| s.0.as_ptr().cast_const()).collect();
+        let mut bytes = Vec::new();
+        let mut error = [0; 1024];
+        let status = unsafe {
+            pamat_write_step(
+                handles.as_ptr(),
+                handles.len(),
+                append,
+                (&mut bytes as *mut Vec<u8>).cast(),
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        if status != 0 {
+            return Err(failure(&error));
+        }
+        Ok(bytes)
+    }
+
+    pub fn mesh(&self, triangles: &mut Vec<[[f64; 3]; 3]>) -> Result<()> {
+        extern "C" fn append(context: *mut c_void, xyz: *const f64) {
+            // The mesher supplies nine consecutive world-space coordinates per triangle.
+            unsafe { (*context.cast::<Vec<[[f64; 3]; 3]>>()).push(*xyz.cast::<[[f64; 3]; 3]>()) }
+        }
+        let mut error = [0; 1024];
+        let status = unsafe {
+            pamat_mesh(
+                self.0.as_ptr(),
+                append,
+                (triangles as *mut Vec<[[f64; 3]; 3]>).cast(),
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        if status != 0 {
+            return Err(failure(&error));
+        }
+        Ok(())
     }
 
     pub fn volume(&self) -> Result<f64> {

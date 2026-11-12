@@ -3,8 +3,7 @@ import { test } from "node:test";
 import { startCore } from "../../../support/core.js";
 
 test("extrude a 10 × 10 rectangle by 15", { timeout: 30_000 }, async (t) => {
-  const { core } = await startCore(t);
-  const scene = await core.scene.create("test-scene-1");
+  const { core, scene } = await startCore(t, "test-scene-1");
   const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
 
   await sketch.primitives.add("rectangle", { from: [0, 0], to: [10, 10] });

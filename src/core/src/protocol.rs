@@ -340,6 +340,78 @@ pub enum FaceQuery {
     Normal { body: BodyRef, normal: [f64; 3] },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ShapeFormat {
+    Step,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageFormat {
+    Jpeg,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum Projection {
+    Orthographic,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum CameraFit {
+    Bounds,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CameraOptions {
+    #[ts(optional)]
+    pub projection: Option<Projection>,
+    #[ts(optional)]
+    pub from_direction: Option<[f64; 3]>,
+    #[ts(optional)]
+    pub target: Option<[f64; 3]>,
+    #[ts(optional)]
+    pub up: Option<[f64; 3]>,
+    #[ts(optional)]
+    pub fit: Option<CameraFit>,
+    #[ts(optional)]
+    pub padding_px: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportScene {
+    pub scene_id: String,
+    pub format: ShapeFormat,
+    #[ts(optional)]
+    pub bodies: Option<Vec<BodyRef>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CaptureScene {
+    pub scene_id: String,
+    pub format: ImageFormat,
+    #[ts(optional)]
+    pub bodies: Option<Vec<BodyRef>>,
+    #[ts(optional)]
+    pub width: Option<u32>,
+    #[ts(optional)]
+    pub height: Option<u32>,
+    #[ts(optional)]
+    pub camera: Option<CameraOptions>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EncodedFile {
+    pub media_type: String,
+    pub base64: String,
+}
+
 // Each entry defines the request and response types for the same method.
 macro_rules! api {
     ($($variant:ident($input:ty) -> $output:ty = $method:literal),+ $(,)?) => {
@@ -357,6 +429,8 @@ macro_rules! api {
 
 api! {
     SceneCreate(CreateScene) -> SceneData = "scene.create",
+    SceneExport(ExportScene) -> EncodedFile = "scene.export",
+    SceneCapture(CaptureScene) -> EncodedFile = "scene.capture",
     SketchCreate(CreateSketch) -> SketchData = "sketch.create",
     PrimitiveAdd(AddPrimitive) -> PrimitiveData = "sketch.primitives.add",
     SketchComplete(SketchQuery) -> SketchData = "sketch.complete",
@@ -406,6 +480,14 @@ pub fn typescript() -> String {
         VolumeUnit::decl(),
         Volume::decl(),
         BodyProperties::decl(),
+        ShapeFormat::decl(),
+        ImageFormat::decl(),
+        Projection::decl(),
+        CameraFit::decl(),
+        CameraOptions::decl(),
+        ExportScene::decl(),
+        CaptureScene::decl(),
+        EncodedFile::decl(),
         CreateScene::decl(),
         CreateSketch::decl(),
         AddPrimitive::decl(),

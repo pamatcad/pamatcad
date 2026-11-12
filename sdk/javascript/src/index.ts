@@ -1,4 +1,5 @@
 export { Core } from "./client.js";
+export type { CaptureOptions, ExportOptions, SceneFile } from "./scene.js";
 export { Scene } from "./scene.js";
 export { Sketch } from "./sketch.js";
 export { Body } from "./solid.js";

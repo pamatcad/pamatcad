@@ -84,6 +84,13 @@ impl Engine {
 
     pub fn execute(&mut self, request: Request) -> Result<Response> {
         match request {
+            Request::SceneExport(input) => Ok(Response::SceneExport(
+                self.scene(&input.scene_id)?
+                    .export_step(input.bodies.as_deref())?,
+            )),
+            Request::SceneCapture(input) => Ok(Response::SceneCapture(
+                self.scene(&input.scene_id)?.capture(&input)?,
+            )),
             Request::SceneCreate(input) => {
                 let scene = Scene::new(self.id("scene"), input.name);
                 let data = scene.data.clone();

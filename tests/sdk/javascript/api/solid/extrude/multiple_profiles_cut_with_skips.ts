@@ -3,8 +3,7 @@ import { test } from "node:test";
 import { startCore } from "../../../support/core.js";
 
 test("preview a cut through three cubes and commit it only to the outer two", { timeout: 30_000 }, async (t) => {
-  const { core } = await startCore(t);
-  const scene = await core.scene.create("cut-with-skips");
+  const { core, scene } = await startCore(t, "cut-with-skips");
   const base = await scene.sketches.create(scene.construction.builtin.planes.xy);
   for (const x of [-20, 0, 20]) {
     await base.primitives.add("rectangle", { from: [x - 5, -5], to: [x + 5, 5] });

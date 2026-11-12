@@ -2,9 +2,10 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import type { TestContext } from "node:test";
-import { Core } from "@pamatcad/sdk";
+import { captureReportScene } from "./report.js";
+import { Core, type Scene } from "@pamatcad/sdk";
 
-export async function startCore(t: TestContext): Promise<{ core: Core }> {
+export async function startCore(t: TestContext, sceneName: string): Promise<{ core: Core; scene: Scene }> {
   const executable = resolve("target/debug", process.platform === "win32" ? "pamatcad.exe" : "pamatcad");
   const child = spawn(executable, ["serve", "--transport", "ws", "--listen", "127.0.0.1:0"], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -14,16 +15,24 @@ export async function startCore(t: TestContext): Promise<{ core: Core }> {
   child.stderr.on("data", (text: string) => { diagnostics = (diagnostics + text).slice(-16_384); });
   const lines = createInterface({ input: child.stdout });
   let core: Core | undefined;
+  let scene: Scene | undefined;
 
   t.after(async () => {
-    core?.close();
-    lines.close();
-    if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
-    await new Promise<void>((resolve) => {
-      const force = setTimeout(() => { child.kill("SIGKILL"); }, 2_000);
-      child.once("exit", () => { clearTimeout(force); resolve(); });
-      child.kill("SIGTERM");
-    });
+    try {
+      if (scene && process.env.PAMATCAD_TEST_REPORT_DIR) {
+        await captureReportScene(t, scene, process.env.PAMATCAD_TEST_REPORT_DIR);
+      }
+    } finally {
+      core?.close();
+      lines.close();
+      if (child.pid && child.exitCode === null && child.signalCode === null) {
+        await new Promise<void>((resolve) => {
+          const force = setTimeout(() => child.kill("SIGKILL"), 2_000);
+          child.once("exit", () => { clearTimeout(force); resolve(); });
+          child.kill("SIGTERM");
+        });
+      }
+    }
   });
 
   const url = await new Promise<string>((resolve, reject) => {
@@ -51,6 +60,7 @@ export async function startCore(t: TestContext): Promise<{ core: Core }> {
     child.once("exit", onExit);
   });
   core = await Core.connect(url);
-  return { core };
+  scene = await core.scene.create(sceneName);
+  return { core, scene };
 }
 
