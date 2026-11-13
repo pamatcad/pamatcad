@@ -1,6 +1,5 @@
 #include "bridge_internal.hxx"
 #include <BRepAdaptor_Surface.hxx>
-#include <BRepAlgoAPI_BooleanOperation.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <TopExp.hxx>
@@ -39,7 +38,7 @@ static double volume(const TopoDS_Shape& shape) {
     return value;
 }
 
-static double validated_volume(const TopoDS_Shape& solid) {
+double validated_volume(const TopoDS_Shape& solid) {
     if (solid.IsNull() || solid.ShapeType() != TopAbs_SOLID ||
         !BRepCheck_Analyzer(solid, true).IsValid()) {
         throw std::runtime_error("Operation did not produce a valid solid");
@@ -225,68 +224,6 @@ extern "C" int pamat_face_frame(const PamatShape* shape, size_t face_id, double*
             frame[3 * i + 2] = vectors[i].Z();
         }
     }, error, error_size);
-}
-
-static int boolean_solid(BOPAlgo_Operation operation, const PamatShape* body, const PamatShape* tool,
-                         PamatShape** output, char* error, size_t error_size) {
-    if (output) *output = nullptr;
-    return checked([&] {
-        if (!body || !tool || !output) throw std::runtime_error("Invalid boolean arguments");
-        const bool join = operation == BOPAlgo_FUSE;
-        BRepAlgoAPI_BooleanOperation builder;
-        builder.SetOperation(operation);
-        NCollection_List<TopoDS_Shape> arguments, tools;
-        arguments.Append(body->value);
-        tools.Append(tool->value);
-        builder.SetArguments(arguments);
-        builder.SetTools(tools);
-        builder.SetNonDestructive(true);
-        builder.Build();
-        if (!builder.IsDone() || builder.HasErrors()) throw std::runtime_error(join ? "Boolean join failed" : "Boolean cut failed");
-        if (join) builder.SimplifyResult();
-        TopExp_Explorer solids(builder.Shape(), TopAbs_SOLID);
-        if (!solids.More()) throw std::runtime_error(join ? "Join produced no solid" : "Cut would remove the entire body");
-        auto result = std::make_unique<PamatShape>();
-        result->value = solids.Current();
-        solids.Next();
-        if (solids.More()) {
-            if (join) return; // The tool does not form one solid with this target.
-            throw std::runtime_error("Cuts that split the target are not supported");
-        }
-        const double before = volume(body->value);
-        const double after = validated_volume(result->value);
-        const double change = join ? after - before : before - after;
-        if (change <= 8 * std::numeric_limits<double>::epsilon() * before) return;
-        TopTools_IndexedMapOfShape faces;
-        TopExp::MapShapes(result->value, TopAbs_FACE, faces);
-        // Preserve target slots and append the tool slots at a known offset.
-        for (const PamatShape* input : {body, tool}) {
-            for (const auto& previous : input->named_faces) {
-                auto& updated = result->named_faces.emplace_back();
-                const auto keep_face = [&](const TopoDS_Shape& candidate) {
-                    const int index = faces.FindIndex(candidate);
-                    if (index) updated.Add(faces.FindKey(index));
-                };
-                for (int i = 1; i <= previous.Extent(); ++i) {
-                    const auto& source = previous.FindKey(i);
-                    const auto& descendants = builder.Modified(source);
-                    if (descendants.IsEmpty() && !builder.IsDeleted(source)) keep_face(source);
-                    for (const auto& face : descendants) keep_face(face);
-                }
-            }
-        }
-        *output = result.release();
-    }, error, error_size);
-}
-
-extern "C" int pamat_cut(const PamatShape* body, const PamatShape* tool, PamatShape** output,
-                         char* error, size_t error_size) {
-    return boolean_solid(BOPAlgo_CUT, body, tool, output, error, error_size);
-}
-
-extern "C" int pamat_join(const PamatShape* body, const PamatShape* tool, PamatShape** output,
-                          char* error, size_t error_size) {
-    return boolean_solid(BOPAlgo_FUSE, body, tool, output, error, error_size);
 }
 
 extern "C" int pamat_volume(const PamatShape* shape, double* output, char* error, size_t error_size) {

@@ -11,10 +11,24 @@ int pamat_extrude_circle(const double* center, double radius, const double* norm
                          const double* direction, PamatShape** output, char* error, size_t error_size);
 int pamat_extrude_face(const PamatShape* body, size_t face_id, const double* direction,
                        PamatShape** output, char* error, size_t error_size);
-int pamat_cut(const PamatShape* body, const PamatShape* tool,
-              PamatShape** output, char* error, size_t error_size);
-int pamat_join(const PamatShape* body, const PamatShape* tool,
-               PamatShape** output, char* error, size_t error_size);
+// A partition borrows its target and tool shapes until freed. Group indices refer
+// to the corresponding input array. The arrays in a group live with the partition.
+typedef struct PamatPartition PamatPartition;
+typedef struct {
+    const size_t* targets;
+    size_t target_count;
+    const size_t* tools;
+    size_t tool_count;
+} PamatCellGroup;
+int pamat_partition(const PamatShape* const* targets, size_t target_count,
+                    const PamatShape* const* tools, size_t tool_count, int join,
+                    PamatPartition** output, size_t* group_count, char* error, size_t error_size);
+PamatCellGroup pamat_partition_group(const PamatPartition* partition, size_t index);
+// Null output means complete consumption (cut) or no effect (join). Slots are ordered by survivor,
+// then other group targets, then group tools.
+int pamat_partition_result(PamatPartition* partition, size_t group, size_t survivor,
+                           PamatShape** output, int* material_changed, char* error, size_t error_size);
+void pamat_partition_free(PamatPartition* partition);
 size_t pamat_face_count(const PamatShape* shape, size_t face_id);
 size_t pamat_face_slots(const PamatShape* shape);
 int pamat_face_ids(PamatShape* shape, size_t first, size_t count, void (*sink)(void*, size_t), void* context,

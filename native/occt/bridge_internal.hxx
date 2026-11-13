@@ -14,6 +14,8 @@ struct PamatShape {
     std::vector<TopTools_IndexedMapOfShape> named_faces;
 };
 
+double validated_volume(const TopoDS_Shape& solid);
+
 template <typename Operation>
 static int checked(Operation operation, char* error, size_t error_size) noexcept {
     try {

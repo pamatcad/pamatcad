@@ -6,7 +6,38 @@ use std::{
     ptr::NonNull,
 };
 
+#[repr(C)]
+struct CellGroup {
+    targets: *const usize,
+    target_count: usize,
+    tools: *const usize,
+    tool_count: usize,
+}
+
 extern "C" {
+    fn pamat_partition(
+        targets: *const *const c_void,
+        target_count: usize,
+        tools: *const *const c_void,
+        tool_count: usize,
+        join: i32,
+        output: *mut *mut c_void,
+        count: *mut usize,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+    fn pamat_partition_group(partition: *const c_void, index: usize) -> CellGroup;
+    fn pamat_partition_result(
+        partition: *mut c_void,
+        group: usize,
+        survivor: usize,
+        output: *mut *mut c_void,
+        changed: *mut i32,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+    fn pamat_partition_free(partition: *mut c_void);
+
     fn pamat_extrude(
         points: *const f64,
         count: usize,
@@ -20,20 +51,6 @@ extern "C" {
         radius: f64,
         normal: *const f64,
         direction: *const f64,
-        output: *mut *mut c_void,
-        error: *mut c_char,
-        error_size: usize,
-    ) -> i32;
-    fn pamat_cut(
-        body: *const c_void,
-        tool: *const c_void,
-        output: *mut *mut c_void,
-        error: *mut c_char,
-        error_size: usize,
-    ) -> i32;
-    fn pamat_join(
-        body: *const c_void,
-        tool: *const c_void,
         output: *mut *mut c_void,
         error: *mut c_char,
         error_size: usize,
@@ -120,7 +137,7 @@ impl Shape {
     }
 
     pub(crate) fn record_profile(&mut self, index: usize) {
-        let slots = unsafe { pamat_face_slots(self.raw.as_ptr()) };
+        let slots = self.slot_count();
         self.profile_slots.push((index, 0..slots));
     }
 
@@ -202,49 +219,8 @@ impl Shape {
         })
     }
 
-    pub fn cut(&self, tool: &Shape) -> Result<Option<Self>> {
-        self.apply_boolean(tool, pamat_cut)
-    }
-
-    pub fn join(&self, tool: &Shape) -> Result<Option<Self>> {
-        self.apply_boolean(tool, pamat_join)
-    }
-
-    fn apply_boolean(
-        &self,
-        tool: &Shape,
-        operation: unsafe extern "C" fn(
-            *const c_void,
-            *const c_void,
-            *mut *mut c_void,
-            *mut c_char,
-            usize,
-        ) -> i32,
-    ) -> Result<Option<Self>> {
-        let mut output = std::ptr::null_mut();
-        let mut error = [0; 1024];
-        let status = unsafe {
-            operation(
-                self.raw.as_ptr(),
-                tool.raw.as_ptr(),
-                &mut output,
-                error.as_mut_ptr(),
-                error.len(),
-            )
-        };
-        if status != 0 {
-            return Err(failure(&error));
-        }
-        Ok(NonNull::new(output).map(|raw| {
-            let offset = unsafe { pamat_face_slots(self.raw.as_ptr()) };
-            let mut profile_slots = self.profile_slots.clone();
-            profile_slots.extend(
-                tool.profile_slots
-                    .iter()
-                    .map(|(i, range)| (*i, offset + range.start..offset + range.end)),
-            );
-            Self { raw, profile_slots }
-        }))
+    pub(crate) fn slot_count(&self) -> usize {
+        unsafe { pamat_face_slots(self.raw.as_ptr()) }
     }
 
     pub fn face_ids(&self, slots: Option<Range<usize>>) -> Result<Vec<usize>> {
@@ -406,5 +382,85 @@ impl Shape {
 impl Drop for Shape {
     fn drop(&mut self) {
         unsafe { pamat_shape_free(self.raw.as_ptr()) }
+    }
+}
+
+// The partition borrows its input shapes. Each materialized result has its own owner.
+pub(crate) struct CellPartition<'a> {
+    raw: NonNull<c_void>,
+    pub group_count: usize,
+    inputs: std::marker::PhantomData<&'a Shape>,
+}
+
+impl<'a> CellPartition<'a> {
+    pub fn new(targets: &[&'a Shape], tools: &'a [Shape], join: bool) -> Result<Self> {
+        let handles = |s: &Shape| s.raw.as_ptr().cast_const();
+        let bodies: Vec<_> = targets.iter().map(|s| handles(s)).collect();
+        let tools: Vec<_> = tools.iter().map(handles).collect();
+        let mut raw = std::ptr::null_mut();
+        let mut group_count = 0;
+        let mut error = [0; 1024];
+        let status = unsafe {
+            pamat_partition(
+                bodies.as_ptr(),
+                bodies.len(),
+                tools.as_ptr(),
+                tools.len(),
+                join.into(),
+                &mut raw,
+                &mut group_count,
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        if status != 0 {
+            return Err(failure(&error));
+        }
+        Ok(Self {
+            raw: NonNull::new(raw).expect("successful partition"),
+            group_count,
+            inputs: std::marker::PhantomData,
+        })
+    }
+
+    pub fn members(&self, group: usize) -> (&[usize], &[usize]) {
+        assert!(group < self.group_count);
+        let info = unsafe { pamat_partition_group(self.raw.as_ptr(), group) };
+        // Empty C++ vectors may have a null data pointer; both lists live with self.
+        let targets = if info.target_count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(info.targets, info.target_count) }
+        };
+        let tools = unsafe { std::slice::from_raw_parts(info.tools, info.tool_count) };
+        (targets, tools)
+    }
+
+    pub fn result(&mut self, group: usize, survivor: usize) -> Result<(Option<Shape>, bool)> {
+        assert!(group < self.group_count);
+        let mut raw = std::ptr::null_mut();
+        let mut changed = 0;
+        let mut error = [0; 1024];
+        let status = unsafe {
+            pamat_partition_result(
+                self.raw.as_ptr(),
+                group,
+                survivor,
+                &mut raw,
+                &mut changed,
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        if status != 0 {
+            return Err(failure(&error));
+        }
+        Ok((NonNull::new(raw).map(Shape::from_raw), changed != 0))
+    }
+}
+
+impl Drop for CellPartition<'_> {
+    fn drop(&mut self) {
+        unsafe { pamat_partition_free(self.raw.as_ptr()) }
     }
 }

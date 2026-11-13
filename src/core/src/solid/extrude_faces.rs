@@ -55,25 +55,28 @@ impl Scene {
             }
         };
         let mut result = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
         for (body_id, groups) in &feature.faces_by_body {
             let Some((_, group)) = groups.iter().find(|(profile, _)| *profile == index) else {
                 continue;
             };
-            let slots = match offset {
-                Some(n) => group.start + n..group.start + n + 1,
-                None => group.start + 2..group.end,
+            let Some((body, range)) = self.face_owner(body_id) else {
+                continue;
             };
-            let body = &self.bodies[body_id];
-            result.extend(
-                body.shape
-                    .face_ids(Some(slots))?
-                    .into_iter()
-                    .map(|face_id| FaceRef::Selected {
+            let start = range.start;
+            let slots = match offset {
+                Some(n) => start + group.start + n..start + group.start + n + 1,
+                None => start + group.start + 2..start + group.end,
+            };
+            for face_id in body.shape.face_ids(Some(slots))? {
+                if seen.insert((&body.reference.id, face_id)) {
+                    result.push(FaceRef::Selected {
                         scene_id: self.data.id.clone(),
-                        body_id: body_id.clone(),
+                        body_id: body.reference.id.clone(),
                         face_id,
-                    }),
-            );
+                    });
+                }
+            }
         }
         Ok(result)
     }

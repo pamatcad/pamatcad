@@ -1,7 +1,7 @@
 use crate::{
-    engine::modeling::{ModelingCommand, ProposedChanges},
+    engine::modeling::{BodyUpdate, ModelingCommand, ProposedChanges},
     error::{CoreError, ErrorCode, Result},
-    kernel::Shape,
+    kernel::{CellPartition, Shape},
     model::{Body, Scene},
     protocol::*,
     sketch::{Boundary, Frame, Sketch, LINEAR_TOLERANCE},
@@ -37,29 +37,10 @@ impl ModelingCommand for Extrude {
             Profiles::Faces(faces) => extrude_faces(scene, faces, length)?,
             regions => extrude_regions(scene, regions.regions(), length)?,
         };
-        for (index, shape) in shapes.iter_mut().enumerate() {
-            shape.record_profile(index);
-        }
-        let (created, changed) = match mode {
-            ExtrudeMode::NewBody => {
-                if self.targets.is_some() {
-                    return Err(CoreError::new(
-                        ErrorCode::InvalidParameter,
-                        "New-body extrusion does not accept targets",
-                    ));
-                }
-                (shapes, vec![])
-            }
-            ExtrudeMode::Cut => (
-                vec![],
-                cut_targets(&targets(scene, self.targets.as_deref())?, &shapes)?,
-            ),
-            ExtrudeMode::Join => (
-                vec![],
-                join_targets(&targets(scene, self.targets.as_deref())?, &shapes)?,
-            ),
-        };
-        Ok(ProposedChanges {
+        let mut changes = ProposedChanges {
+            created: vec![],
+            updated: vec![],
+            removed: vec![],
             operation: Operation::Extrude {
                 inputs: ExtrudeInputs {
                     profile: self.profile,
@@ -67,9 +48,38 @@ impl ModelingCommand for Extrude {
                 },
                 parameters: self.parameters,
             },
-            created,
-            changed,
-        })
+        };
+        let Operation::Extrude { inputs, .. } = &changes.operation;
+        if mode == ExtrudeMode::NewBody {
+            if inputs.targets.is_some() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidParameter,
+                    "New-body extrusion does not accept targets",
+                ));
+            }
+            for (index, shape) in shapes.iter_mut().enumerate() {
+                shape.record_profile(index);
+            }
+            changes.created = shapes;
+        } else {
+            let bodies = targets(scene, inputs.targets.as_deref())?;
+            let source_faces = match &inputs.profile {
+                Profiles::Face(face) => std::slice::from_ref(face),
+                Profiles::Faces(faces) => faces.as_slice(),
+                _ => &[],
+            };
+            let sources = source_faces
+                .iter()
+                .map(|f| {
+                    let (body, _) = scene.resolve_face(f)?;
+                    Ok(bodies
+                        .iter()
+                        .position(|target| target.reference == body.reference))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            apply_boolean(&bodies, &shapes, &sources, mode, &mut changes)?;
+        }
+        Ok(changes)
     }
 }
 
@@ -95,74 +105,85 @@ fn targets<'a>(scene: &'a Scene, selection: Option<&[BodyRef]>) -> Result<Vec<&'
         .collect()
 }
 
-fn cut_targets(targets: &[&Body], shapes: &[Shape]) -> Result<Vec<Body>> {
-    let mut changed = Vec::new();
-    for body in targets {
-        let mut candidate = None;
-        for tool in shapes {
-            if let Some(next) = candidate.as_ref().unwrap_or(&body.shape).cut(tool)? {
-                candidate = Some(next);
-            }
+fn apply_boolean(
+    targets: &[&Body],
+    tools: &[Shape],
+    sources: &[Option<usize>],
+    mode: ExtrudeMode,
+    changes: &mut ProposedChanges,
+) -> Result<()> {
+    let join = mode == ExtrudeMode::Join;
+    if targets.is_empty() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidParameter,
+            "The operation needs a target body",
+        ));
+    }
+    let shapes: Vec<_> = targets.iter().map(|body| &body.shape).collect();
+    let mut partition = CellPartition::new(&shapes, tools, join)?;
+    for group in 0..partition.group_count {
+        let (bodies, profiles) = partition.members(group);
+        let oldest = bodies
+            .iter()
+            .min_by_key(|&&i| targets[i].created_at)
+            .copied()
+            .ok_or_else(|| {
+                CoreError::new(
+                    ErrorCode::InvalidParameter,
+                    "Each join profile must connect to a target",
+                )
+            })?;
+        let mut owners = profiles
+            .iter()
+            .filter_map(|&i| sources.get(i).copied().flatten())
+            .filter(|i| bodies.contains(i));
+        let survivor = match owners.next() {
+            Some(first) if owners.all(|i| i == first) => first,
+            _ => oldest,
+        };
+        let body = targets[survivor];
+        let mut offset = body.shape.slot_count();
+        let mut absorbed_slots = Vec::new();
+        for &i in bodies.iter().filter(|&&i| i != survivor) {
+            let end = offset + targets[i].shape.slot_count();
+            absorbed_slots.push((targets[i].reference.id.clone(), offset..end));
+            changes.removed.push(targets[i].reference.clone());
+            offset = end;
         }
-        if let Some(shape) = candidate {
-            changed.push(Body {
-                reference: body.reference.clone(),
-                shape,
+        let mut profile_slots = Vec::new();
+        for &i in profiles {
+            let end = offset + tools[i].slot_count();
+            profile_slots.push((i, offset..end));
+            offset = end;
+        }
+        let (shape, material_changed) = partition.result(group, survivor)?;
+        if let Some(mut shape) = shape {
+            shape.profile_slots = profile_slots;
+            changes.updated.push(BodyUpdate {
+                body: Body {
+                    reference: body.reference.clone(),
+                    created_at: body.created_at,
+                    shape,
+                },
+                material_changed,
+                absorbed_slots,
             });
+        } else if !join {
+            changes.removed.push(body.reference.clone());
+        } else {
+            return Err(CoreError::new(
+                ErrorCode::InvalidParameter,
+                "Join neither adds material nor merges bodies",
+            ));
         }
     }
-    if changed.is_empty() {
+    if changes.updated.is_empty() && changes.removed.is_empty() {
         return Err(CoreError::new(
             ErrorCode::InvalidParameter,
             "Cut removes no material from its targets",
         ));
     }
-    Ok(changed)
-}
-
-fn join_targets(targets: &[&Body], shapes: &[Shape]) -> Result<Vec<Body>> {
-    let mut candidates: Vec<Option<Shape>> = targets.iter().map(|_| None).collect();
-    let mut pending: Vec<_> = shapes.iter().collect();
-    while !pending.is_empty() {
-        let mut remaining = Vec::new();
-        for tool in &pending {
-            let mut joined = None;
-            for (i, body) in targets.iter().enumerate() {
-                let target = candidates[i].as_ref().unwrap_or(&body.shape);
-                if let Some(shape) = target.join(tool)? {
-                    if joined.is_some() {
-                        return Err(CoreError::new(
-                            ErrorCode::InvalidParameter,
-                            "Joining multiple existing bodies into one is not supported",
-                        ));
-                    }
-                    joined = Some((i, shape));
-                }
-            }
-            if let Some((index, shape)) = joined {
-                candidates[index] = Some(shape);
-            } else {
-                remaining.push(*tool);
-            }
-        }
-        if remaining.len() == pending.len() {
-            return Err(CoreError::new(
-                ErrorCode::InvalidParameter,
-                "Each join profile must add material to a target",
-            ));
-        }
-        pending = remaining;
-    }
-    Ok(targets
-        .iter()
-        .zip(candidates)
-        .filter_map(|(body, shape)| {
-            shape.map(|shape| Body {
-                reference: body.reference.clone(),
-                shape,
-            })
-        })
-        .collect())
+    Ok(())
 }
 
 fn extrude_faces(scene: &Scene, faces: &[FaceRef], length: f64) -> Result<Vec<Shape>> {

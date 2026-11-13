@@ -273,6 +273,8 @@ pub struct Feature {
     pub operation: Operation,
     pub new_solids: Vec<BodyRef>,
     pub affected_solids: Vec<BodyRef>,
+    #[serde(default)]
+    pub removed_solids: Vec<BodyRef>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -281,6 +283,7 @@ pub struct FeaturePreview {
     pub operation: Operation,
     pub new_solids: Vec<BodyProperties>,
     pub affected_solids: Vec<BodyRef>,
+    pub removed_solids: Vec<BodyRef>,
 }
 
 #[derive(Debug, Serialize, TS)]

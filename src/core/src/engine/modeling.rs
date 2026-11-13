@@ -14,17 +14,25 @@ pub(crate) trait ModelingCommand {
     fn evaluate(self, scene: &Scene) -> Result<ProposedChanges>;
 }
 
+pub(crate) struct BodyUpdate {
+    pub body: Body,
+    pub material_changed: bool,
+    pub absorbed_slots: Vec<(String, std::ops::Range<usize>)>,
+}
+
 pub(crate) struct ProposedChanges {
     pub operation: Operation,
     pub created: Vec<Shape>,
-    pub changed: Vec<Body>,
+    pub updated: Vec<BodyUpdate>,
+    pub removed: Vec<BodyRef>,
 }
 
 impl ProposedChanges {
     fn affected_solids(&self) -> Vec<BodyRef> {
-        self.changed
+        self.updated
             .iter()
-            .map(|body| body.reference.clone())
+            .filter(|update| update.material_changed)
+            .map(|update| update.body.reference.clone())
             .collect()
     }
 
@@ -46,6 +54,7 @@ impl ProposedChanges {
             operation: self.operation,
             new_solids,
             affected_solids,
+            removed_solids: self.removed,
         })
     }
 }
@@ -69,7 +78,7 @@ impl Engine {
     // Evaluation has validated every proposed body before IDs are assigned or the scene is updated.
     fn commit_changes(&mut self, scene_id: String, changes: ProposedChanges) -> Feature {
         let affected_solids = changes.affected_solids();
-        let mut bodies = changes.changed;
+        let mut bodies = Vec::new();
         let mut new_solids = Vec::with_capacity(changes.created.len());
         for shape in changes.created {
             let reference = BodyRef {
@@ -77,15 +86,31 @@ impl Engine {
                 id: self.id("body"),
             };
             new_solids.push(reference.clone());
-            bodies.push(Body { reference, shape });
+            bodies.push(Body {
+                reference,
+                shape,
+                created_at: self.next_id,
+            });
         }
         let feature = Feature {
             id: self.id("feature"),
             operation: changes.operation,
             new_solids,
             affected_solids,
+            removed_solids: changes.removed,
         };
         let scene = self.scenes.get_mut(&scene_id).unwrap();
+        for removed in &feature.removed_solids {
+            scene.bodies.remove(&removed.id);
+        }
+        for update in changes.updated {
+            for (id, slots) in update.absorbed_slots {
+                scene
+                    .face_successors
+                    .insert(id, (update.body.reference.id.clone(), slots));
+            }
+            bodies.push(update.body);
+        }
         let mut faces_by_body = std::collections::BTreeMap::new();
         for mut body in bodies {
             faces_by_body.insert(
