@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26"
+     role="img" aria-labelledby="title">
+  <title id="title">Extrude</title>
+  <g id="solid">
+    <path id="cap" fill="#d0e9e6" d="m13 7.5 10.5 5-10.5 5-10.5-5Z"/>
+    <path id="lit-side" fill="#a9cbd2" d="m2.5 12.5 10.5 5v7l-10.5-5Z"/>
+    <path id="shaded-side" fill="#6a9eae" d="m13 17.5 10.5-5v7l-10.5 5Z"/>
+    <path id="edges" d="m13 7.5 10.5 5v7l-10.5 5-10.5-5v-7Zm-10.5 5 10.5 5 10.5-5M13 17.5v7"
+          fill="none" stroke="#234b58" stroke-opacity="1" stroke-width="1.35"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <path id="normal-arrow" fill="#a64a20" d="m13 1 4.5 5.5h-3v6h-3v-6h-3Z"/>
+</svg>

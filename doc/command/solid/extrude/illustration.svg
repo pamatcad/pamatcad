@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="448" height="192" viewBox="0 0 448 192" role="img" aria-labelledby="title desc">
+  <title id="title">Extruding a planar profile</title>
+  <desc id="desc">At left, a closed L-shaped profile lies on a sketch plane. At right, the same
+    outline forms the upper face of a solid. An upward arrow shows the extrusion direction
+    perpendicular to the plane.</desc>
+  <defs>
+    <!-- The two views share the same projection and the same profile outline. -->
+    <path id="profile" d="M0 0 78 39 49 53.5 17 37.5 -8 50 -54 27Z"/>
+    <g id="sketch-plane">
+      <g transform="matrix(1 .5 -1 .5 0 0)">
+        <rect x="-12" y="-12" width="104" height="80" fill="#f2f6f7"/>
+        <path d="M4 -12V68 M20 -12V68 M36 -12V68 M52 -12V68 M68 -12V68 M84 -12V68
+                 M-12 4H92 M-12 20H92 M-12 36H92 M-12 52H92"
+              fill="none" stroke="#d5e0e3" stroke-width=".85"/>
+      </g>
+    </g>
+  </defs>
+
+  <g id="sketch" transform="translate(92 102)">
+    <use xlink:href="#sketch-plane"/>
+    <use xlink:href="#profile" fill="#d0e9e6" stroke="#24716d" stroke-width="2.2"
+         stroke-linejoin="round"/>
+  </g>
+
+  <path id="transition" d="M203 106h28m-7-7 7 7-7 7" fill="none"
+        stroke="#70858c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g id="extrusion" transform="translate(326 102)">
+    <use xlink:href="#sketch-plane"/>
+    <g id="body" transform="translate(0 -58)" stroke="#234b58" stroke-width="1.8"
+       stroke-linejoin="round">
+      <g id="side-faces">
+        <path d="M78 39 49 53.5v58L78 97Z" fill="#6a9eae"/>
+        <path d="M49 53.5 17 37.5v58l32 16Z" fill="#a9cbd2"/>
+        <path d="M17 37.5 -8 50v58l25-12.5Z" fill="#6a9eae"/>
+        <path d="M-8 50 -54 27v58l46 23Z" fill="#a9cbd2"/>
+      </g>
+      <use xlink:href="#profile" fill="#d0e9e6"/>
+    </g>
+    <g id="normal-arrow" transform="translate(12 -33)">
+      <circle r="3" fill="#a64a20"/>
+      <path d="M0 0v-48m-6 8 6-8 6 8" fill="none" stroke="#a64a20"
+            stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>
