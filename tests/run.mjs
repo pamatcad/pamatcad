@@ -18,7 +18,7 @@ if (report) {
     "--test-reporter=" + new URL("./reporter.mjs", import.meta.url).href,
     "--test-reporter-destination=" + join(dir, "index.html"));
 }
-runner.push(...args.filter(arg => arg !== "--report"), "tests/sdk/javascript/dist/api/**/*.js");
+runner.push(...args.filter(arg => arg !== "--report"), "tests/dist/api/**/*.js");
 const child = spawn(process.execPath, runner, { env, stdio: "inherit" });
 process.exitCode = await new Promise((resolve, reject) => {
   child.once("error", reject);

@@ -9,7 +9,7 @@ npm test
 
 The first build downloads the pinned Rust toolchain and OCCT 8.0.1, builds OCCT, and generates SDK types from Rust. Later builds reuse Cargo/CMake caches; OCCT version changes trigger a fresh kernel build. No system OCCT installation or manual compiler flags are needed.
 
-`npm test` builds the native core and JavaScript SDK and runs every test under `tests/sdk/javascript/api/`, including nested folders. Put shared helpers in `tests/sdk/javascript/support/`. The extrusion test uses the compiled SDK and a real WebSocket server to check that the resulting body has a volume of 1500 mm³.
+`npm test` builds the native core and JavaScript SDK and runs every test under `tests/api/`, including nested folders. Put shared helpers in `tests/support/`. The extrusion test uses the compiled SDK and a real WebSocket server to check that the resulting body has a volume of 1500 mm³.
 
 Run `npm test -- --report` for an offline HTML overview. Open the printed `reports/tests/<run>/index.html` path. Each test with a solid scene gets a JPEG of its final committed geometry and a STEP download. Keep the `assets/` directory beside the HTML when sharing the report.
 
