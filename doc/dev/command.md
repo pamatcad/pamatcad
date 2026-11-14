@@ -1,6 +1,6 @@
 # Command workflow
 
-Commands are documented `doc/command/<area>/<name>/spec.md`. 
+Commands are documented `../api/command`. 
 
 ## Required spec format
 

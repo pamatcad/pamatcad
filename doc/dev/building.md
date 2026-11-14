@@ -15,6 +15,10 @@ Run `npm test -- --report` for an offline HTML overview. Open the printed `repor
 
 The same exports are available to SDK callers through `scene.export({ format: "step" })` and `scene.capture({ format: "jpeg" })`. Both return `{ bytes, mediaType }` and accept an optional `bodies` array of body references. Capture defaults to a 1200 × 900 orthographic view from the (1, 1, 1) direction toward the world origin, with Z up and 32 px padding.
 
+Run `npm run build:docs` to generate the offline SDK reference. Open `sdk/docs/index.html` or serve the whole `sdk/docs/` directory. The build reads SDK declarations and the `Name`, `Short Description`, and `Description` sections of `doc/api/<kind>/<symbol>/spec.md`. Command folders use the dotted method name as a path, for example `command/solid/extrude`. Classes and types use their declaration names, for example `type/Formula`.
+
+Add language-specific guides as Markdown under `sdk/<language>/docs/`, including subdirectories. The first `#` heading gives the title in **Guides** and search. Use relative Markdown links to other guides or API specs, as in the [JavaScript integration guide](../../sdk/javascript/docs/integration.md).
+
 To build without testing: `npm run build`. To run the server:
 
 ```sh

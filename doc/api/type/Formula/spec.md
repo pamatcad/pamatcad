@@ -1,4 +1,12 @@
-# Formula
+# Name
+
+Formula
+
+# Short Description
+
+Wrapper for formulas like "parameter1 + 2.5 * (1mm)"
+
+# Description
 
 A formula calculates a length or an angle. The field supplies the expected dimension. A numeric argument is a length in millimetres or an angle in degrees. A string accepts decimals, arithmetic (`+`, `-`, `*`, `/`), parentheses, and units (`mm`, `cm`, `m`, `in`, `deg`, `rad`). Addition and subtraction require matching dimensions. A dimensionless final result takes the scene unit for the field.
 

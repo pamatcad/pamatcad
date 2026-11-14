@@ -1,0 +1,92 @@
+:root {
+  color-scheme: light;
+  --paper: #ffffff;
+  --ink: #1d2e32;
+  --muted: #53686b;
+  --line: #dbe3e2;
+  --accent: #126861;
+  font: 16px/1.55 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink); background: var(--paper);
+}
+* { box-sizing: border-box }
+body { margin: 0 }
+a { color: var(--accent); text-underline-offset: .16em }
+a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.skip { position: fixed; z-index: 5; left: 1rem; top: -5rem; background: white; padding: .5rem }
+.skip:focus { top: .3rem }
+.mast {
+  height: 64px; display: flex; align-items: center; gap: 17px; padding: 0 30px;
+  border-bottom: 1px solid var(--line); background: var(--paper);
+}
+.brand { font-size: 1.25rem; font-weight: 720; letter-spacing: -.055em; color: var(--ink); text-decoration: none }
+.product { border-left: 1px solid var(--line); padding-left: 17px; color: var(--muted); font-size: .92rem }
+.preferences { margin-left: auto; display: flex; gap: 20px; align-items: center; font-size: .8rem; color: var(--muted) }
+.version, code, pre, kbd, .nav-group li a, .field-name, .backlinks a {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+select { margin-left: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--ink); font: inherit }
+.workspace { display: grid; grid-template-columns: minmax(245px, 282px) minmax(0, 1fr); height: calc(100dvh - 64px) }
+aside { display: flex; flex-direction: column; min-height: 0; background: #f6f8f7; border-right: 1px solid var(--line) }
+.find { padding: 22px 18px 16px; border-bottom: 1px solid var(--line) }
+.find label, .nav-group summary, .entry-kind { font-size: .78rem; font-weight: 650 }
+.search-box { display: flex; position: relative; margin-top: 6px }
+.search-box input { font: inherit; font-size: .85rem; width: 100%; min-width: 0; padding: 9px 31px 9px 10px; border: 1px solid #a8bbba; border-radius: 5px; background: white }
+.search-box kbd { position: absolute; right: 9px; top: 9px; font-size: .68rem; padding: 0 4px; border: 1px solid var(--line); color: var(--muted); pointer-events: none }
+#entries { overflow: auto; padding: 17px 12px 30px; scrollbar-width: thin; scrollbar-color: #c7d4d2 transparent }
+.nav-group { margin-bottom: 18px }
+.nav-group summary { cursor: pointer; color: var(--muted); margin: 0 6px 5px }
+.nav-group ul, .tree ul { margin: 0; list-style: none; padding: 0 }
+.nav-group li a { display: block; padding: 4px 9px; border-left: 2px solid transparent; font-size: .79rem; color: #34494c; text-decoration: none; overflow-wrap: anywhere }
+.nav-group li a:hover { color: var(--accent); background: #ecf1f0 }
+.nav-group a[aria-current] { color: #115d58; border-color: var(--accent); background: #dfede9; font-weight: 650 }
+#empty { padding: 0 18px; color: var(--muted); font-size: .85rem }
+main { overflow: auto; scroll-padding-top: 18px }
+article { max-width: 1020px; margin: 0 auto; padding: clamp(28px, 4vw, 64px) clamp(24px, 5vw, 78px) 96px }
+.entry-kind { color: var(--accent); margin-bottom: 8px }
+h1, h2 { color: var(--ink); line-height: 1.16; text-wrap: balance }
+h1 { margin: 0; font-size: clamp(1.85rem, 3.4vw, 2.85rem); letter-spacing: -.045em; overflow-wrap: anywhere }
+.entry-id { display: inline-block; color: var(--muted); margin-top: 8px; font-size: .9rem }
+.summary { font-size: 1.09rem; line-height: 1.55; max-width: 70ch; color: #465e62 }
+.entry-heading { padding-bottom: 22px; border-bottom: 1px solid var(--line) }
+.entry-heading p:last-child { margin-bottom: 0 }
+.outline { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 18px; font-size: .83rem }
+.outline a { text-decoration-color: #adc9c4 }
+article section { margin-top: 32px }
+article h2 { font-size: 1.35rem; letter-spacing: -.025em; margin: 0 0 14px }
+.guide h2 { margin-top: 2rem }
+article p, article li { overflow-wrap: anywhere }
+article p, article #description ul { max-width: 76ch }
+article p { margin: 10px 0 }
+article #description ul { padding-left: 1.4em }
+article #description li { margin: .25em 0 }
+code { font-size: .88em }
+p code, #description li code { background: #eff4f2; padding: .08em .26em; border-radius: 3px }
+pre { margin: 6px 0; padding: 12px 15px; background: #f2f6f5; border-left: 2px solid #b4cec8; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; line-height: 1.5 }
+pre a, .tree code a { text-decoration-color: #adc9c4 }
+.tree > ul { padding: 0 }
+.root-type { display: inline-block; margin-bottom: 8px }
+.tree ul ul { margin-left: 8px; padding-left: 15px; border-left: 1px solid var(--line) }
+.tree li { padding: 3px 0 }
+.field { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 15px }
+.field-name { font-size: .87rem; font-weight: 620; color: var(--ink); text-decoration: none }
+.field-name:hover { text-decoration: underline }
+.variant > code { color: var(--muted) }
+.values { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 3px 0 3px 17px; color: var(--muted) }
+.tree li:target > .field { background: #fff0cc }
+.backlinks { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .85rem }
+[hidden] { display: none !important }
+@media (max-width: 720px) {
+  .mast { padding: 0 14px; gap: 10px; height: 54px }
+  .product { padding-left: 10px; font-size: .8rem }
+  .version { display: none }
+  .preferences label { font-size: 0 }
+  select { font-size: .8rem }
+  .workspace { display: block; height: auto }
+  aside { border-right: 0; border-bottom: 1px solid var(--line) }
+  .find { padding: 10px 16px }
+  #entries { max-height: 160px; padding: 12px 16px }
+  main { overflow: visible }
+  article { padding: 26px 16px 60px }
+}

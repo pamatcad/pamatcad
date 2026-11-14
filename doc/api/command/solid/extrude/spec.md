@@ -2,11 +2,11 @@
 
 Basic extrusion operation for solids
 
-# Intent
+# Short Description
 
 Extrude operation takes a 2D profile (or co-planar profiles) and extrudes it along a normal direction to create a prism-like solid.
 
-# Inputs
+# Description
 
 Select one or more regions of the same sketch or one or more coplanar planar faces.
 
@@ -24,7 +24,7 @@ Extrusion, by default, affects all bodies on the way of extrusion. Supply `targe
 
 # Parameters
 
-Lengths and start offsets accept [length formulas](../../../type/Formula.md). Taper angles accept angle formulas. Numeric inputs use mm and degrees.
+Lengths and start offsets accept [length formulas](../../../type/Formula/spec.md). Taper angles accept angle formulas. Numeric inputs use mm and degrees.
 
 - `type` is `oneSide` (default), `twoSides`, or `symmetric`. `direction` orients side 1 along the positive (default) or negative profile normal. Side 2 points the opposite way.
 - `start` defaults to `{ type: "profilePlane" }`. An offset start takes a signed `offset` in mm along the profile normal. An object start takes a `face` and uses the signed offset from the profile plane to its nearest point, measured along the normal over the whole bounded face.
@@ -54,7 +54,7 @@ Side-2 selectors on one-sided features raise `INVALID_PARAMETER`. The original `
 
 Each selector follows the faces through the extrusion's own Boolean operation and subsequent cuts and joins. `.all()` returns the distinct surviving face references across the result bodies, including all descendants of a split face and an empty list when none survive. `.only()` returns one face reference, raises `NOT_FOUND` for zero matches, and raises `AMBIGUOUS_FACE` for multiple matches.
 
-Body IDs follow the [body identity rules](../../../body-identity.md).
+Body IDs follow the [body identity rules](../../../../body-identity.md).
 
 # Errors
 
