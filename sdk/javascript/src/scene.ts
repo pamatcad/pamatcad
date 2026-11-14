@@ -1,4 +1,4 @@
-import type { CaptureScene, EncodedFile, ExportScene, SketchSupport, SceneData } from "./generated/protocol.js";
+import type { AngleUnit, CaptureScene, EncodedFile, EvaluatedFormula, ExportScene, Formula, FormulaDimension, FormulaUnit, LengthUnit, SketchSupport, SceneData } from "./generated/protocol.js";
 import { Sketch } from "./sketch.js";
 import { Body } from "./solid.js";
 import type { Transport } from "./transport.js";
@@ -15,6 +15,7 @@ export class Scene {
   readonly id;
   readonly name;
   readonly construction;
+  readonly units;
   readonly sketches;
   readonly bodies;
   readonly timeline;
@@ -23,6 +24,7 @@ export class Scene {
     this.id = data.id;
     this.name = data.name;
     this.construction = data.construction;
+    this.units = Object.freeze({ ...data.units });
     this.timeline = { list: () => transport.request("scene.timeline.list", { sceneId: this.id }) };
     this.sketches = {
       create: async <P extends SketchSupport>(plane: P): Promise<Sketch<P>> => {
@@ -37,6 +39,16 @@ export class Scene {
         await transport.request("body.get", { body: { sceneId: this.id, id } })),
     };
   }
+
+  evaluateFormula(expression: Formula<LengthUnit>, options: { expectedDimension: "length" }): Promise<EvaluatedFormula<LengthUnit>>;
+  evaluateFormula(expression: Formula<AngleUnit>, options: { expectedDimension: "angle" }): Promise<EvaluatedFormula<AngleUnit>>;
+  evaluateFormula(expression: Formula<FormulaUnit>, options: { expectedDimension: FormulaDimension }): Promise<EvaluatedFormula<FormulaUnit>>;
+  evaluateFormula(expression: Formula<FormulaUnit>, options: { expectedDimension: FormulaDimension }) {
+    return this.transport.request("scene.evaluateFormula", {
+      sceneId: this.id, expression, expectedDimension: options.expectedDimension,
+    });
+  }
+
   async export(options: ExportOptions): Promise<SceneFile> {
     return decode(await this.transport.request("scene.export", { ...options, sceneId: this.id }));
   }

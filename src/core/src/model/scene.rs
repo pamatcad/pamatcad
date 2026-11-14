@@ -28,7 +28,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn new(id: String, name: Option<String>) -> Self {
+    pub fn new(id: String, name: Option<String>, units: SceneUnits) -> Self {
         let plane = |plane, name| PlaneRef {
             scene_id: id.clone(),
             id: format!("{id}:origin:{name}"),
@@ -43,6 +43,7 @@ impl Scene {
             data: SceneData {
                 id,
                 name,
+                units,
                 construction: Construction {
                     builtin: BuiltinConstruction { planes },
                 },

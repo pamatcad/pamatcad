@@ -122,7 +122,82 @@ pub struct Construction {
 pub struct SceneData {
     pub id: String,
     pub name: Option<String>,
+    #[serde(default)]
+    pub units: SceneUnits,
     pub construction: Construction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum FormulaDimension {
+    Length,
+    Angle,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum LengthUnit {
+    #[default]
+    Mm,
+    Cm,
+    M,
+    In,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum AngleUnit {
+    #[default]
+    Deg,
+    Rad,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum FormulaUnit {
+    Length(LengthUnit),
+    Angle(AngleUnit),
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]
+#[serde(default, deny_unknown_fields)]
+pub struct SceneUnits {
+    pub length: LengthUnit,
+    pub angle: AngleUnit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct FormulaQuantity<U> {
+    pub value: f64,
+    pub unit: U,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EvaluatedFormula<U> {
+    pub expression: String,
+    pub dimension: FormulaDimension,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub implicit_unit: Option<U>,
+    pub computed: FormulaQuantity<U>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum Formula<U> {
+    Number(f64),
+    Expression(String),
+    Evaluated(EvaluatedFormula<U>),
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EvaluateFormula {
+    pub scene_id: String,
+    pub expression: Formula<FormulaUnit>,
+    pub expected_dimension: FormulaDimension,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -208,7 +283,7 @@ pub enum ObjectExtent {
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum ExtrudeStart {
     ProfilePlane,
-    Offset { offset: f64 },
+    Offset { offset: Formula<LengthUnit> },
     Object { face: FaceRef },
 }
 
@@ -239,13 +314,13 @@ pub enum ExtrudeDirection {
 pub struct ExtrudeParameters {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub length: Option<f64>,
+    pub length: Option<Formula<LengthUnit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub length1: Option<f64>,
+    pub length1: Option<Formula<LengthUnit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub length2: Option<f64>,
+    pub length2: Option<Formula<LengthUnit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub r#type: Option<ExtrudeType>,
@@ -266,10 +341,10 @@ pub struct ExtrudeParameters {
     pub symmetric_length: Option<SymmetricLength>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub taper_angle1: Option<f64>,
+    pub taper_angle1: Option<Formula<AngleUnit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub taper_angle2: Option<f64>,
+    pub taper_angle2: Option<Formula<AngleUnit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub mode: Option<ExtrudeMode>,
@@ -450,6 +525,8 @@ pub enum SurfaceType {
 #[serde(deny_unknown_fields)]
 pub struct CreateScene {
     pub name: Option<String>,
+    #[ts(optional)]
+    pub units: Option<SceneUnits>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -587,6 +664,7 @@ macro_rules! api {
 
 api! {
     SceneCreate(CreateScene) -> SceneData = "scene.create",
+    SceneEvaluateFormula(EvaluateFormula) -> EvaluatedFormula<FormulaUnit> = "scene.evaluateFormula",
     SceneExport(ExportScene) -> EncodedFile = "scene.export",
     SceneCapture(CaptureScene) -> EncodedFile = "scene.capture",
     SketchCreate(CreateSketch) -> SketchData = "sketch.create",
@@ -622,6 +700,15 @@ pub fn typescript() -> String {
         Planes::decl(),
         BuiltinConstruction::decl(),
         Construction::decl(),
+        FormulaDimension::decl(),
+        LengthUnit::decl(),
+        AngleUnit::decl(),
+        FormulaUnit::decl(),
+        SceneUnits::decl(),
+        FormulaQuantity::<FormulaUnit>::decl(),
+        EvaluatedFormula::<FormulaUnit>::decl(),
+        Formula::<FormulaUnit>::decl(),
+        EvaluateFormula::decl(),
         SceneData::decl(),
         SketchData::decl(),
         RectangleData::decl(),

@@ -1,4 +1,4 @@
-import type { ExtrudeFeature as WireExtrudeFeature, ExtrudeFaceSelector, ExtrudeParameters, ExtrudePreview, LineRef, ProfileRef, Profiles } from "./generated/protocol.js";
+import type { ExtrudeFeature as WireExtrudeFeature, ExtrudeFaceSelector, ExtrudeParameters, ExtrudePreview, LineRef, ProfileRef, Profiles, SceneUnits } from "./generated/protocol.js";
 import { Body } from "./solid.js";
 import { Scene } from "./scene.js";
 import type { Transport } from "./transport.js";
@@ -44,8 +44,8 @@ export class Core {
 
   constructor(private readonly transport: Transport) {
     this.scene = {
-      create: async (name: string | null = null): Promise<Scene> =>
-        new Scene(transport, await transport.request("scene.create", { name })),
+      create: async (name: string | null = null, units?: SceneUnits): Promise<Scene> =>
+        new Scene(transport, await transport.request("scene.create", { name, units })),
     };
     function extrude<P extends Profiles, O extends ExtrudeOptions>(profile: P, options: O, execution?: { preview?: false }): Promise<FeatureFor<P, O>>;
     function extrude(profile: Profiles, options: ExtrudeOptions, execution: { preview: true }): Promise<ExtrudePreview>;

@@ -24,6 +24,8 @@ Extrusion, by default, affects all bodies on the way of extrusion. Supply `targe
 
 # Parameters
 
+Lengths and start offsets accept [length formulas](../../../type/Formula.md). Taper angles accept angle formulas. Numeric inputs use mm and degrees.
+
 - `type` is `oneSide` (default), `twoSides`, or `symmetric`. `direction` orients side 1 along the positive (default) or negative profile normal. Side 2 points the opposite way.
 - `start` defaults to `{ type: "profilePlane" }`. An offset start takes a signed `offset` in mm along the profile normal. An object start takes a `face` and uses the signed offset from the profile plane to its nearest point, measured along the normal over the whole bounded face.
 - `extent1` and `extent2` each take `{ type: "length" }` (default), `{ type: "throughAll" }`, or `{ type: "toObject", body, extent }`. Through all covers the forward reach of the candidate bodies in that side’s direction. A limiting body may be supplied independently of the Boolean targets.
@@ -61,6 +63,8 @@ Body IDs follow the [body identity rules](../../../body-identity.md).
 - `KERNEL_FAILURE` if the Boolean fails validation or a cut splits a target.
 
 # Test cases
+
+- Formula length. Extrude a 10 × 10 mm square by `"20/ 2"` in a default scene. Expect a 10 mm cap height and 1000 mm³ volume. The feature retains the expression and its computed length.
 
 - Cube extrusion: extrude a 10 × 10 mm rectangle by 15 mm. Expect one new solid with a volume of 1500 mm³.
 - Cube with hole: extrude a 10 × 10 mm rectangle by 10 mm. Sketch a centered circle of diameter 8 mm on the top face. Cut by −5 mm. Expect volume (1000 − 80π) mm³, an empty `newSolids` array, and the original cube as the sole member of `affectedSolids`.

@@ -2,6 +2,7 @@ pub(crate) mod modeling;
 
 use crate::{
     error::{CoreError, ErrorCode, Result},
+    formula::FormulaEvaluator,
     model::{Body, Scene},
     protocol::*,
     sketch::{self, Frame, Sketch},
@@ -57,10 +58,22 @@ impl Engine {
                 self.scene(&input.scene_id)?.capture(&input)?,
             )),
             Request::SceneCreate(input) => {
-                let scene = Scene::new(self.id("scene"), input.name);
+                let scene = Scene::new(
+                    self.id("scene"),
+                    input.name,
+                    input.units.unwrap_or_default(),
+                );
                 let data = scene.data.clone();
                 self.scenes.insert(data.id.clone(), scene);
                 Ok(Response::SceneCreate(data))
+            }
+            Request::SceneEvaluateFormula(input) => {
+                let units = self.scene(&input.scene_id)?.data.units;
+                let result = FormulaEvaluator::evaluate(
+                    &input.expression,
+                    units.unit(input.expected_dimension),
+                )?;
+                Ok(Response::SceneEvaluateFormula(result))
             }
             Request::SketchCreate(input) => {
                 let frame = match &input.plane {

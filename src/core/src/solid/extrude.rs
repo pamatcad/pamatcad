@@ -22,7 +22,7 @@ impl ModelingCommand for Extrude {
         })
     }
 
-    fn evaluate(self, scene: &Scene) -> Result<ProposedChanges> {
+    fn evaluate(mut self, scene: &Scene) -> Result<ProposedChanges> {
         let mode = self.parameters.mode.unwrap_or(ExtrudeMode::NewBody);
         if mode == ExtrudeMode::NewBody && self.targets.is_some() {
             return Err(CoreError::new(
@@ -188,7 +188,7 @@ fn apply_boolean(
 fn extrude_faces<'a>(
     scene: &Scene,
     faces: &[FaceRef],
-    resolve: impl Fn(Frame) -> Result<PrismOptions<'a>>,
+    resolve: impl FnOnce(Frame) -> Result<PrismOptions<'a>>,
 ) -> Result<Vec<Shape>> {
     let first = faces.first().ok_or_else(|| {
         CoreError::new(
@@ -218,7 +218,7 @@ fn extrude_faces<'a>(
 fn extrude_regions<'a>(
     scene: &Scene,
     regions: &[RegionRef],
-    resolve: impl Fn(Frame) -> Result<PrismOptions<'a>>,
+    resolve: impl FnOnce(Frame) -> Result<PrismOptions<'a>>,
 ) -> Result<Vec<Shape>> {
     let first = regions
         .first()

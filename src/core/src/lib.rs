@@ -1,5 +1,6 @@
 mod capture;
 mod engine;
+mod formula;
 mod kernel;
 mod model;
 mod sketch;

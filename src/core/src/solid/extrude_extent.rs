@@ -16,7 +16,7 @@ impl ExtrudeParameters {
     }
 
     pub(crate) fn resolve<'a>(
-        &self,
+        &mut self,
         scene: &'a Scene,
         frame: Frame,
         targets: &[&Body],
@@ -35,9 +35,10 @@ impl ExtrudeParameters {
                 "The total/half length switch requires a symmetric extrusion",
             ));
         }
-        let offset = match &self.start {
+        let units = scene.data.units;
+        let offset = match &mut self.start {
             None | Some(ExtrudeStart::ProfilePlane) => 0.,
-            Some(ExtrudeStart::Offset { offset }) => *offset,
+            Some(ExtrudeStart::Offset { offset }) => offset.resolve(units.length)?,
             Some(ExtrudeStart::Object { face }) => {
                 let (body, slot) = scene.resolve_face(face)?;
                 let [min, max] = body.shape.axial_bounds(Some(slot), frame)?;
@@ -62,9 +63,19 @@ impl ExtrudeParameters {
         } else {
             1.
         };
-        let first_length = self.length1.or(self.length);
+        let first_length = self
+            .length1
+            .as_mut()
+            .or(self.length.as_mut())
+            .map(|formula| formula.resolve(units.length))
+            .transpose()?;
         let first_extent = self.extent1.as_ref().unwrap_or(&ExtrudeExtent::Length);
-        let first_taper = self.taper_angle1.unwrap_or(0.);
+        let first_taper = self
+            .taper_angle1
+            .as_mut()
+            .map(|formula| formula.resolve(units.angle))
+            .transpose()?
+            .unwrap_or(0.);
         let new_body = self.mode.unwrap_or(ExtrudeMode::NewBody) == ExtrudeMode::NewBody;
         let make_side = |extent: &ExtrudeExtent,
                          length: Option<f64>,
@@ -136,9 +147,16 @@ impl ExtrudeParameters {
                 make_side(first_extent, first_length, sign, first_taper)?,
                 make_side(
                     self.extent2.as_ref().unwrap_or(&ExtrudeExtent::Length),
-                    self.length2,
+                    self.length2
+                        .as_mut()
+                        .map(|formula| formula.resolve(units.length))
+                        .transpose()?,
                     -sign,
-                    self.taper_angle2.unwrap_or(0.),
+                    self.taper_angle2
+                        .as_mut()
+                        .map(|formula| formula.resolve(units.angle))
+                        .transpose()?
+                        .unwrap_or(0.),
                 )?,
             ],
             ExtrudeType::Symmetric => {
