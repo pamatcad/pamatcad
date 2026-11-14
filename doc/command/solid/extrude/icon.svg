@@ -1,13 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26"
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"
      role="img" aria-labelledby="title">
   <title id="title">Extrude</title>
   <g id="solid">
-    <path id="cap" fill="#d0e9e6" d="m13 7.5 10.5 5-10.5 5-10.5-5Z"/>
-    <path id="lit-side" fill="#a9cbd2" d="m2.5 12.5 10.5 5v7l-10.5-5Z"/>
-    <path id="shaded-side" fill="#6a9eae" d="m13 17.5 10.5-5v7l-10.5 5Z"/>
-    <path id="edges" d="m13 7.5 10.5 5v7l-10.5 5-10.5-5v-7Zm-10.5 5 10.5 5 10.5-5M13 17.5v7"
-          fill="none" stroke="#234b58" stroke-opacity="1" stroke-width="1.35"
+    <path id="cap" fill="#d0e9e6" d="M16 9 29 15 16 21 3 15Z"/>
+    <path id="lit-side" fill="#a9cbd2" d="M3 15 16 21v9L3 24Z"/>
+    <path id="shaded-side" fill="#6a9eae" d="M16 21 29 15v9l-13 6Z"/>
+    <path id="edges" d="M16 9 29 15v9l-13 6-13-6v-9ZM3 15l13 6 13-6M16 21v9"
+          fill="none" stroke="#234b58" stroke-opacity="1" stroke-width="1.7"
           stroke-linecap="round" stroke-linejoin="round"/>
   </g>
-  <path id="normal-arrow" fill="#a64a20" d="m13 1 4.5 5.5h-3v6h-3v-6h-3Z"/>
+  <path id="normal-arrow" fill="#a64a20" d="m16 1 5.5 7H18v7h-4V8h-3.5Z"/>
 </svg>

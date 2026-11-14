@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="448" height="192" viewBox="0 0 448 192" role="img" aria-labelledby="title desc">
+     width="512" height="256" viewBox="0 0 512 256" role="img" aria-labelledby="title desc">
   <title id="title">Extruding a planar profile</title>
   <desc id="desc">At left, a closed L-shaped profile lies on a sketch plane. At right, the same
     outline forms the upper face of a solid. An upward arrow shows the extrusion direction
@@ -17,16 +17,16 @@
     </g>
   </defs>
 
-  <g id="sketch" transform="translate(92 102)">
+  <g id="sketch" transform="translate(107.5 134.75) scale(1.125)">
     <use xlink:href="#sketch-plane"/>
     <use xlink:href="#profile" fill="#d0e9e6" stroke="#24716d" stroke-width="2.2"
          stroke-linejoin="round"/>
   </g>
 
-  <path id="transition" d="M203 106h28m-7-7 7 7-7 7" fill="none"
+  <path id="transition" transform="translate(4 20) scale(1.125)" d="M203 106h28m-7-7 7 7-7 7" fill="none"
         stroke="#70858c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <g id="extrusion" transform="translate(326 102)">
+  <g id="extrusion" transform="translate(370.75 134.75) scale(1.125)">
     <use xlink:href="#sketch-plane"/>
     <g id="body" transform="translate(0 -58)" stroke="#234b58" stroke-width="1.8"
        stroke-linejoin="round">

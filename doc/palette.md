@@ -27,13 +27,13 @@ Used in icons, illustrations and editor
 | Usage | Fill | Stroke |
 | --- | --- | --- |
 | Solid side facing the light | <span class="swatch" style="background-color: #a9cbd2;"></span> `#a9cbd2`| |
-| Solid side facing away from the light | | <span class="swatch" style="background-color: #6a9eae;"></span> `#6a9eae` |
+| Solid side facing away from the light | <span class="swatch" style="background-color: #6a9eae;"></span> `#6a9eae` | |
 
 ## UI
 
 | Usage | Fill | Stroke |
 | --- | --- | --- |
-| Operation direction or handle | | <span class="swatch" style="background-color: #a64a20;"></span> `#a64a20` |
+| Operation direction or handle | <span class="swatch" style="background-color: #a64a20;"></span> `#a64a20` | <span class="swatch" style="background-color: #a64a20;"></span> `#a64a20` |
 | Transition between diagram views| | <span class="swatch" style="background-color: #70858c;"></span> `#70858c` |
 
 ## Construction
