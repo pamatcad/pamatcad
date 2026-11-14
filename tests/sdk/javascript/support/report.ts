@@ -10,7 +10,7 @@ export async function captureReportScene(t: TestContext, scene: Scene, directory
   const errors: string[] = [];
   for (const kind of ["jpeg", "step"] as const) {
     try {
-      const file = kind === "jpeg" ? await scene.capture({ format: "jpeg" }) : await scene.export({ format: "step" });
+      const file = kind === "jpeg" ? await scene.capture({ format: "jpeg", showAxes: true }) : await scene.export({ format: "step" });
       await writeFile(join(directory, "assets", id + (kind === "jpeg" ? ".jpg" : ".step")), file.bytes);
       artifacts[kind] = true;
     } catch (error) {

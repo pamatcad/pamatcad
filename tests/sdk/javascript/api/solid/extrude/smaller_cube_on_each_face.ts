@@ -12,14 +12,14 @@ test("join a smaller cube to each of the six original faces", { timeout: 30_000 
   assert.equal(block.newSolids.length, 1);
   const cubeRef = block.newSolids[0]!;
   const cube = await scene.bodies.get(cubeRef.id);
-  const top = await block.faces.endCap({ profile }).only();
+  const top = await block.faces.endCap1({ profile }).only();
   const bottom = await block.faces.startCap({ profile }).only();
-  const sides = await block.faces.sideFaces({ profile }).all();
+  const sides = await block.faces.sideFaces1({ profile }).all();
   assert.equal(sides.length, 4);
   assert.deepEqual(new Set([top, bottom, ...sides]), new Set(await cube.faces.all()));
 
   const sideByEdge = await Promise.all(rectangle.lines.map(edge =>
-    block.faces.sideFaces({ profile, edge }).only()));
+    block.faces.sideFaces1({ profile, edge }).only()));
   assert.deepEqual(new Set(sideByEdge), new Set(sides));
 
   // In rectangle boundary order the four side sketch centers are at V = +5, +5, −5, −5.
@@ -41,5 +41,5 @@ test("join a smaller cube to each of the six original faces", { timeout: 30_000 
   assert.deepEqual(await scene.timeline.list(), entries);
   assert.ok(Math.abs((await cube.properties()).volume.value - 1048) < 1e-8);
   assert.deepEqual(await scene.bodies.all(), [cubeRef]);
-  assert.deepEqual(new Set(await block.faces.sideFaces({ profile }).all()), new Set(sides));
+  assert.deepEqual(new Set(await block.faces.sideFaces1({ profile }).all()), new Set(sides));
 });

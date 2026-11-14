@@ -1,18 +1,12 @@
 #include "bridge_internal.hxx"
 #include <BRepAdaptor_Surface.hxx>
-#include <BRepBuilderAPI_MakeEdge.hxx>
-#include <BRepBuilderAPI_MakeWire.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
-#include <gp_Circ.hxx>
 #include <gp_Pln.hxx>
-#include <BRepBuilderAPI_MakeFace.hxx>
-#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
-#include <BRepPrimAPI_MakePrism.hxx>
 #include <GProp_GProps.hxx>
 #include <Standard_Failure.hxx>
 #include <TopoDS_Face.hxx>
@@ -46,89 +40,28 @@ double validated_volume(const TopoDS_Shape& solid) {
     return volume(solid);
 }
 
-static void extrude_face(const TopoDS_Face& face, const std::vector<TopoDS_Edge>& edges,
-                         const double* direction, PamatShape** output,
-                         bool copy_profile = false) {
-    BRepPrimAPI_MakePrism prism(face, gp_Vec(direction[0], direction[1], direction[2]), copy_profile);
-    if (!prism.IsDone()) throw std::runtime_error("Could not extrude the profile");
-    auto shape = std::make_unique<PamatShape>();
-    shape->value = prism.Shape();
-    validated_volume(shape->value);
-    // Use the face's outward orientation in the finished solid.
-    TopTools_IndexedMapOfShape faces;
-    TopExp::MapShapes(shape->value, TopAbs_FACE, faces);
-    const auto keep = [&](TopTools_IndexedMapOfShape& slot, const TopoDS_Shape& generated) {
-        const int index = faces.FindIndex(generated);
-        if (!index) throw std::runtime_error("Generated prism face is missing from its solid");
-        slot.Add(faces.FindKey(index));
-    };
-    keep(shape->named_faces.emplace_back(), prism.LastShape());
-    keep(shape->named_faces.emplace_back(), prism.FirstShape());
-    for (const auto& edge : edges) {
-        auto& side = shape->named_faces.emplace_back();
-        for (const auto& generated : prism.Generated(edge)) {
-            if (generated.ShapeType() == TopAbs_FACE) keep(side, generated);
-        }
-    }
-    *output = shape.release();
-}
-
-extern "C" int pamat_extrude_face(const PamatShape* body, size_t face_id, const double* direction,
-                                  PamatShape** output, char* error, size_t error_size) {
-    if (output) *output = nullptr;
-    return checked([&] {
-        if (!body || !direction || !output) throw std::runtime_error("Invalid extrusion arguments");
-        const auto& faces = body->named_faces.at(face_id);
-        if (faces.Extent() != 1) throw std::runtime_error("Extrusion profile must resolve to one face");
-        const auto& face = TopoDS::Face(faces.FindKey(1));
-        TopTools_IndexedMapOfShape boundary;
-        TopExp::MapShapes(face, TopAbs_EDGE, boundary);
-        std::vector<TopoDS_Edge> edges;
-        for (const auto& edge : boundary) edges.push_back(TopoDS::Edge(edge));
-        extrude_face(face, edges, direction, output, true);
-    }, error, error_size);
-}
-
-extern "C" int pamat_extrude(const double* points, size_t count, const double* direction,
-                             PamatShape** output, char* error, size_t error_size) {
-    if (output) *output = nullptr;
-    return checked([&] {
-        if (!points || !direction || !output || count < 3) {
-            throw std::runtime_error("Invalid extrusion arguments");
-        }
-        BRepBuilderAPI_MakePolygon polygon;
-        std::vector<TopoDS_Edge> edges;
-        for (size_t i = 0; i < count; ++i) {
-            polygon.Add(gp_Pnt(points[3 * i], points[3 * i + 1], points[3 * i + 2]));
-            if (i > 0) edges.push_back(polygon.Edge());
-        }
-        polygon.Close();
-        if (!polygon.IsDone()) throw std::runtime_error("Could not construct the profile wire");
-        edges.push_back(polygon.Edge());
-        BRepBuilderAPI_MakeFace face(polygon.Wire(), true);
-        if (!face.IsDone()) throw std::runtime_error("Could not construct the profile face");
-        extrude_face(face.Face(), edges, direction, output);
-    }, error, error_size);
-}
-
-extern "C" int pamat_extrude_circle(const double* center, double radius, const double* normal,
-                                    const double* direction, PamatShape** output, char* error, size_t error_size) {
-    if (output) *output = nullptr;
-    return checked([&] {
-        if (!center || !normal || !direction || !output) throw std::runtime_error("Invalid circle arguments");
-        const gp_Ax2 axes(gp_Pnt(center[0], center[1], center[2]), gp_Dir(normal[0], normal[1], normal[2]));
-        BRepBuilderAPI_MakeEdge edge(gp_Circ(axes, radius));
-        BRepBuilderAPI_MakeWire wire(edge.Edge());
-        BRepBuilderAPI_MakeFace face(wire.Wire(), true);
-        if (!face.IsDone()) throw std::runtime_error("Could not construct the circular profile");
-        extrude_face(face.Face(), {edge.Edge()}, direction, output);
-    }, error, error_size);
-}
-
 static gp_Dir outward_normal(const TopoDS_Face& face, const gp_Pln& plane) {
     gp_Dir normal = plane.Axis().Direction();
     if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
     return normal;
+}
+
+extern "C" int pamat_face_properties(const PamatShape* body, size_t face_id, double* properties,
+                                      int* surface_type, char* error, size_t error_size) {
+    return checked([&] {
+        const auto& face = TopoDS::Face(body->named_faces.at(face_id).FindKey(1));
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(face, props);
+        properties[0] = props.Mass();
+        const gp_Pnt center = props.CentreOfMass();
+        for (int i = 1; i <= 3; ++i) properties[i] = center.Coord(i);
+        switch (BRepAdaptor_Surface(face).GetType()) {
+            case GeomAbs_Plane: *surface_type = 1; break;
+            case GeomAbs_Cylinder: *surface_type = 2; break;
+            case GeomAbs_Cone: *surface_type = 3; break;
+            default: *surface_type = 0;
+        }
+    }, error, error_size);
 }
 
 extern "C" size_t pamat_face_count(const PamatShape* shape, size_t face_id) {

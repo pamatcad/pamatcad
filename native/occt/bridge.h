@@ -5,12 +5,29 @@
 extern "C" {
 #endif
 typedef struct PamatShape PamatShape;
-int pamat_extrude(const double* points, size_t count, const double* direction,
+typedef struct {
+    const PamatShape* target;
+    double length;       // Signed along the profile normal, or resolved bounding reach.
+    double taper;        // Outward angle in radians.
+    int extent;          // 0 fixed, 1 closest, 2 touch, 3 intersect, 4 farthest.
+} PamatExtrudeSide;
+typedef struct {
+    double normal[3];
+    double origin[3];
+    double offset;
+    PamatExtrudeSide sides[2];
+    int two_sides;
+} PamatExtrusion;
+int pamat_extrude(const double* points, size_t count, const PamatExtrusion* options,
                   PamatShape** output, char* error, size_t error_size);
-int pamat_extrude_circle(const double* center, double radius, const double* normal,
-                         const double* direction, PamatShape** output, char* error, size_t error_size);
-int pamat_extrude_face(const PamatShape* body, size_t face_id, const double* direction,
+int pamat_extrude_circle(const double* center, double radius, const PamatExtrusion* options,
+                         PamatShape** output, char* error, size_t error_size);
+int pamat_extrude_face(const PamatShape* body, size_t face_id, const PamatExtrusion* options,
                        PamatShape** output, char* error, size_t error_size);
+int pamat_axial_bounds(const PamatShape* body, size_t face_id, const double* origin,
+                       const double* normal, double* bounds, char* error, size_t error_size);
+int pamat_face_properties(const PamatShape* body, size_t face_id, double* properties,
+                          int* surface_type, char* error, size_t error_size);
 // A partition borrows its target and tool shapes until freed. Group indices refer
 // to the corresponding input array. The arrays in a group live with the partition.
 typedef struct PamatPartition PamatPartition;

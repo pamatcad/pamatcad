@@ -6,9 +6,17 @@ import { WebSocketTransport } from "./transports/websocket.js";
 
 type ExtrudeOptions = ExtrudeParameters & { targets?: Body[] };
 export type ExtrudeFeature = WireExtrudeFeature & { readonly faces: ReturnType<typeof extrudeFaces> };
-type FeatureFor<P extends Profiles> = ExtrudeFeature & { operation: { inputs: { profile: P } } };
+type FeatureFor<P extends Profiles, O extends ExtrudeOptions> = Omit<ExtrudeFeature, "faces"> & {
+  operation: { inputs: { profile: P } };
+  faces: Omit<ExtrudeFeature["faces"], "startCap"> & (
+    O extends { type: "twoSides" | "symmetric" } ? { startCap: (args: { profile: ProfileRef }) => null } :
+    O extends { type: "oneSide" } ? { startCap: ExtrudeFeature["faces"]["endCap1"] } :
+    "type" extends keyof O ? Pick<ExtrudeFeature["faces"], "startCap"> :
+    { startCap: ExtrudeFeature["faces"]["endCap1"] }
+  );
+};
 
-function extrudeFaces(transport: Transport, feature: string) {
+function extrudeFaces(transport: Transport, feature: string, twoSided: boolean) {
   function select(profile: ProfileRef, selector: ExtrudeFaceSelector) {
     const query = { feature, profile, selector };
     return {
@@ -17,10 +25,16 @@ function extrudeFaces(transport: Transport, feature: string) {
     };
   }
   return {
+    endCap1: ({ profile }: { profile: ProfileRef }) => select(profile, { role: "endCap1" }),
+    endCap2: ({ profile }: { profile: ProfileRef }) => select(profile, { role: "endCap2" }),
     endCap: ({ profile }: { profile: ProfileRef }) => select(profile, { role: "endCap" }),
-    startCap: ({ profile }: { profile: ProfileRef }) => select(profile, { role: "startCap" }),
+    startCap: ({ profile }: { profile: ProfileRef }) => twoSided ? null : select(profile, { role: "startCap" }),
     sideFaces: ({ profile, edge }: { profile: ProfileRef; edge?: LineRef }) =>
       select(profile, edge ? { role: "sideFaces", edge } : { role: "sideFaces" }),
+    sideFaces1: ({ profile, edge }: { profile: ProfileRef; edge?: LineRef }) =>
+      select(profile, edge ? { role: "sideFaces1", edge } : { role: "sideFaces1" }),
+    sideFaces2: ({ profile, edge }: { profile: ProfileRef; edge?: LineRef }) =>
+      select(profile, edge ? { role: "sideFaces2", edge } : { role: "sideFaces2" }),
   };
 }
 
@@ -33,7 +47,7 @@ export class Core {
       create: async (name: string | null = null): Promise<Scene> =>
         new Scene(transport, await transport.request("scene.create", { name })),
     };
-    function extrude<P extends Profiles>(profile: P, options: ExtrudeOptions, execution?: { preview?: false }): Promise<FeatureFor<P>>;
+    function extrude<P extends Profiles, O extends ExtrudeOptions>(profile: P, options: O, execution?: { preview?: false }): Promise<FeatureFor<P, O>>;
     function extrude(profile: Profiles, options: ExtrudeOptions, execution: { preview: true }): Promise<ExtrudePreview>;
     function extrude(profile: Profiles, options: ExtrudeOptions, execution: { preview: boolean }): Promise<ExtrudeFeature | ExtrudePreview>;
     function extrude(profile: Profiles, options: ExtrudeOptions, execution?: { preview?: boolean }) {
@@ -44,7 +58,7 @@ export class Core {
       }).then(result => {
         if (!("id" in result)) return result;
         // Keep SDK query methods out of the serialized feature.
-        return Object.defineProperty({ ...result }, "faces", { value: extrudeFaces(transport, result.id) }) as ExtrudeFeature;
+        return Object.defineProperty({ ...result }, "faces", { value: extrudeFaces(transport, result.id, (result.operation.parameters.type ?? "oneSide") !== "oneSide") }) as ExtrudeFeature;
       });
     }
     this.solid = { extrude };

@@ -79,6 +79,10 @@ pub fn jpeg(bodies: &[&Shape], request: &CaptureScene) -> Result<Vec<u8>> {
     for triangle in triangles {
         image.draw(triangle, scale);
     }
+    if request.show_axes.unwrap_or(false) {
+        let origin = image.screen(-dot(target, right), -dot(target, vertical), scale);
+        image.draw_axes(origin, right, vertical);
+    }
     let mut bytes = Vec::new();
     Encoder::new(&mut bytes, 90)
         .encode(&image.rgb, width as u16, height as u16, ColorType::Rgb)
@@ -98,6 +102,8 @@ struct Raster {
     depth: Vec<f64>,
 }
 
+type PixelPoint = [f64; 2];
+
 impl Raster {
     fn new(width: usize, height: usize) -> Self {
         Self {
@@ -105,6 +111,97 @@ impl Raster {
             height,
             rgb: [246, 248, 250].repeat(width * height),
             depth: vec![f64::NEG_INFINITY; width * height],
+        }
+    }
+
+    fn screen(&self, x: f64, y: f64, scale: f64) -> PixelPoint {
+        [
+            self.width as f64 / 2. + x * scale,
+            self.height as f64 / 2. - y * scale,
+        ]
+    }
+
+    fn draw_axes(&mut self, origin: PixelPoint, right: Point, vertical: Point) {
+        let size = self.width.min(self.height) as f64;
+        let length = size * 0.12;
+        let pen = (size / 420.).clamp(0.7, 6.);
+        // Upright X, Y and Z labels in screen coordinates.
+        let axes: [([u8; 3], &[[f64; 4]]); 3] = [
+            ([181, 43, 45], &[[-0.7, -1., 0.7, 1.], [-0.7, 1., 0.7, -1.]]),
+            (
+                [22, 124, 66],
+                &[[-0.7, -1., 0., 0.], [0.7, -1., 0., 0.], [0., 0., 0., 1.]],
+            ),
+            (
+                [36, 82, 179],
+                &[
+                    [-0.7, -1., 0.7, -1.],
+                    [0.7, -1., -0.7, 1.],
+                    [-0.7, 1., 0.7, 1.],
+                ],
+            ),
+        ];
+        for (i, (color, glyph)) in axes.iter().enumerate() {
+            let dx = right[i];
+            let dy = -vertical[i];
+            let projected = dx.hypot(dy);
+            let tip = [origin[0] + length * dx, origin[1] + length * dy];
+            // A view along an axis projects it to the origin. Offset its label diagonally.
+            let (ux, uy) = if projected > 1e-8 {
+                (dx / projected, dy / projected)
+            } else {
+                (
+                    std::f64::consts::FRAC_1_SQRT_2,
+                    -std::f64::consts::FRAC_1_SQRT_2,
+                )
+            };
+            let label = [tip[0] + ux * pen * 10., tip[1] + uy * pen * 10.];
+            for (ink, radius) in [([255; 3], pen * 1.85), (*color, pen)] {
+                self.stroke(origin, tip, radius, ink);
+                let head = (length * projected * 0.4).min(6. * pen);
+                for side in [-0.45, 0.45] {
+                    let wing = [
+                        tip[0] - head * (ux + side * uy),
+                        tip[1] - head * (uy - side * ux),
+                    ];
+                    self.stroke(wing, tip, radius, ink);
+                }
+                let letter_point = |x, y| [label[0] + x * pen * 6., label[1] + y * pen * 6.];
+                for &[x1, y1, x2, y2] in *glyph {
+                    self.stroke(letter_point(x1, y1), letter_point(x2, y2), radius, ink);
+                }
+            }
+        }
+        self.stroke(origin, origin, pen * 3., [255; 3]);
+        self.stroke(origin, origin, pen * 1.8, [37, 46, 54]);
+    }
+
+    // Paint a round-ended stroke, clipping its pixel bounds to the image.
+    fn stroke(&mut self, a: PixelPoint, b: PixelPoint, radius: f64, color: [u8; 3]) {
+        let [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+        let squared = dx * dx + dy * dy;
+        let bounds = |start: f64, end: f64, limit| {
+            let lo = (start.min(end) - radius - 1.).floor() as usize;
+            let hi = (start.max(end) + radius + 1.).ceil() as usize;
+            lo..hi.min(limit)
+        };
+        let columns = bounds(a[0], b[0], self.width);
+        for y in bounds(a[1], b[1], self.height) {
+            for x in columns.clone() {
+                let px = x as f64 + 0.5 - a[0];
+                let py = y as f64 + 0.5 - a[1];
+                let t = if squared == 0. {
+                    0.
+                } else {
+                    ((px * dx + py * dy) / squared).clamp(0., 1.)
+                };
+                let coverage = (radius + 0.5 - (px - t * dx).hypot(py - t * dy)).clamp(0., 1.);
+                let index = 3 * (y * self.width + x);
+                for (dst, src) in self.rgb[index..index + 3].iter_mut().zip(color) {
+                    *dst = (f64::from(*dst) + coverage * (f64::from(src) - f64::from(*dst))).round()
+                        as u8;
+                }
+            }
         }
     }
 
@@ -121,11 +218,8 @@ impl Raster {
         let light = 0.51 + 0.49 * dot(normal, [-0.44, 0.69, 0.57]).max(0.);
         let color = [115., 161., 188.].map(|v| (v * light).round() as u8);
         let points = tri.map(|[x, y, z]| {
-            [
-                self.width as f64 / 2. + x * scale,
-                self.height as f64 / 2. - y * scale,
-                z,
-            ]
+            let [px, py] = self.screen(x, y, scale);
+            [px, py, z]
         });
         let [a, b, c] = points;
         let edge = |a: Point, b: Point, x: f64, y: f64| {

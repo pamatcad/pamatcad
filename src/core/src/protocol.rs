@@ -52,6 +52,7 @@ pub struct BodyRef {
 #[serde(rename_all = "camelCase")]
 pub enum FaceRole {
     EndCap,
+    EndCap1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -185,10 +186,90 @@ pub enum ExtrudeMode {
     Join,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtrudeType {
+    #[default]
+    OneSide,
+    TwoSides,
+    Symmetric,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ObjectExtent {
+    Closest,
+    Touch,
+    Intersect,
+    Farthest,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(deny_unknown_fields)]
+#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ExtrudeStart {
+    ProfilePlane,
+    Offset { offset: f64 },
+    Object { face: FaceRef },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ExtrudeExtent {
+    Length,
+    ThroughAll,
+    ToObject { body: BodyRef, extent: ObjectExtent },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SymmetricLength {
+    Total,
+    Half,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtrudeDirection {
+    Positive,
+    Negative,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExtrudeParameters {
-    pub length: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub length: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub length1: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub length2: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub r#type: Option<ExtrudeType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub start: Option<ExtrudeStart>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub extent1: Option<ExtrudeExtent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub extent2: Option<ExtrudeExtent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub direction: Option<ExtrudeDirection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub symmetric_length: Option<SymmetricLength>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub taper_angle1: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub taper_angle2: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub mode: Option<ExtrudeMode>,
@@ -224,6 +305,16 @@ impl ProfileRef {
 pub enum ExtrudeFaceSelector {
     StartCap,
     EndCap,
+    EndCap1,
+    EndCap2,
+    SideFaces1 {
+        #[ts(optional)]
+        edge: Option<LineRef>,
+    },
+    SideFaces2 {
+        #[ts(optional)]
+        edge: Option<LineRef>,
+    },
     SideFaces {
         #[ts(optional)]
         edge: Option<LineRef>,
@@ -262,7 +353,7 @@ pub struct ExtrudeInputs {
 pub enum Operation {
     Extrude {
         inputs: ExtrudeInputs,
-        parameters: ExtrudeParameters,
+        parameters: Box<ExtrudeParameters>,
     },
 }
 
@@ -338,6 +429,23 @@ pub struct BodyProperties {
     pub volume: Volume,
 }
 
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FaceProperties {
+    pub area_mm2: f64,
+    pub centroid: [f64; 3],
+    pub surface: SurfaceType,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SurfaceType {
+    Plane,
+    Cylinder,
+    Cone,
+    Other,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct CreateScene {
@@ -369,7 +477,7 @@ pub struct Extrude {
     #[ts(optional)]
     pub preview: Option<bool>,
     pub profile: Profiles,
-    pub parameters: ExtrudeParameters,
+    pub parameters: Box<ExtrudeParameters>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub targets: Option<Vec<BodyRef>>,
@@ -451,6 +559,8 @@ pub struct CaptureScene {
     pub height: Option<u32>,
     #[ts(optional)]
     pub camera: Option<CameraOptions>,
+    #[ts(optional)]
+    pub show_axes: Option<bool>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -491,6 +601,7 @@ api! {
     BodiesAll(SceneQuery) -> Vec<BodyRef> = "scene.bodies.all",
     BodyGet(BodyQuery) -> BodyRef = "body.get",
     FaceOnly(FaceQuery) -> FaceRef = "body.faces.only",
+    FaceProperties(FaceRef) -> FaceProperties = "face.properties",
     FacesAll(BodyQuery) -> Vec<FaceRef> = "body.faces.all",
     BodyProperties(BodyQuery) -> BodyProperties = "body.properties",
 }
@@ -520,6 +631,12 @@ pub fn typescript() -> String {
         PrimitiveData::decl(),
         Primitive::decl(),
         ExtrudeMode::decl(),
+        ExtrudeType::decl(),
+        ObjectExtent::decl(),
+        ExtrudeStart::decl(),
+        ExtrudeExtent::decl(),
+        SymmetricLength::decl(),
+        ExtrudeDirection::decl(),
         ExtrudeParameters::decl(),
         Profiles::decl(),
         ProfileRef::decl(),
@@ -535,6 +652,8 @@ pub fn typescript() -> String {
         VolumeUnit::decl(),
         Volume::decl(),
         BodyProperties::decl(),
+        SurfaceType::decl(),
+        FaceProperties::decl(),
         ShapeFormat::decl(),
         ImageFormat::decl(),
         Projection::decl(),

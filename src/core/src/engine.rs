@@ -162,6 +162,10 @@ impl Engine {
                     )),
                 }
             }
+            Request::FaceProperties(face) => {
+                let (body, slot) = self.scene(face.scene_id())?.resolve_face(&face)?;
+                Ok(Response::FaceProperties(body.shape.face_properties(slot)?))
+            }
             Request::FacesAll(input) => {
                 let ids = self.body(&input.body)?.shape.face_ids(None)?;
                 Ok(Response::FacesAll(

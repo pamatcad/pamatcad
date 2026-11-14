@@ -1,10 +1,10 @@
 use crate::{
     engine::modeling::{BodyUpdate, ModelingCommand, ProposedChanges},
     error::{CoreError, ErrorCode, Result},
-    kernel::{CellPartition, Shape},
+    kernel::{CellPartition, PrismOptions, Shape},
     model::{Body, Scene},
     protocol::*,
-    sketch::{Boundary, Frame, Sketch, LINEAR_TOLERANCE},
+    sketch::{Boundary, Frame, Sketch},
 };
 
 impl ModelingCommand for Extrude {
@@ -23,19 +23,25 @@ impl ModelingCommand for Extrude {
     }
 
     fn evaluate(self, scene: &Scene) -> Result<ProposedChanges> {
-        let length = self.parameters.length;
         let mode = self.parameters.mode.unwrap_or(ExtrudeMode::NewBody);
-        if !length.is_finite()
-            || length.abs() <= LINEAR_TOLERANCE
-            || (mode == ExtrudeMode::NewBody && length < 0.)
-        {
-            return Err(CoreError::new(ErrorCode::InvalidParameter,
-                "Length must be finite and exceed the linear tolerance in magnitude; new-body extrusion requires positive length"));
+        if mode == ExtrudeMode::NewBody && self.targets.is_some() {
+            return Err(CoreError::new(
+                ErrorCode::InvalidParameter,
+                "New-body extrusion does not accept targets",
+            ));
         }
+        let needs_bounds = matches!(self.parameters.extent1, Some(ExtrudeExtent::ThroughAll))
+            || matches!(self.parameters.extent2, Some(ExtrudeExtent::ThroughAll));
+        let bodies = if mode != ExtrudeMode::NewBody || needs_bounds {
+            targets(scene, self.targets.as_deref())?
+        } else {
+            Vec::new()
+        };
+        let resolve = |frame| self.parameters.resolve(scene, frame, &bodies);
         let mut shapes = match &self.profile {
-            Profiles::Face(face) => extrude_faces(scene, std::slice::from_ref(face), length)?,
-            Profiles::Faces(faces) => extrude_faces(scene, faces, length)?,
-            regions => extrude_regions(scene, regions.regions(), length)?,
+            Profiles::Face(face) => extrude_faces(scene, std::slice::from_ref(face), resolve)?,
+            Profiles::Faces(faces) => extrude_faces(scene, faces, resolve)?,
+            regions => extrude_regions(scene, regions.regions(), resolve)?,
         };
         let mut changes = ProposedChanges {
             created: vec![],
@@ -51,18 +57,11 @@ impl ModelingCommand for Extrude {
         };
         let Operation::Extrude { inputs, .. } = &changes.operation;
         if mode == ExtrudeMode::NewBody {
-            if inputs.targets.is_some() {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidParameter,
-                    "New-body extrusion does not accept targets",
-                ));
-            }
             for (index, shape) in shapes.iter_mut().enumerate() {
                 shape.record_profile(index);
             }
             changes.created = shapes;
         } else {
-            let bodies = targets(scene, inputs.targets.as_deref())?;
             let source_faces = match &inputs.profile {
                 Profiles::Face(face) => std::slice::from_ref(face),
                 Profiles::Faces(faces) => faces.as_slice(),
@@ -186,35 +185,48 @@ fn apply_boolean(
     Ok(())
 }
 
-fn extrude_faces(scene: &Scene, faces: &[FaceRef], length: f64) -> Result<Vec<Shape>> {
-    let mut plane: Option<Frame> = None;
+fn extrude_faces<'a>(
+    scene: &Scene,
+    faces: &[FaceRef],
+    resolve: impl Fn(Frame) -> Result<PrismOptions<'a>>,
+) -> Result<Vec<Shape>> {
+    let first = faces.first().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidParameter,
+            "Select at least one extrusion face",
+        )
+    })?;
+    let (first_body, first_slot) = scene.resolve_face(first)?;
+    let plane = first_body.shape.face_frame(first_slot)?;
+    let options = resolve(plane)?;
     let mut selected = std::collections::BTreeSet::new();
     let mut shapes = Vec::with_capacity(faces.len());
     for face in faces {
         let (body, slot) = scene.resolve_face(face)?;
         let frame = body.shape.face_frame(slot)?;
-        let first = *plane.get_or_insert(frame);
-        if !selected.insert((&body.reference.id, slot)) || !first.coplanar_with(frame) {
+        if !selected.insert((&body.reference.id, slot)) || !plane.coplanar_with(frame) {
             return Err(CoreError::new(
                 ErrorCode::InvalidParameter,
                 "Select distinct coplanar faces",
             ));
         }
-        shapes.push(
-            body.shape
-                .extrude_face(slot, first.normal.map(|v| v * length))?,
-        );
+        shapes.push(body.shape.extrude_face(slot, &options)?);
     }
     Ok(shapes)
 }
 
-fn extrude_regions(scene: &Scene, regions: &[RegionRef], length: f64) -> Result<Vec<Shape>> {
+fn extrude_regions<'a>(
+    scene: &Scene,
+    regions: &[RegionRef],
+    resolve: impl Fn(Frame) -> Result<PrismOptions<'a>>,
+) -> Result<Vec<Shape>> {
     let first = regions
         .first()
         .ok_or_else(|| CoreError::new(ErrorCode::InvalidParameter, "Select at least one region"))?;
     let sketch = scene.sketches.get(&first.sketch_id).ok_or_else(|| {
         CoreError::new(ErrorCode::NotFound, "Sketch does not exist in this scene")
     })?;
+    let options = resolve(sketch.frame)?;
     let mut selected = std::collections::BTreeSet::new();
     regions
         .iter()
@@ -228,30 +240,24 @@ fn extrude_regions(scene: &Scene, regions: &[RegionRef], length: f64) -> Result<
                     "Select distinct regions from one sketch",
                 ));
             }
-            evaluate_profile(sketch, region, length)
+            evaluate_profile(sketch, region, &options)
         })
         .collect()
 }
 
-fn evaluate_profile(sketch: &Sketch, profile: &RegionRef, length: f64) -> Result<Shape> {
+fn evaluate_profile(sketch: &Sketch, profile: &RegionRef, options: &PrismOptions) -> Result<Shape> {
     let frame = sketch.frame;
-    let direction = frame.normal.map(|value| value * length);
     match sketch.profile(profile)? {
         Boundary::Lines(ids) => {
             let points = ids
                 .iter()
                 .map(|id| frame.point(sketch.lines[id].from))
                 .collect::<Vec<_>>();
-            Shape::extrude(&points, direction)
+            Shape::extrude(&points, options)
         }
         Boundary::Circle(id) => {
             let circle = &sketch.circles[id];
-            Shape::extrude_circle(
-                frame.point(circle.center),
-                circle.diameter / 2.,
-                frame.normal,
-                direction,
-            )
+            Shape::extrude_circle(frame.point(circle.center), circle.diameter / 2., options)
         }
     }
 }

@@ -11,7 +11,7 @@ test("cut an 8 mm blind hole 5 mm into the end face of a 10 mm cube", { timeout:
   const [cubeRef] = block.newSolids;
   assert.ok(cubeRef);
   const cube = await scene.bodies.get(cubeRef.id);
-  const top = await cube.faces.query({ origin: { feature: block.id, role: "endCap" } }).only();
+  const top = await cube.faces.query({ origin: { feature: block.id, role: "endCap1" } }).only();
 
   const sketch = await scene.sketches.create(top);
   await sketch.primitives.add("circle", { center: [5, 5], diameter: 8 });

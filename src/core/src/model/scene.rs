@@ -99,7 +99,7 @@ impl Scene {
                         ));
                     }
                     match origin.role {
-                        FaceRole::EndCap => 0,
+                        FaceRole::EndCap | FaceRole::EndCap1 => 0,
                     }
                 }
             };

@@ -14,7 +14,10 @@ export class Body {
     function query(filter: { origin: FaceOrigin } | { normal: [number, number, number] }) {
       return { only: () => transport.request("body.faces.only", { body: reference, ...filter }) };
     }
-    this.faces = { query, all: () => transport.request("body.faces.all", { body: reference }) };
+    this.faces = { query, properties: (face: FaceRef) => {
+      if (face.sceneId !== reference.sceneId || face.bodyId !== reference.id) throw new Error("Face belongs to another body");
+      return transport.request("face.properties", face);
+    }, all: () => transport.request("body.faces.all", { body: reference }) };
   }
 
   properties() {

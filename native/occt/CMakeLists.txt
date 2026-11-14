@@ -10,7 +10,7 @@ set(occt_options
   -DBUILD_LIBRARY_TYPE=Static -DBUILD_RELEASE_DISABLE_EXCEPTIONS=OFF
   -DCMAKE_EXPORT_NO_PACKAGE_REGISTRY=ON
   -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_TCL=OFF -DUSE_XLIB=OFF -DUSE_OPENGL=OFF
-  "-DBUILD_ADDITIONAL_TOOLKITS=TKBO TKMesh TKDESTEP"
+  "-DBUILD_ADDITIONAL_TOOLKITS=TKOffset TKBO TKMesh TKDESTEP"
   "-DINSTALL_DIR=${occt_install}"
   -DINSTALL_DIR_INCLUDE=include/opencascade -DINSTALL_DIR_LIB=lib)
 foreach(module FoundationClasses ModelingData ModelingAlgorithms Visualization ApplicationFramework DataExchange Draw)
@@ -26,7 +26,7 @@ ExternalProject_Add(occt_build
   INSTALL_COMMAND "${CMAKE_COMMAND}" --install <BINARY_DIR> --config Release
   LOG_CONFIGURE TRUE LOG_BUILD TRUE LOG_INSTALL TRUE LOG_OUTPUT_ON_FAILURE TRUE)
 
-add_library(pamatcad_occt STATIC bridge.cpp boolean.cpp scene_io.cpp)
+add_library(pamatcad_occt STATIC bridge.cpp extrusion.cpp boolean.cpp scene_io.cpp)
 target_compile_features(pamatcad_occt PRIVATE cxx_std_17)
 target_include_directories(pamatcad_occt SYSTEM PRIVATE "${occt_install}/include/opencascade")
 add_dependencies(pamatcad_occt occt_build)

@@ -26,13 +26,18 @@ Goal: basic CAD operations
 - body split
 - STL export
 
+## More CAD
+
+Parameters
+Revolve
+Boolean operations
+
 ## M3 - branching timeline
 
 Goal: establish branching timelines early
 
 - branching timeline, switching between branches
-- timeline recalculation, timeline dependencies, cached geometry and error states
-
+- timeline recalculation, timeline dependencies, cached geometry and error state
 
 ## M2 - UI
 
@@ -49,7 +54,3 @@ Goal: just make it work
 - STEP export and scene capture
 - basic timeline operations & parameters
 - unconstrained sketches, extrusions, revolve, and boolean operations
-
----
-<div style="text-align: center; font-weight: bold;">completed milestones</div>
----

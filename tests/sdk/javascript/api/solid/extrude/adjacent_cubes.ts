@@ -12,7 +12,7 @@ async function adjacentCubes(t: TestContext, sceneName: string) {
     const profile = await sketch.regions.only();
     const feature = await core.solid.extrude(profile, { length: 10 });
     const ref = feature.newSolids[0]!;
-    const rightSide = feature.faces.sideFaces({ profile, edge: rectangle.lines[1]! });
+    const rightSide = feature.faces.sideFaces1({ profile, edge: rectangle.lines[1]! });
     return { ref, body: await scene.bodies.get(ref.id), rightSide };
   }
 

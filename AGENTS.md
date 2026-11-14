@@ -1,4 +1,13 @@
+# Project scope
+
+
+
+
 # Agent instructions
+
+- Before writing any code, present a plan of suggested changes, up to particular changes in core files and code examples; ask for confirmation before applying changes.
+- Keep edits narrow. Don't refactor adjacent pieces of code if not asked; ask for confirmation if its absolutely needed. 
+- Avoid rephrasing clients documentation unless explicitly asked.
 
 1. Keep documentation as short as possible without losing meaning. Remove repetition; preserve decisions, requirements, caveats, and acceptance criteria. Link to details instead of duplicating them.
 2. PamatCAD is the active project; `../workingcad/` is reference-only and will be removed later. Consult it for earlier work, but modify, migrate, or delete legacy files only when explicitly requested. Read `README.md` and applicable project documentation before implementation.

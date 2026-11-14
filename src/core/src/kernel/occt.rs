@@ -1,5 +1,8 @@
 use crate::error::{CoreError, ErrorCode, Result};
-use crate::sketch::Frame;
+use crate::{
+    protocol::{FaceProperties, SurfaceType},
+    sketch::Frame,
+};
 use std::{
     ffi::{c_char, c_void, CStr},
     ops::Range,
@@ -14,6 +17,34 @@ struct CellGroup {
     tool_count: usize,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) struct PrismSide<'a> {
+    target: *const c_void,
+    length: f64,
+    taper: f64,
+    extent: i32,
+    borrow: std::marker::PhantomData<&'a Shape>,
+}
+impl<'a> PrismSide<'a> {
+    pub fn new(target: Option<&'a Shape>, length: f64, taper: f64, extent: i32) -> Self {
+        Self {
+            target: target.map_or(std::ptr::null(), |s| s.raw.as_ptr()),
+            length,
+            taper: taper.to_radians(),
+            extent,
+            borrow: std::marker::PhantomData,
+        }
+    }
+}
+#[repr(C)]
+pub(crate) struct PrismOptions<'a> {
+    pub normal: [f64; 3],
+    pub origin: [f64; 3],
+    pub offset: f64,
+    pub sides: [PrismSide<'a>; 2],
+    pub two_sides: i32,
+}
 extern "C" {
     fn pamat_partition(
         targets: *const *const c_void,
@@ -41,7 +72,7 @@ extern "C" {
     fn pamat_extrude(
         points: *const f64,
         count: usize,
-        direction: *const f64,
+        options: *const PrismOptions,
         output: *mut *mut c_void,
         error: *mut c_char,
         error_size: usize,
@@ -49,8 +80,7 @@ extern "C" {
     fn pamat_extrude_circle(
         center: *const f64,
         radius: f64,
-        normal: *const f64,
-        direction: *const f64,
+        options: *const PrismOptions,
         output: *mut *mut c_void,
         error: *mut c_char,
         error_size: usize,
@@ -58,8 +88,25 @@ extern "C" {
     fn pamat_extrude_face(
         body: *const c_void,
         face_id: usize,
-        direction: *const f64,
+        options: *const PrismOptions,
         output: *mut *mut c_void,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+    fn pamat_axial_bounds(
+        body: *const c_void,
+        slot: usize,
+        origin: *const f64,
+        normal: *const f64,
+        bounds: *mut f64,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+    fn pamat_face_properties(
+        body: *const c_void,
+        slot: usize,
+        props: *mut f64,
+        surface: *mut i32,
         error: *mut c_char,
         error_size: usize,
     ) -> i32;
@@ -128,6 +175,14 @@ fn failure(error: &[c_char]) -> CoreError {
     CoreError::new(ErrorCode::KernelFailure, message)
 }
 
+fn extrusion_failure(status: i32, error: &[c_char]) -> CoreError {
+    let mut result = failure(error);
+    if status == 2 {
+        result.code = ErrorCode::InvalidParameter;
+    }
+    result
+}
+
 impl Shape {
     fn from_raw(raw: NonNull<c_void>) -> Self {
         Self {
@@ -141,21 +196,21 @@ impl Shape {
         self.profile_slots.push((index, 0..slots));
     }
 
-    pub fn extrude(points: &[[f64; 3]], direction: [f64; 3]) -> Result<Self> {
+    pub(crate) fn extrude(points: &[[f64; 3]], options: &PrismOptions) -> Result<Self> {
         let mut output = std::ptr::null_mut();
         let mut error = [0; 1024];
         let status = unsafe {
             pamat_extrude(
                 points.as_ptr().cast(),
                 points.len(),
-                direction.as_ptr(),
+                options,
                 &mut output,
                 error.as_mut_ptr(),
                 error.len(),
             )
         };
         if status != 0 {
-            return Err(failure(&error));
+            return Err(extrusion_failure(status, &error));
         }
         NonNull::new(output).map(Self::from_raw).ok_or_else(|| {
             CoreError::new(
@@ -165,11 +220,10 @@ impl Shape {
         })
     }
 
-    pub fn extrude_circle(
+    pub(crate) fn extrude_circle(
         center: [f64; 3],
         radius: f64,
-        normal: [f64; 3],
-        direction: [f64; 3],
+        options: &PrismOptions,
     ) -> Result<Self> {
         let mut output = std::ptr::null_mut();
         let mut error = [0; 1024];
@@ -177,15 +231,14 @@ impl Shape {
             pamat_extrude_circle(
                 center.as_ptr(),
                 radius,
-                normal.as_ptr(),
-                direction.as_ptr(),
+                options,
                 &mut output,
                 error.as_mut_ptr(),
                 error.len(),
             )
         };
         if status != 0 {
-            return Err(failure(&error));
+            return Err(extrusion_failure(status, &error));
         }
         NonNull::new(output).map(Self::from_raw).ok_or_else(|| {
             CoreError::new(
@@ -195,15 +248,43 @@ impl Shape {
         })
     }
 
-    pub fn extrude_face(&self, face_id: usize, direction: [f64; 3]) -> Result<Self> {
+    pub(crate) fn extrude_face(&self, face_id: usize, options: &PrismOptions) -> Result<Self> {
         let mut output = std::ptr::null_mut();
         let mut error = [0; 1024];
         let status = unsafe {
             pamat_extrude_face(
                 self.raw.as_ptr(),
                 face_id,
-                direction.as_ptr(),
+                options,
                 &mut output,
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        if status != 0 {
+            return Err(extrusion_failure(status, &error));
+        }
+        NonNull::new(output).map(Self::from_raw).ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::KernelFailure,
+                "OCCT returned an empty shape handle",
+            )
+        })
+    }
+
+    pub(crate) fn axial_bounds(&self, slot: Option<usize>, frame: Frame) -> Result<[f64; 2]> {
+        if let Some(id) = slot {
+            Self::require_one_face(unsafe { pamat_face_count(self.raw.as_ptr(), id) })?;
+        }
+        let mut error = [0; 1024];
+        let mut bounds = [0.; 2];
+        let status = unsafe {
+            pamat_axial_bounds(
+                self.raw.as_ptr(),
+                slot.unwrap_or(usize::MAX),
+                frame.origin.as_ptr(),
+                frame.normal.as_ptr(),
+                bounds.as_mut_ptr(),
                 error.as_mut_ptr(),
                 error.len(),
             )
@@ -211,11 +292,37 @@ impl Shape {
         if status != 0 {
             return Err(failure(&error));
         }
-        NonNull::new(output).map(Self::from_raw).ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::KernelFailure,
-                "OCCT returned an empty shape handle",
+        Ok(bounds)
+    }
+
+    pub(crate) fn face_properties(&self, id: usize) -> Result<FaceProperties> {
+        Self::require_one_face(unsafe { pamat_face_count(self.raw.as_ptr(), id) })?;
+        let mut error = [0; 1024];
+        let mut values = [0.; 4];
+        let mut surface = 0;
+        let status = unsafe {
+            pamat_face_properties(
+                self.raw.as_ptr(),
+                id,
+                values.as_mut_ptr(),
+                &mut surface,
+                error.as_mut_ptr(),
+                error.len(),
             )
+        };
+        if status != 0 {
+            return Err(failure(&error));
+        }
+        let [area_mm2, x, y, z] = values;
+        Ok(FaceProperties {
+            area_mm2,
+            centroid: [x, y, z],
+            surface: match surface {
+                1 => SurfaceType::Plane,
+                2 => SurfaceType::Cylinder,
+                3 => SurfaceType::Cone,
+                _ => SurfaceType::Other,
+            },
         })
     }
 
