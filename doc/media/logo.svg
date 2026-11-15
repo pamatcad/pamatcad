@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">PamatCAD symbol</title>
+  <desc id="desc">A blue-slate extruded P with a circular opening and teal facets.</desc>
+  <g id="p-symbol">
+    <path fill="#628e9c" fill-rule="evenodd"
+          d="M64 80.5 136 24.5H384.5L447.5 90.5V258.5L344.5 363.3H237.3V434.8L183.5 488H64Z
+             M231.7 151.4a67.4 66.8 0 1 0 0 133.6 67.4 66.8 0 1 0 0-133.6Z"/>
+    <path fill="#6e97a3" d="M64 80.5 136 24.5H384.5L447.5 90.5 393.5 146.3H329.7Z"/>
+    <path fill="#89b0b8" d="M64 80.5 136 24.5H384.5L329.7 80.5Z"/>
+    <path fill="#23434e" fill-rule="evenodd"
+          d="M64 80.5H329.7L393.5 146.3V312.5L344.5 363.3H183.5V488H64Z
+             M231.7 151.4a67.4 66.8 0 1 0 0 133.6 67.4 66.8 0 1 0 0-133.6Z"/>
+  </g>
+</svg>

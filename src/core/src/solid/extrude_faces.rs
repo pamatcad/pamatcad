@@ -42,13 +42,12 @@ impl Scene {
             return Ok(Vec::new());
         }
         let cap_slot = match query.selector {
-            ExtrudeFaceSelector::EndCap | ExtrudeFaceSelector::EndCap1 => Some(0),
+            ExtrudeFaceSelector::EndCap1 => Some(0),
             ExtrudeFaceSelector::StartCap | ExtrudeFaceSelector::EndCap2 => Some(1),
             _ => None,
         };
         let edge_index = match &query.selector {
-            ExtrudeFaceSelector::SideFaces { edge: Some(edge) }
-            | ExtrudeFaceSelector::SideFaces1 { edge: Some(edge) }
+            ExtrudeFaceSelector::SideFaces1 { edge: Some(edge) }
             | ExtrudeFaceSelector::SideFaces2 { edge: Some(edge) } => {
                 let slot = match &query.profile {
                     ProfileRef::Region(region)

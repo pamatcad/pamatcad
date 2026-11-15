@@ -22,25 +22,7 @@ For a to-object extent, advance a planar end cap along the configured side’s e
 
 Extrusion, by default, affects all bodies on the way of extrusion. Supply `targets` to restrict it to specific bodies.
 
-# Parameters
-
-Lengths and start offsets accept [length formulas](../../../type/Formula/spec.md). Taper angles accept angle formulas. Numeric inputs use mm and degrees.
-
-- `type` is `oneSide` (default), `twoSides`, or `symmetric`. `direction` orients side 1 along the positive (default) or negative profile normal. Side 2 points the opposite way.
-- `start` defaults to `{ type: "profilePlane" }`. An offset start takes a signed `offset` in mm along the profile normal. An object start takes a `face` and uses the signed offset from the profile plane to its nearest point, measured along the normal over the whole bounded face.
-- `extent1` and `extent2` each take `{ type: "length" }` (default), `{ type: "throughAll" }`, or `{ type: "toObject", body, extent }`. Through all covers the forward reach of the candidate bodies in that side’s direction. A limiting body may be supplied independently of the Boolean targets.
-- A length extent uses `length1` or `length2` in mm. `length` is an alias for `length1`. One-sided cuts and joins also accept a signed length when direction is omitted. A symmetric extrusion takes one length with `symmetricLength` set to `total` (default) or `half`.
-- `taperAngle1` and `taperAngle2` are in degrees, default to zero, and have magnitude below 90°. A positive angle widens the extrusion away from the start. Symmetric extrusion applies `taperAngle1` to both sides. Only `twoSides` accepts side-2 parameters.
-- `mode` defaults to `"newBody"`, which requires positive length. `"cut"` and `"join"` accept signed length.
-TK: default mode should be resolved after extrusion
-
-# Preview, results and effects
-
-- `newSolids` - newly created bodies
-- `affectedSolids` - existing bodies with changed geometry
-- `removedSolids` - bodies consumed by a cut or absorbed by a join
-
-# Topology and references
+# Topology
 
 On a committed extrusion, `feature.faces` selects faces by their origin in one input `profile` (a sketch region or planar face).
 
@@ -50,22 +32,15 @@ On a committed extrusion, `feature.faces` selects faces by their origin in one i
 | `endCap1({ profile })`, `endCap2({ profile })` | End cap for the numbered side. |
 | `sideFaces1({ profile })`, `sideFaces2({ profile })` | Surviving faces generated from the profile boundary on the numbered side. Supply `edge` to select descendants of one source sketch edge. |
 
-Side-2 selectors on one-sided features raise `INVALID_PARAMETER`. The original `endCap` and `sideFaces` selectors address side 1.
+Side-2 selectors on one-sided features raise `INVALID_PARAMETER`.
 
 Each selector follows the faces through the extrusion's own Boolean operation and subsequent cuts and joins. `.all()` returns the distinct surviving face references across the result bodies, including all descendants of a split face and an empty list when none survive. `.only()` returns one face reference, raises `NOT_FOUND` for zero matches, and raises `AMBIGUOUS_FACE` for multiple matches.
 
 Body IDs follow the [body identity rules](../../../../body-identity.md).
 
-# Errors
-
-- `INVALID_PARAMETER` for invalid dimensions or side parameters, invalid target selection, an unreachable extent, or a cut that removes no material.
-- `NOT_FOUND` for a missing referenced body, profile, or end cap. `AMBIGUOUS_FACE` if the cap has multiple descendants.
-- `KERNEL_FAILURE` if the Boolean fails validation or a cut splits a target.
-
 # Test cases
 
 - Formula length. Extrude a 10 × 10 mm square by `"20/ 2"` in a default scene. Expect a 10 mm cap height and 1000 mm³ volume. The feature retains the expression and its computed length.
-
 - Cube extrusion: extrude a 10 × 10 mm rectangle by 15 mm. Expect one new solid with a volume of 1500 mm³.
 - Cube with hole: extrude a 10 × 10 mm rectangle by 10 mm. Sketch a centered circle of diameter 8 mm on the top face. Cut by −5 mm. Expect volume (1000 − 80π) mm³, an empty `newSolids` array, and the original cube as the sole member of `affectedSolids`.
 - Multiple profiles, cut with skips: on XY, draw three 10 × 10 mm squares centered at X = −20, 0, and 20 mm, Y = 0. Extrude all three regions by 10 mm in one command. Expect two timeline entries and three cubes. On the left cube’s outward −X face, sketch a centered circle of diameter 5 mm. Preview a −50 mm cut: expect three affected bodies, three timeline entries, and all three committed volumes still 1000 mm³. From the preview results, target only the two outer cubes and commit the cut. Expect four timeline entries, no new solids, both outer volumes (1000 − 62.5π) mm³, and the middle volume 1000 mm³.

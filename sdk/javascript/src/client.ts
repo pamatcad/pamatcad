@@ -27,10 +27,7 @@ function extrudeFaces(transport: Transport, feature: string, twoSided: boolean) 
   return {
     endCap1: ({ profile }: { profile: ProfileRef }) => select(profile, { role: "endCap1" }),
     endCap2: ({ profile }: { profile: ProfileRef }) => select(profile, { role: "endCap2" }),
-    endCap: ({ profile }: { profile: ProfileRef }) => select(profile, { role: "endCap" }),
     startCap: ({ profile }: { profile: ProfileRef }) => twoSided ? null : select(profile, { role: "startCap" }),
-    sideFaces: ({ profile, edge }: { profile: ProfileRef; edge?: LineRef }) =>
-      select(profile, edge ? { role: "sideFaces", edge } : { role: "sideFaces" }),
     sideFaces1: ({ profile, edge }: { profile: ProfileRef; edge?: LineRef }) =>
       select(profile, edge ? { role: "sideFaces1", edge } : { role: "sideFaces1" }),
     sideFaces2: ({ profile, edge }: { profile: ProfileRef; edge?: LineRef }) =>
@@ -47,7 +44,9 @@ export class Core {
       create: async (name: string | null = null, units?: SceneUnits): Promise<Scene> =>
         new Scene(transport, await transport.request("scene.create", { name, units })),
     };
-    function extrude<P extends Profiles, O extends ExtrudeOptions>(profile: P, options: O, execution?: { preview?: false }): Promise<FeatureFor<P, O>>;
+    function extrude<P extends Profiles, O extends ExtrudeOptions>(
+      profile: P, options: O & Record<Exclude<keyof O, keyof ExtrudeOptions>, never>, execution?: { preview?: false },
+    ): Promise<FeatureFor<P, O>>;
     function extrude(profile: Profiles, options: ExtrudeOptions, execution: { preview: true }): Promise<ExtrudePreview>;
     function extrude(profile: Profiles, options: ExtrudeOptions, execution: { preview: boolean }): Promise<ExtrudeFeature | ExtrudePreview>;
     function extrude(profile: Profiles, options: ExtrudeOptions, execution?: { preview?: boolean }) {

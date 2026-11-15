@@ -51,7 +51,6 @@ pub struct BodyRef {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum FaceRole {
-    EndCap,
     EndCap1,
 }
 
@@ -314,9 +313,6 @@ pub enum ExtrudeDirection {
 pub struct ExtrudeParameters {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub length: Option<Formula<LengthUnit>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub length1: Option<Formula<LengthUnit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -379,7 +375,6 @@ impl ProfileRef {
 #[serde(tag = "role", rename_all = "camelCase", deny_unknown_fields)]
 pub enum ExtrudeFaceSelector {
     StartCap,
-    EndCap,
     EndCap1,
     EndCap2,
     SideFaces1 {
@@ -387,10 +382,6 @@ pub enum ExtrudeFaceSelector {
         edge: Option<LineRef>,
     },
     SideFaces2 {
-        #[ts(optional)]
-        edge: Option<LineRef>,
-    },
-    SideFaces {
         #[ts(optional)]
         edge: Option<LineRef>,
     },

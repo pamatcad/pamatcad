@@ -10,13 +10,13 @@ test("extrude a 10 × 10 rectangle by 15", { timeout: 30_000 }, async (t) => {
   await sketch.complete();
 
   const profile = await sketch.regions.only();
-  const feature = await core.solid.extrude(profile, { length: 15 });
+  const feature = await core.solid.extrude(profile, { length1: 15 });
 
   assert.equal(feature.newSolids.length, 1);
   assert.equal(feature.affectedSolids.length, 0);
   assert.equal(feature.operation.type, "extrude");
   assert.deepEqual(feature.operation.inputs.profile, profile);
-  assert.equal(feature.operation.parameters.length, 15);
+  assert.equal(feature.operation.parameters.length1, 15);
 
   const solid = await scene.bodies.get(feature.newSolids[0]!.id);
   const { volume } = await solid.properties();

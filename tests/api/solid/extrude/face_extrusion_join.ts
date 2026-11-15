@@ -8,7 +8,7 @@ test("extend a cube by extruding its top face in join mode", { timeout: 30_000 }
   await base.primitives.add("rectangle", { from: [0, 0], to: [10, 10] });
   await base.complete();
   const profile = await base.regions.only();
-  const block = await core.solid.extrude(profile, { length: 10 });
+  const block = await core.solid.extrude(profile, { length1: 10 });
   assert.equal(block.newSolids.length, 1);
   const cubeRef = block.newSolids[0]!;
   const cube = await scene.bodies.get(cubeRef.id);
@@ -17,7 +17,7 @@ test("extend a cube by extruding its top face in join mode", { timeout: 30_000 }
   assert.deepEqual(await scene.timeline.list(), entries);
 
   const topFace = await block.faces.endCap1({ profile }).only();
-  const join = await core.solid.extrude(topFace, { length: 5, mode: "join" });
+  const join = await core.solid.extrude(topFace, { length1: 5, mode: "join" });
   assert.deepEqual(join.operation.inputs.profile, topFace);
   assert.deepEqual(join.newSolids, []);
   assert.deepEqual(join.affectedSolids, [cubeRef]);

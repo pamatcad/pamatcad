@@ -8,7 +8,7 @@ test("join a smaller cube to each of the six original faces", { timeout: 30_000 
   const rectangle = await base.primitives.add("rectangle", { from: [-5, -5], to: [5, 5] });
   await base.complete();
   const profile = await base.regions.only();
-  const block = await core.solid.extrude(profile, { length: 10 });
+  const block = await core.solid.extrude(profile, { length1: 10 });
   assert.equal(block.newSolids.length, 1);
   const cubeRef = block.newSolids[0]!;
   const cube = await scene.bodies.get(cubeRef.id);
@@ -32,7 +32,7 @@ test("join a smaller cube to each of the six original faces", { timeout: 30_000 
     const sketch = await scene.sketches.create(face);
     await sketch.primitives.add("rectangle", { from: [-1, v - 1], to: [1, v + 1] });
     await sketch.complete();
-    const join = await core.solid.extrude(await sketch.regions.only(), { length: 2, mode: "join" });
+    const join = await core.solid.extrude(await sketch.regions.only(), { length1: 2, mode: "join" });
     assert.deepEqual(join.newSolids, []);
     assert.deepEqual(join.affectedSolids, [cubeRef]);
     entries.push({ type: "sketch", id: sketch.id }, { type: "extrude", id: join.id });

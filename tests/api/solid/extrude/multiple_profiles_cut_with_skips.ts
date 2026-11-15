@@ -11,7 +11,7 @@ test("preview a cut through three cubes and commit it only to the outer two", { 
   await base.complete();
   const profiles = await base.regions.all();
   assert.equal(profiles.length, 3);
-  const block = await core.solid.extrude(profiles, { length: 10 });
+  const block = await core.solid.extrude(profiles, { length1: 10 });
   assert.deepEqual(block.operation.inputs.profile, profiles);
   assert.equal(block.newSolids.length, 3);
   const entries = [{ type: "sketch", id: base.id }, { type: "extrude", id: block.id }];
@@ -31,7 +31,7 @@ test("preview a cut through three cubes and commit it only to the outer two", { 
   await bore.complete();
   entries.push({ type: "sketch", id: bore.id });
   const profile = await bore.regions.only();
-  const options = { length: -50, mode: "cut" } as const;
+  const options = { length1: -50, mode: "cut" } as const;
   const preview = await core.solid.extrude(profile, options, { preview: true });
   assert.deepEqual(preview.newSolids, []);
   assert.deepEqual(new Set(preview.affectedSolids.map(ref => ref.id)), new Set(cubes.map(cube => cube.id)));

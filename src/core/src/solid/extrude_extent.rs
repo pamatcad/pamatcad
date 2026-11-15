@@ -22,9 +22,6 @@ impl ExtrudeParameters {
         targets: &[&Body],
     ) -> Result<PrismOptions<'a>> {
         let kind = self.extrusion_type();
-        if self.length.is_some() && self.length1.is_some() {
-            return Err(invalid("Specify only one of length and length1"));
-        }
         if kind != ExtrudeType::TwoSides
             && (self.length2.is_some() || self.extent2.is_some() || self.taper_angle2.is_some())
         {
@@ -66,7 +63,6 @@ impl ExtrudeParameters {
         let first_length = self
             .length1
             .as_mut()
-            .or(self.length.as_mut())
             .map(|formula| formula.resolve(units.length))
             .transpose()?;
         let first_extent = self.extent1.as_ref().unwrap_or(&ExtrudeExtent::Length);

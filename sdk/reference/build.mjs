@@ -6,11 +6,13 @@ import { readModel, escape } from "./model.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
-const source = resolve(root, "doc/api");
+const docs = resolve(root, "doc");
+const source = resolve(docs, "api");
 const out = resolve(root, "sdk/docs");
 const model = readModel(resolve(root, "sdk/javascript/dist"));
 const groups = { guide: "Guides", command: "Commands", class: "Classes", type: "Types", function: "Supporting declarations" };
-const sectionNames = ["Name", "Short Description", "Description"];
+const requiredSections = ["Name", "Short Description", "Description"];
+const sectionNames = [...requiredSections, "Topology"];
 const bySource = new Map();
 const languages = new Map([["javascript", "JavaScript"]]);
 
@@ -30,7 +32,7 @@ for (const file of globSync("**/spec.md", { cwd: source }).sort()) {
       }
     } else if (current) sections.get(current).push(token);
   }
-  for (const section of sectionNames) {
+  for (const section of requiredSections) {
     if (!sections.get(section)?.some(t => t.type !== "space")) throw new Error(file + ": missing or empty " + section);
   }
   page.sections = sections;
@@ -39,34 +41,41 @@ for (const file of globSync("**/spec.md", { cwd: source }).sort()) {
   bySource.set(page.spec, page);
   if (kind === "command" && !page.input) throw new Error(file + ": command missing from the core protocol: " + name);
 }
-const sdk = resolve(root, "sdk");
-for (const file of globSync("*/docs/**/*.md", { cwd: sdk }).sort()) {
-  const [language, , ...parts] = file.split(sep);
-  const path = parts.join("/").slice(0, -3);
-  const sourceFile = resolve(sdk, file);
+function addGuide(sourceFile, path, language) {
   const tokens = marked.lexer(readFileSync(sourceFile, "utf8"));
   const heading = tokens.find(t => t.type === "heading" && t.depth === 1);
   if (!heading) throw new Error(sourceFile + ": guide needs a # title");
-  const page = model.add("guide", heading.text, language + "/" + path);
+  const segments = path.split("/");
+  if (language) segments.unshift(language);
+  const page = model.add("guide", heading.text, relative(root, sourceFile).split(sep).join("/"));
   // Keep nested guide paths in one portable filename, including spaces and Unicode.
-  const key = [language, ...path.split("/")].map(part =>
+  const key = segments.map(part =>
     part.replace(/[^a-zA-Z0-9-]/gu, ch => "_" + ch.codePointAt(0).toString(16) + "_")).join(".");
-  page.file = "guide-" + key + ".html";
+  page.file = (language ? "guide-" : "doc-") + key + ".html";
   page.spec = sourceFile;
   page.language = language;
   page.guidePath = path;
   page.tokens = tokens;
   bySource.set(sourceFile, page);
+  return page;
+}
+const sdk = resolve(root, "sdk");
+for (const file of globSync("*/docs/**/*.md", { cwd: sdk }).sort()) {
+  const [language, , ...parts] = file.split(sep);
+  addGuide(resolve(sdk, file), parts.join("/").slice(0, -3), language);
   if (!languages.has(language)) languages.set(language, language[0].toUpperCase() + language.slice(1));
 }
-model.pages.sort((a, b) => Number(!!b.spec) - Number(!!a.spec) || a.name.localeCompare(b.name, "en"));
 
 function prose(page, tokens) {
   if (!tokens) return "";
   marked.walkTokens(tokens, t => {
     if (t.type !== "link" || /^https?:\/\/|^mailto:/i.test(t.href)) return;
     const [file, fragment] = t.href.split("#");
-    const to = file ? bySource.get(resolve(dirname(page.spec), decodeURIComponent(file))) : page;
+    const target = file ? resolve(dirname(page.spec), decodeURIComponent(file)) : page.spec;
+    let to = bySource.get(target);
+    if (!to && target.startsWith(docs + sep) && target.endsWith(".md") && existsSync(target)) {
+      to = addGuide(target, relative(docs, target).split(sep).join("/").slice(0, -3));
+    }
     if (!to) throw new Error(page.spec + ": unresolved documentation link " + t.href);
     t.href = to.file + (fragment ? "#" + fragment : "");
     if (page !== to) to.uses.add(page);
@@ -87,17 +96,19 @@ function codeBlocks(signatures) {
 }
 for (const p of model.pages) {
   if (p.kind === "guide") {
-    p.body = '<div class="guide"><div class="entry-kind">' + escape(languages.get(p.language)) +
-      ' guide</div>' + prose(p, p.tokens) + '</div>';
+    const label = p.language ? languages.get(p.language) + " guide" : "Guide";
+    p.body = '<div class="guide"><div class="entry-kind">' + escape(label) + '</div>' + prose(p, p.tokens) + '</div>';
     continue;
   }
   const short = prose(p, p.sections?.get("Short Description"));
   const description = prose(p, p.sections?.get("Description"));
+  const topology = prose(p, p.sections?.get("Topology"));
   const title = p.title ?? p.name;
   const category = p.kind === "function" || p.support ? "Supporting declaration" :
     { command: "Command", class: "Class", type: "Type" }[p.kind];
   const links = [];
   if (description) links.push(["description", "Description"]);
+  if (topology) links.push(["topology", "Topology"]);
   if (p.input) links.push(["signature", "JavaScript"], ["parameters", "Parameters"], ["result", "Result"]);
   else if (p.node) links.push(["definition", p.kind === "class" ? "Public members" : "Definition"]);
   const outline = links.length > 1 ? '<nav class="outline" aria-label="On this page">' + links.map(
@@ -114,8 +125,9 @@ for (const p of model.pages) {
   } else if (p.node) {
     reference += section("definition", p.kind === "class" ? "Public members" : "Definition", model.declaration(p));
   }
-  p.body = heading + section("description", "Description", description) + reference;
+  p.body = heading + section("description", "Description", description) + section("topology", "Topology", topology) + reference;
 }
+model.pages.sort((a, b) => Number(!!b.spec) - Number(!!a.spec) || a.name.localeCompare(b.name, "en"));
 
 const navigation = (current) => Object.entries(groups).map(([kind, label]) => {
   const items = model.pages.filter(p => p.kind === kind).map(p =>
@@ -134,7 +146,7 @@ function layout(p) {
 <title>${escape(p.name)} · PamatCAD SDK</title><link rel="stylesheet" href="reference.css">
 <script defer src="search-index.js"></script><script defer src="search.js"></script></head>
 <body><a class="skip" href="#content">Skip to reference</a>
-<header class="mast"><a href="index.html" class="brand">PamatCAD</a><span class="product">SDK reference</span>
+<header class="mast"><a href="index.html" class="brand"><img src="logo-letters.svg" alt="PamatCAD" width="162" height="54"></a><span class="product">SDK reference</span>
 <div class="preferences"><span class="version">v${escape(version)}</span><label>Language <select id="language" aria-label="SDK language">${options}</select></label></div></header>
 <div class="workspace"><aside><div class="find"><label for="search">Search reference</label>
 <div class="search-box"><input type="search" id="search" placeholder="Command, type, or field…" autocomplete="off" aria-controls="entries"><kbd>/</kbd></div></div>
@@ -146,6 +158,7 @@ const landing = model.pages.find(p => p.spec && p.kind === "command") ?? model.p
 for (const p of model.pages) files.set(p.file, layout(p));
 files.set("index.html", files.get(landing.file));
 for (const name of ["search.js", "reference.css"]) files.set(name, readFileSync(resolve(here, name), "utf8"));
+files.set("logo-letters.svg", readFileSync(resolve(docs, "media/logo-letters.svg")));
 const search = model.pages.map(p => ({
   name: p.name, file: p.file, title: p.title ?? p.name,
   text: p.body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),

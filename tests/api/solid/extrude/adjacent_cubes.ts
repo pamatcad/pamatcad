@@ -10,7 +10,7 @@ async function adjacentCubes(t: TestContext, sceneName: string) {
     const rectangle = await sketch.primitives.add("rectangle", { from: [x, 0], to: [x + 10, 10] });
     await sketch.complete();
     const profile = await sketch.regions.only();
-    const feature = await core.solid.extrude(profile, { length: 10 });
+    const feature = await core.solid.extrude(profile, { length1: 10 });
     const ref = feature.newSolids[0]!;
     const rightSide = feature.faces.sideFaces1({ profile, edge: rectangle.lines[1]! });
     return { ref, body: await scene.bodies.get(ref.id), rightSide };
@@ -26,7 +26,7 @@ test("cut 10 mm to consume the adjacent cube", async (t) => {
   const { core, scene, a, b } = await adjacentCubes(t, "adjacent-cubes-cut");
   const shared = await a.rightSide.only();
   const before = await scene.timeline.list();
-  const options = { mode: "cut", length: 10 } as const;
+  const options = { mode: "cut", length1: 10 } as const;
 
   const preview = await core.solid.extrude(shared, options, { preview: true });
   assert.deepEqual(preview.newSolids, []);
@@ -55,7 +55,7 @@ test("join adjacent cubes with a 1 mm extrusion", async (t) => {
   const { core, scene, a, b } = await adjacentCubes(t, "adjacent-cubes-join");
   const shared = await a.rightSide.only();
   const before = await scene.timeline.list();
-  const options = { mode: "join", length: 1 } as const;
+  const options = { mode: "join", length1: 1 } as const;
 
   const preview = await core.solid.extrude(shared, options, { preview: true });
   assert.deepEqual(preview.newSolids, []);
