@@ -5,6 +5,20 @@ export const escape = value => String(value).replace(/[&<>"']/g, c => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 })[c]);
 
+// Rust enums become either string literals or objects with a literal discriminator.
+export function variantKeys(declaration) {
+  const type = declaration?.type;
+  if (!type) throw new Error("Documented variants require a protocol type");
+  return (ts.isUnionTypeNode(type) ? type.types : [type]).map(branch => {
+    const tag = ts.isTypeLiteralNode(branch) && branch.members.find(m => ["type", "role"].includes(m.name?.text));
+    const value = tag ? tag.type : branch;
+    if (!ts.isLiteralTypeNode(value) || !ts.isStringLiteral(value.literal)) {
+      throw new Error(declaration.name.text + ": expected a string or tagged union for documented variants");
+    }
+    return value.literal.text;
+  });
+}
+
 // Use the emitted SDK declarations so inferred class members and overloads are available.
 export function readModel(directory) {
   const index = resolve(directory, "index.d.ts");

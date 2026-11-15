@@ -1,18 +1,18 @@
-import { globSync, readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "node:fs";
+import { globSync, readFileSync, existsSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { marked } from "marked";
-import { readModel, escape } from "./model.mjs";
+import { readModel, escape, variantKeys } from "./model.mjs";
+import { publish } from "../../tools/docs/output.mjs";
+import { readSpec, readVariants } from "../../tools/docs/spec.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
 const docs = resolve(root, "doc");
 const source = resolve(docs, "api");
-const out = resolve(root, "sdk/docs");
+const out = resolve(root, "build/api-docs");
 const model = readModel(resolve(root, "sdk/javascript/dist"));
 const groups = { guide: "Guides", command: "Commands", class: "Classes", type: "Types", function: "Supporting declarations" };
-const requiredSections = ["Name", "Short Description", "Description"];
-const sectionNames = [...requiredSections, "Topology"];
 const bySource = new Map();
 const languages = new Map([["javascript", "JavaScript"]]);
 
@@ -21,23 +21,11 @@ for (const file of globSync("**/spec.md", { cwd: source }).sort()) {
   if (!Object.hasOwn(groups, kind) || kind === "guide" || !parts.length) throw new Error("Unknown API spec path: " + file);
   const name = parts.join(".");
   const page = model.byId.get(kind + "/" + name) ?? model.add(kind, name);
-  const sections = new Map();
-  let current;
-  for (const token of marked.lexer(readFileSync(resolve(source, file), "utf8"))) {
-    if (token.type === "heading" && (token.depth === 1 || token.text.toLowerCase() === "test cases")) {
-      current = sectionNames.find(s => s.toLowerCase() === token.text.toLowerCase());
-      if (current) {
-        if (sections.has(current)) throw new Error(file + ": duplicate " + current);
-        sections.set(current, []);
-      }
-    } else if (current) sections.get(current).push(token);
-  }
-  for (const section of requiredSections) {
-    if (!sections.get(section)?.some(t => t.type !== "space")) throw new Error(file + ": missing or empty " + section);
-  }
-  page.sections = sections;
-  page.title = sections.get("Name").map(t => t.text ?? "").join(" ").trim();
   page.spec = resolve(source, file);
+  const { sections, title } = readSpec(page.spec);
+  page.sections = sections;
+  page.title = title;
+  if (sections.has("Variants")) readVariants(page.spec, sections.get("Variants"), variantKeys(page.node));
   bySource.set(page.spec, page);
   if (kind === "command" && !page.input) throw new Error(file + ": command missing from the core protocol: " + name);
 }
@@ -102,12 +90,14 @@ for (const p of model.pages) {
   }
   const short = prose(p, p.sections?.get("Short Description"));
   const description = prose(p, p.sections?.get("Description"));
+  const variants = prose(p, p.sections?.get("Variants"));
   const topology = prose(p, p.sections?.get("Topology"));
   const title = p.title ?? p.name;
   const category = p.kind === "function" || p.support ? "Supporting declaration" :
     { command: "Command", class: "Class", type: "Type" }[p.kind];
   const links = [];
   if (description) links.push(["description", "Description"]);
+  if (variants) links.push(["variants", "Variants"]);
   if (topology) links.push(["topology", "Topology"]);
   if (p.input) links.push(["signature", "JavaScript"], ["parameters", "Parameters"], ["result", "Result"]);
   else if (p.node) links.push(["definition", p.kind === "class" ? "Public members" : "Definition"]);
@@ -125,7 +115,7 @@ for (const p of model.pages) {
   } else if (p.node) {
     reference += section("definition", p.kind === "class" ? "Public members" : "Definition", model.declaration(p));
   }
-  p.body = heading + section("description", "Description", description) + section("topology", "Topology", topology) + reference;
+  p.body = heading + section("description", "Description", description) + section("variants", "Variants", variants) + section("topology", "Topology", topology) + reference;
 }
 model.pages.sort((a, b) => Number(!!b.spec) - Number(!!a.spec) || a.name.localeCompare(b.name, "en"));
 
@@ -167,27 +157,5 @@ const search = model.pages.map(p => ({
 // A classic script keeps search available under file:// as well as HTTP.
 files.set("search-index.js", "window.pamatcadReference = " + JSON.stringify(search) + ";\n");
 
-// Check the complete link graph before publishing any page, including fragment links.
-const anchors = new Map([...files].filter(([name]) => name.endsWith(".html")).map(([name, html]) => {
-  const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]);
-  if (new Set(ids).size !== ids.length) throw new Error(name + ": duplicate HTML id");
-  return [name, new Set(ids)];
-}));
-for (const [file] of anchors) {
-  for (const [, href] of files.get(file).matchAll(/(?:href|src)="([^"]+)"/g)) {
-    if (/^https?:\/\/|^mailto:/i.test(href)) continue;
-    const [target, fragment] = href.split("#");
-    if (!files.has(target || file) || (fragment && !anchors.get(target || file)?.has(fragment))) {
-      throw new Error(file + ": broken link " + href);
-    }
-  }
-}
-mkdirSync(out, { recursive: true });
-const manifest = resolve(out, ".generated.json");
-const previous = existsSync(manifest) ? JSON.parse(readFileSync(manifest, "utf8")) : [];
-for (const [name, body] of files) writeFileSync(resolve(out, name), body);
-for (const name of previous) {
-  if (/^[\w.%-]+$/.test(name) && !files.has(name) && existsSync(resolve(out, name))) unlinkSync(resolve(out, name));
-}
-writeFileSync(manifest, JSON.stringify([...files.keys()]) + "\n");
+publish(out, files);
 console.log(`Built ${model.pages.length} entries in ${relative(root, out)}/index.html`);

@@ -1,7 +1,8 @@
 /target/
 /node_modules/
 /sdk/javascript/dist/
-/sdk/docs/
+/build/api-docs/
+/build/user-docs/
 /tests/dist/
 /.idea/
 .DS_Store

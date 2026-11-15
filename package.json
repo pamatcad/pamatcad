@@ -13,6 +13,7 @@
     "build:core": "cargo build --locked -p pamatcad-host",
     "generate:protocol": "cargo run --locked --quiet -p pamatcad-host -- bindings --output sdk/javascript/src/generated/protocol.ts",
     "build:sdk": "npm run generate:protocol && npm run build --workspace @pamatcad/sdk",
+    "build:user-docs": "npm run build:sdk && node tools/docs/build-user.mjs",
     "build:api-docs": "npm run build:sdk && node sdk/reference/build.mjs",
     "build": "npm run build:core && npm run build:sdk",
     "test": "npm run test:api --",
