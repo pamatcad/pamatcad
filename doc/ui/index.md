@@ -1,0 +1,36 @@
+# UI definition
+
+## UI structure
+
+UI should look the same on desktop and in browser. Mobile UI is not supported.
+
+## Screen structure
+
+### Header 
+
+#### Top menu
+
+File and Help. On OSX systems this should be the system top menu.
+
+#### Ribbon area
+
+There are multiple ribbon configurations that can we switched with a selector on the left or the ribbon. Each ribbon is divided by sections, each sections has two rows of icons.
+
+Currently the sections, starting from ribbon configurations, are:
+
+- Modelling
+  - Solid
+    - New sketch
+    - Extrude
+
+#### Working area
+
+3D viewport of the current scene with a scene browser on the left (tabbed, full height block displaying Bodies / Sketches), and a 3d view on the right. On the 3D view there are at least three overlays - a gizmo cube, axes and a home button in the top left, a current tool configuration in the pop-up just below the gizmo, and a misc switcher in the right bottom corner.
+
+#### Logs and JS console area
+
+Tabbed logs windows. **Console** is an interactive js console, and **CAD log** logs every  command sent to backend. **Scene browser** displays current scene as a browseable tree view.
+
+#### Status line
+
+Thin line, displaying either current status or a progress bar for lengthy operations (e.g. timeline recalculation).
