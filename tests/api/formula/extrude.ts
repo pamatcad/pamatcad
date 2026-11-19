@@ -9,7 +9,7 @@ test("extrude a 10 × 10 mm square by the formula 20/ 2", async t => {
   const options = { length1: "20/ 2" };
   const before = await scene.timeline.list();
   const preview = await core.solid.extrude(profile, options, { preview: true });
-  near(preview.newSolids[0]!.volume.value, 1000);
+  near(preview.newSolidProperties[0]!.volume.value, 1000);
   assert.deepEqual(await scene.timeline.list(), before);
 
   const feature = await core.solid.extrude(profile, options);

@@ -10,6 +10,7 @@ pub struct Body {
     pub reference: BodyRef,
     pub shape: Shape,
     pub created_at: u64,
+    pub revision: u64,
 }
 
 pub struct StoredFeature {

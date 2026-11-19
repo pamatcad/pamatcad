@@ -72,42 +72,46 @@ extern "C" size_t pamat_face_slots(const PamatShape* shape) {
     return shape->named_faces.size();
 }
 
-extern "C" int pamat_face_ids(PamatShape* shape, size_t first, size_t count,
+// Assign selectable descendants before publishing the shape, so rendering or picking cannot
+// change the slot layout inherited by the next modeling command.
+void PamatShape::index_faces() {
+    TopExp::MapShapes(value, TopAbs_FACE, faces);
+    const size_t unassigned = named_faces.size();
+    selectable_slots.assign(faces.Extent() + 1, unassigned);
+    for (size_t id = 0; id < unassigned; ++id) {
+        const auto& descendants = named_faces[id];
+        if (descendants.Extent() == 1) {
+            const int index = faces.FindIndex(descendants.FindKey(1));
+            if (index && selectable_slots[index] == unassigned) selectable_slots[index] = id;
+        }
+    }
+    for (int index = 1; index <= faces.Extent(); ++index) {
+        if (selectable_slots[index] == unassigned) {
+            selectable_slots[index] = named_faces.size();
+            named_faces.emplace_back().Add(faces.FindKey(index));
+        }
+    }
+}
+
+extern "C" int pamat_face_ids(const PamatShape* shape, size_t first, size_t count,
                               void (*sink)(void*, size_t), void* context,
                               char* error, size_t error_size) {
     return checked([&] {
-        TopTools_IndexedMapOfShape faces;
-        const size_t unassigned = shape->named_faces.size();
-        // SIZE_MAX requests the whole body. Otherwise collect the current descendants
-        // of the requested slots, including split faces and excluding deleted ones.
         if (count == std::numeric_limits<size_t>::max()) {
-            TopExp::MapShapes(shape->value, TopAbs_FACE, faces);
-        } else {
-            if (first > unassigned || count > unassigned - first)
-                throw std::runtime_error("Invalid face slot range");
-            for (size_t i = first; i < first + count; ++i) {
-                for (const auto& face : shape->named_faces[i]) faces.Add(face);
-            }
+            for (int i = 1; i <= shape->faces.Extent(); ++i) sink(context, shape->selectable_slots[i]);
+            return;
         }
-        std::vector<size_t> ids(faces.Extent() + 1, unassigned);
-        for (size_t id = 0; id < unassigned; ++id) {
-            const auto& descendants = shape->named_faces[id];
-            if (descendants.Extent() == 1) {
-                const int index = faces.FindIndex(descendants.FindKey(1));
-                if (index && ids[index] == unassigned) ids[index] = id;
-            }
+        const size_t size = shape->named_faces.size();
+        if (first > size || count > size - first) throw std::runtime_error("Invalid face slot range");
+        TopTools_IndexedMapOfShape descendants;
+        for (size_t i = first; i < first + count; ++i) {
+            for (const auto& face : shape->named_faces[i]) descendants.Add(face);
         }
-        for (int index = 1; index <= faces.Extent(); ++index) {
-            if (ids[index] == unassigned) {
-                ids[index] = shape->named_faces.size();
-                shape->named_faces.emplace_back().Add(faces.FindKey(index));
-            }
-            sink(context, ids[index]);
-        }
+        for (const auto& face : descendants) sink(context, shape->selectable_slots.at(shape->faces.FindIndex(face)));
     }, error, error_size);
 }
 
-extern "C" int pamat_face_by_normal(PamatShape* shape, const double* direction, size_t* count,
+extern "C" int pamat_face_by_normal(const PamatShape* shape, const double* direction, size_t* count,
                                     size_t* face_id, char* error, size_t error_size) {
     return checked([&] {
         const gp_Dir wanted(direction[0], direction[1], direction[2]);
@@ -125,15 +129,7 @@ extern "C" int pamat_face_by_normal(PamatShape* shape, const double* direction, 
             }
         }
         if (*count != 1) return;
-        for (size_t i = 0; i < shape->named_faces.size(); ++i) {
-            const auto& descendants = shape->named_faces[i];
-            if (descendants.Extent() == 1 && descendants.Contains(match)) {
-                *face_id = i;
-                return;
-            }
-        }
-        *face_id = shape->named_faces.size();
-        shape->named_faces.emplace_back().Add(match);
+        *face_id = shape->selectable_slots.at(shape->faces.FindIndex(match));
     }, error, error_size);
 }
 

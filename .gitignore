@@ -7,3 +7,8 @@
 /.idea/
 .DS_Store
 /reports/tests/
+/apps/editor/src-tauri/target/
+/apps/editor/src-tauri/gen/
+/apps/editor/public/wasm/
+/build/web/
+/build/desktop-ui/

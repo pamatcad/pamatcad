@@ -13,6 +13,12 @@ set(occt_options
   "-DBUILD_ADDITIONAL_TOOLKITS=TKOffset TKBO TKMesh TKDESTEP"
   "-DINSTALL_DIR=${occt_install}"
   -DINSTALL_DIR_INCLUDE=include/opencascade -DINSTALL_DIR_LIB=lib)
+set(PAMATCAD_BUILD_JOBS 4 CACHE STRING "Parallel OCCT compilation jobs")
+if(EMSCRIPTEN)
+  list(APPEND occt_options "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+    "-DCMAKE_CXX_FLAGS=-fexceptions" "-DUSE_GLES2=OFF")
+  add_compile_options(-fexceptions)
+endif()
 foreach(module FoundationClasses ModelingData ModelingAlgorithms Visualization ApplicationFramework DataExchange Draw)
   list(APPEND occt_options "-DBUILD_MODULE_${module}=OFF")
 endforeach()
@@ -22,11 +28,11 @@ ExternalProject_Add(occt_build
   BINARY_DIR "${CMAKE_BINARY_DIR}/occt-${PAMATCAD_OCCT_VERSION}"
   DOWNLOAD_COMMAND "" UPDATE_COMMAND ""
   CMAKE_ARGS ${occt_options}
-  BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release --parallel 4
+  BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release --parallel ${PAMATCAD_BUILD_JOBS}
   INSTALL_COMMAND "${CMAKE_COMMAND}" --install <BINARY_DIR> --config Release
   LOG_CONFIGURE TRUE LOG_BUILD TRUE LOG_INSTALL TRUE LOG_OUTPUT_ON_FAILURE TRUE)
 
-add_library(pamatcad_occt STATIC bridge.cpp extrusion.cpp boolean.cpp scene_io.cpp)
+add_library(pamatcad_occt STATIC bridge.cpp extrusion.cpp boolean.cpp scene_io.cpp proxy.cpp)
 target_compile_features(pamatcad_occt PRIVATE cxx_std_17)
 target_include_directories(pamatcad_occt SYSTEM PRIVATE "${occt_install}/include/opencascade")
 add_dependencies(pamatcad_occt occt_build)

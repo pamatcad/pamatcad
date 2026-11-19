@@ -162,6 +162,7 @@ fn apply_boolean(
                 body: Body {
                     reference: body.reference.clone(),
                     created_at: body.created_at,
+                    revision: 0,
                     shape,
                 },
                 material_changed,

@@ -52,7 +52,7 @@ export class Core {
     function extrude(profile: Profiles, options: ExtrudeOptions, execution?: { preview?: boolean }) {
       const { targets, ...parameters } = options;
       return transport.request("solid.extrude", {
-        profile, parameters, preview: execution?.preview,
+        profile, parameters, ...execution,
         targets: targets?.map(({ sceneId, id }) => ({ sceneId, id })),
       }).then(result => {
         if (!("id" in result)) return result;

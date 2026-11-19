@@ -20,6 +20,11 @@ export class Body {
     }, all: () => transport.request("body.faces.all", { body: reference }) };
   }
 
+  /** Tessellate the current body in world coordinates (millimetres). */
+  mesh() {
+    return this.transport.request("body.mesh", { body: this.reference });
+  }
+
   properties() {
     return this.transport.request("body.properties", { body: this.reference });
   }

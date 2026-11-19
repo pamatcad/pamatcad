@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "sdk/javascript"
+    "sdk/javascript",
+    "apps/editor"
   ],
   "engines": {
     "node": ">=24"
@@ -19,11 +20,18 @@
     "test": "npm run test:api --",
     "pretest:api": "node -e \"require('node:fs').rmSync('tests/dist', { recursive: true, force: true })\"",
     "test:api": "npm run build && tsc -p tests && node tests/run.mjs",
-    "test:sdk": "npm run test:api --"
+    "test:sdk": "npm run test:api --",
+    "build:wasm": "node tools/editor/build-wasm.mjs",
+    "build:web": "npm run build:sdk && npm run build:wasm && npm run web -w @pamatcad/editor",
+    "build:desktop": "npm run build:sdk && npm run desktop -w @pamatcad/editor",
+    "dev:editor": "npm run dev -w @pamatcad/editor",
+    "test:editor:web": "node tests/editor/browser.mjs",
+    "test:editor:desktop": "npm run desktop-ui -w @pamatcad/editor && cargo run --locked --release --manifest-path apps/editor/src-tauri/Cargo.toml --features editor-smoke"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
     "marked": "18.2.0",
+    "playwright-core": "1.65.1",
     "typescript": "5.9.3"
   },
   "packageManager": "pnpm@12.16.1+sha512.091d1dee7927575661b25dab3c2ae31cafc1c54d6b71ed6a6600cf0c1cb10434a447eae14015f1b23e2e6bedeed79df94a932e2164d2832280dce3fb32f656d1"

@@ -17,10 +17,13 @@ async fn upgrade(ws: WebSocketUpgrade, State(host): State<Host>) -> Response {
 }
 
 async fn connection(mut socket: WebSocket, host: Host) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
+    let session = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
     while let Some(Ok(message)) = socket.recv().await {
         match message {
             Message::Text(text) => {
-                if let Some(response) = rpc::handle(&host, &text).await {
+                if let Some(response) = rpc::handle(&host, session, &text).await {
                     if socket
                         .send(Message::Text(response.to_string().into()))
                         .await
@@ -34,6 +37,7 @@ async fn connection(mut socket: WebSocket, host: Host) {
             _ => {}
         }
     }
+    host.disconnect(session).await;
 }
 
 pub async fn serve(address: SocketAddr) -> std::io::Result<()> {

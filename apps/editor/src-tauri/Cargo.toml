@@ -1,0 +1,17 @@
+[package]
+name = "pamatcad-editor"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+pamatcad-core = { path = "../../../src/core" }
+pamatcad-host = { path = "../../../src/host" }
+tauri = { version = "2", features = [] }
+
+[workspace]
+
+[features]
+editor-smoke = ["tauri/custom-protocol"]

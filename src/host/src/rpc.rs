@@ -10,7 +10,7 @@ fn error(id: Value, code: i32, message: &str, data: Option<Value>) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": error })
 }
 
-pub async fn handle(host: &Host, text: &str) -> Option<Value> {
+pub async fn handle(host: &Host, session: u64, text: &str) -> Option<Value> {
     let request: Value = match serde_json::from_str(text) {
         Ok(request) => request,
         Err(_) => return Some(error(Value::Null, -32700, "Invalid JSON", None)),
@@ -33,7 +33,7 @@ pub async fn handle(host: &Host, text: &str) -> Option<Value> {
         }));
         match command {
             Err(failure) => error(id, -32602, &failure.to_string(), None),
-            Ok(command) => match host.execute(command).await {
+            Ok(command) => match host.execute_for(session, command).await {
                 Err(message) => error(id, -32603, message, None),
                 Ok(Err(failure)) => error(id, -32000, &failure.message, Some(json!(failure))),
                 Ok(Ok(response)) => {

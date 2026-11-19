@@ -438,7 +438,9 @@ pub struct Feature {
 #[serde(rename_all = "camelCase")]
 pub struct FeaturePreview {
     pub operation: Operation,
-    pub new_solids: Vec<BodyProperties>,
+    pub revision: String,
+    pub new_solids: Vec<BodyRef>,
+    pub new_solid_properties: Vec<BodyProperties>,
     pub affected_solids: Vec<BodyRef>,
     pub removed_solids: Vec<BodyRef>,
 }
@@ -491,6 +493,12 @@ pub struct Volume {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct TriangleMesh {
+    // World-space vertices in millimetres, grouped into oriented triangles.
+    pub triangles: Vec<[[f64; 3]; 3]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct BodyProperties {
     pub volume: Volume,
 }
@@ -539,11 +547,72 @@ pub struct SketchQuery {
     pub sketch: SketchRef,
 }
 
+#[derive(Debug, Deserialize, TS)]
+pub struct ModelingRequest<T> {
+    #[ts(optional)]
+    pub preview: Option<bool>,
+    #[serde(flatten)]
+    pub command: T,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EdgeRef {
+    pub scene_id: String,
+    pub body_id: String,
+    pub edge_id: usize,
+    pub revision: String,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyFace {
+    pub face: FaceRef,
+    pub first_triangle: usize,
+    pub triangle_count: usize,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyEdge {
+    pub edge: EdgeRef,
+    pub first_point: usize,
+    pub point_count: usize,
+    pub closed: bool,
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct BodyRevision {
+    pub body: BodyRef,
+    pub revision: String,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BodyProxy {
+    pub body: BodyRef,
+    pub revision: String,
+    pub positions: Vec<f32>,
+    pub normals: Vec<f32>,
+    pub triangles: Vec<u32>,
+    pub faces: Vec<ProxyFace>,
+    pub edge_points: Vec<f32>,
+    pub edges: Vec<ProxyEdge>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ProxyQuery {
+    pub body: BodyRef,
+    #[ts(optional)]
+    pub preview: Option<bool>,
+    #[ts(optional)]
+    pub revision: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Extrude {
-    #[ts(optional)]
-    pub preview: Option<bool>,
     pub profile: Profiles,
     pub parameters: Box<ExtrudeParameters>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -664,7 +733,7 @@ api! {
     RegionOnly(SketchQuery) -> RegionRef = "sketch.regions.only",
     RegionsAll(SketchQuery) -> Vec<RegionRef> = "sketch.regions.all",
     TimelineList(SceneQuery) -> Vec<TimelineEntry> = "scene.timeline.list",
-    SolidExtrude(Extrude) -> ExtrudeResult = "solid.extrude",
+    SolidExtrude(ModelingRequest<Extrude>) -> ExtrudeResult = "solid.extrude",
     ExtrudeFacesAll(ExtrudeFaceQuery) -> Vec<FaceRef> = "solid.extrude.faces.all",
     ExtrudeFaceOnly(ExtrudeFaceQuery) -> FaceRef = "solid.extrude.faces.only",
     BodiesAll(SceneQuery) -> Vec<BodyRef> = "scene.bodies.all",
@@ -672,6 +741,10 @@ api! {
     FaceOnly(FaceQuery) -> FaceRef = "body.faces.only",
     FaceProperties(FaceRef) -> FaceProperties = "face.properties",
     FacesAll(BodyQuery) -> Vec<FaceRef> = "body.faces.all",
+    BodyRevisions(SceneQuery) -> Vec<BodyRevision> = "scene.bodies.revisions",
+    SceneGetProxyFor(ProxyQuery) -> BodyProxy = "scene.getProxyFor",
+    SceneDiscardPreview(SceneQuery) -> () = "scene.discardPreview",
+    BodyMesh(BodyQuery) -> TriangleMesh = "body.mesh",
     BodyProperties(BodyQuery) -> BodyProperties = "body.properties",
 }
 
@@ -729,6 +802,7 @@ pub fn typescript() -> String {
         SceneQuery::decl(),
         VolumeUnit::decl(),
         Volume::decl(),
+        TriangleMesh::decl(),
         BodyProperties::decl(),
         SurfaceType::decl(),
         FaceProperties::decl(),
@@ -745,6 +819,13 @@ pub fn typescript() -> String {
         AddPrimitive::decl(),
         SketchQuery::decl(),
         Extrude::decl(),
+        ModelingRequest::<Extrude>::decl(),
+        EdgeRef::decl(),
+        ProxyFace::decl(),
+        ProxyEdge::decl(),
+        BodyProxy::decl(),
+        BodyRevision::decl(),
+        ProxyQuery::decl(),
         BodyQuery::decl(),
         Request::decl(),
         Response::decl(),

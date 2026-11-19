@@ -27,16 +27,21 @@ extern "C" int pamat_write_step(const PamatShape* const* shapes, size_t count, P
     }, error, error_size);
 }
 
+double mesh_for_display(const TopoDS_Shape& copy) {
+    Bnd_Box bounds;
+    BRepBndLib::Add(copy, bounds, false);
+    const double deflection = std::max(1e-7, bounds.CornerMin().Distance(bounds.CornerMax()) * 0.0005);
+    BRepMesh_IncrementalMesh mesher(copy, deflection, false, 0.12);
+    if (!mesher.IsDone()) throw std::runtime_error("Could not tessellate body");
+    return deflection;
+}
+
 extern "C" int pamat_mesh(const PamatShape* shape, PamatTriangle sink, void* context,
                           char* error, size_t error_size) {
     return checked([&] {
         // Tessellation attaches data to faces. Mesh a topology copy to keep the scene read-only.
         const TopoDS_Shape copy = BRepBuilderAPI_Copy(shape->value, false, false).Shape();
-        Bnd_Box bounds;
-        BRepBndLib::Add(copy, bounds, false);
-        const double deflection = std::max(1e-7, bounds.CornerMin().Distance(bounds.CornerMax()) * 0.0005);
-        BRepMesh_IncrementalMesh mesher(copy, deflection, false, 0.12);
-        if (!mesher.IsDone()) throw std::runtime_error("Could not tessellate body");
+        mesh_for_display(copy);
         for (TopExp_Explorer faces(copy, TopAbs_FACE); faces.More(); faces.Next()) {
             const auto& face = TopoDS::Face(faces.Current());
             TopLoc_Location location;

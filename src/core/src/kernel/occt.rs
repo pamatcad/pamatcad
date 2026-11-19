@@ -1,6 +1,8 @@
 use crate::error::{CoreError, ErrorCode, Result};
 use crate::{
-    protocol::{FaceProperties, SurfaceType},
+    protocol::{
+        BodyProxy, BodyRef, EdgeRef, FaceProperties, FaceRef, ProxyEdge, ProxyFace, SurfaceType,
+    },
     sketch::Frame,
 };
 use std::{
@@ -113,7 +115,7 @@ extern "C" {
     fn pamat_face_count(shape: *const c_void, face_id: usize) -> usize;
     fn pamat_face_slots(shape: *const c_void) -> usize;
     fn pamat_face_ids(
-        shape: *mut c_void,
+        shape: *const c_void,
         first: usize,
         count: usize,
         sink: extern "C" fn(*mut c_void, usize),
@@ -122,7 +124,7 @@ extern "C" {
         error_size: usize,
     ) -> i32;
     fn pamat_face_by_normal(
-        shape: *mut c_void,
+        shape: *const c_void,
         normal: *const f64,
         count: *mut usize,
         face_id: *mut usize,
@@ -140,6 +142,22 @@ extern "C" {
         shapes: *const *const c_void,
         count: usize,
         sink: extern "C" fn(*mut c_void, *const u8, usize),
+        context: *mut c_void,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+    fn pamat_proxy(
+        shape: *const c_void,
+        face_sink: extern "C" fn(
+            *mut c_void,
+            usize,
+            usize,
+            *const f32,
+            *const f32,
+            usize,
+            *const u32,
+        ),
+        edge_sink: extern "C" fn(*mut c_void, usize, usize, *const f32, i32),
         context: *mut c_void,
         error: *mut c_char,
         error_size: usize,
@@ -445,6 +463,97 @@ impl Shape {
             return Err(failure(&error));
         }
         Ok(bytes)
+    }
+
+    pub fn proxy(&self, body: BodyRef, revision: String) -> Result<BodyProxy> {
+        extern "C" fn face(
+            ctx: *mut c_void,
+            id: usize,
+            nodes: usize,
+            xyz: *const f32,
+            normals: *const f32,
+            triangles: usize,
+            indices: *const u32,
+        ) {
+            // Each slice lives for this callback and is copied into the owned proxy.
+            unsafe {
+                let p = &mut *ctx.cast::<BodyProxy>();
+                let base = (p.positions.len() / 3) as u32;
+                p.faces.push(ProxyFace {
+                    face: FaceRef::Selected {
+                        scene_id: p.body.scene_id.clone(),
+                        body_id: p.body.id.clone(),
+                        face_id: id,
+                    },
+                    first_triangle: p.triangles.len() / 3,
+                    triangle_count: triangles,
+                });
+                p.positions
+                    .extend_from_slice(std::slice::from_raw_parts(xyz, nodes * 3));
+                p.normals
+                    .extend_from_slice(std::slice::from_raw_parts(normals, nodes * 3));
+                p.triangles.extend(
+                    std::slice::from_raw_parts(indices, triangles * 3)
+                        .iter()
+                        .map(|i| base + i),
+                );
+            }
+        }
+        extern "C" fn edge(
+            ctx: *mut c_void,
+            id: usize,
+            count: usize,
+            xyz: *const f32,
+            closed: i32,
+        ) {
+            unsafe {
+                let p = &mut *ctx.cast::<BodyProxy>();
+                p.edges.push(ProxyEdge {
+                    edge: EdgeRef {
+                        scene_id: p.body.scene_id.clone(),
+                        body_id: p.body.id.clone(),
+                        edge_id: id,
+                        revision: p.revision.clone(),
+                    },
+                    first_point: p.edge_points.len() / 3,
+                    point_count: count,
+                    closed: closed != 0,
+                });
+                p.edge_points
+                    .extend_from_slice(std::slice::from_raw_parts(xyz, count * 3));
+            }
+        }
+        let mut p = BodyProxy {
+            body,
+            revision,
+            positions: vec![],
+            normals: vec![],
+            triangles: vec![],
+            faces: vec![],
+            edge_points: vec![],
+            edges: vec![],
+        };
+        let mut error = [0; 1024];
+        let status = unsafe {
+            pamat_proxy(
+                self.raw.as_ptr(),
+                face,
+                edge,
+                (&mut p as *mut BodyProxy).cast(),
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        if status != 0 {
+            return Err(failure(&error));
+        }
+        Ok(p)
+    }
+
+    pub fn triangle_mesh(&self) -> Result<crate::protocol::TriangleMesh> {
+        let mut triangles = Vec::new();
+        self.mesh(&mut triangles)?;
+        Ok(crate::protocol::TriangleMesh { triangles })
     }
 
     pub fn mesh(&self, triangles: &mut Vec<[[f64; 3]; 3]>) -> Result<()> {

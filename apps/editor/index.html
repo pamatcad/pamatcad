@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PamatCAD · Untitled</title>
+    <link rel="icon" type="image/svg+xml" />
+  </head>
+  <body>
+    <header class="menubar">
+      <img class="wordmark" alt="PamatCAD" />
+      <nav id="web-menu" aria-label="Application">
+        <details>
+          <summary>File</summary>
+          <button id="menu-new">New scene</button>
+        </details>
+        <details>
+          <summary>Help</summary>
+          <button id="menu-help">Editor controls</button>
+        </details>
+      </nav>
+      <span class="doc-title">Untitled</span><span id="runtime"></span>
+    </header>
+    <section class="ribbon" aria-label="Modelling tools">
+      <div class="workbench">
+        <label for="workbench">Workbench</label
+        ><select id="workbench">
+          <option>Modelling</option>
+        </select>
+      </div>
+      <div class="tool-group">
+        <div class="tools">
+          <button id="new-sketch" disabled><img src="./src/icons/sketch.svg" alt="" />New sketch</button>
+          <button id="extrude" disabled>
+            <img alt="" />Extrude
+          </button>
+        </div>
+        <span>Solid</span>
+      </div>
+    </section>
+    <main>
+      <aside class="browser" id="scene-browser" aria-label="Scene browser">
+        <div class="browser-header">
+          <div class="tabs" id="browser-tabs" role="tablist" aria-label="Scene objects">
+            <button id="components-tab" role="tab" aria-label="Components" title="Components"
+              aria-selected="false" aria-controls="browser-content" tabindex="-1">
+              <img src="./src/icons/components.svg" alt="" /><span>Components</span>
+            </button>
+            <button id="construction-tab" role="tab" aria-label="Construction" title="Construction"
+              aria-selected="false" aria-controls="browser-content" tabindex="-1">
+              <img src="./src/icons/construction.svg" alt="" /><span>Construction</span>
+            </button>
+            <button id="bodies-tab" role="tab" aria-label="Bodies" title="Bodies"
+              aria-selected="true" aria-controls="browser-content">
+              <img src="./src/icons/scene.svg" alt="" /><span>Bodies</span>
+            </button>
+            <button id="sketches-tab" role="tab" aria-label="Sketches" title="Sketches"
+              aria-selected="false" aria-controls="browser-content" tabindex="-1">
+              <img src="./src/icons/sketch.svg" alt="" /><span>Sketches</span>
+            </button>
+          </div>
+          <button id="toggle-browser" type="button" title="Collapse scene browser"
+            aria-label="Collapse scene browser" aria-expanded="true" aria-controls="browser-tabs browser-content">
+            <img src="./src/icons/collapse-left.svg" alt="" />
+          </button>
+        </div>
+        <div id="browser-content" role="tabpanel" aria-labelledby="bodies-tab">
+          <div class="scene-title"><img src="./src/icons/scene.svg" alt="" />Untitled</div>
+          <div id="object-list"></div>
+          <details class="origin" id="construction-list" open hidden>
+            <summary>Origin</summary>
+            <ul>
+              <li>XY plane</li>
+              <li>XZ plane</li>
+              <li>YZ plane</li>
+            </ul>
+          </details>
+        </div>
+        <div id="browser-resize" role="separator" tabindex="0" aria-label="Resize scene browser"
+          aria-orientation="vertical" aria-controls="scene-browser" aria-valuemin="220" aria-valuenow="220"></div>
+      </aside>
+      <section id="viewport" aria-label="3D viewport">
+        <div class="view-top">
+          <button id="home" title="Fit isometric view" aria-label="Fit isometric view">
+            <img src="./src/icons/home.svg" alt="" />
+          </button>
+        </div>
+        <div id="tool-panel" hidden></div>
+        <div class="view-bottom" role="group" aria-label="View controls">
+          <button id="camera-mode" type="button" title="Camera mode" aria-label="Camera mode"
+            aria-expanded="false" aria-controls="camera-modes">
+            <img src="./src/icons/perspective.svg" alt="" />
+          </button>
+          <div id="camera-modes" role="radiogroup" aria-labelledby="camera-modes-title" hidden>
+            <h2 id="camera-modes-title">Camera mode</h2>
+            <label>
+              <input type="radio" name="projection" value="orthographic" checked />
+              <img src="./src/icons/orthographic.svg" alt="" />Orthographic
+            </label>
+            <label>
+              <input type="radio" name="projection" value="perspective" />
+              <img src="./src/icons/perspective.svg" alt="" />Perspective
+            </label>
+          </div>
+        </div>
+      </section>
+    </main>
+    <section class="timeline" aria-label="Timeline">
+      <h2>Timeline</h2>
+      <ol id="features"></ol>
+    </section>
+    <section class="dock" id="output-dock" aria-label="Output" hidden>
+      <div class="tabs" aria-label="Output">
+        <button data-dock="console" aria-selected="true">Console</button
+        ><button data-dock="log" aria-selected="false">CAD log</button
+        ><button data-dock="tree" aria-selected="false">Scene browser</button>
+        <button id="dock-location" type="button">Pop out</button>
+      </div>
+      <div id="console" class="dock-page">
+        <div id="console-output" role="log"></div>
+        <form id="console-form">
+          <label for="js">›</label
+          ><input
+            id="js"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Run JavaScript with core and scene"
+            aria-label="JavaScript"
+          /><button>Run</button>
+        </form>
+      </div>
+      <div id="log" class="dock-page" hidden></div>
+      <div id="tree" class="dock-page" hidden></div>
+    </section>
+    <footer>
+      <span class="indicator"></span><span id="status" role="status">Starting geometry engine…</span
+      ><progress id="progress" hidden></progress
+      ><button id="toggle-output" type="button" aria-expanded="false" aria-controls="output-dock">Debug console</button>
+    </footer>
+    <template id="sketch-fields">
+      <h2>Rectangle</h2>
+      <p>XY plane · Pick two corners or enter dimensions in mm.</p>
+      <label>Width <input id="width" type="number" step="any" value="10" /></label>
+      <label>Height <input id="height" type="number" step="any" value="10" /></label>
+      <div class="actions"><button id="cancel">Cancel</button><button id="apply">Finish sketch</button></div>
+    </template>
+    <template id="extrude-fields">
+      <h2>Extrude</h2>
+      <p>One side · New body</p>
+      <label>Length (mm) <input id="length" value="15" /></label>
+      <div class="actions"><button id="cancel">Cancel</button><button id="apply">Create body</button></div>
+    </template>
+    <dialog id="help">
+      <h2>Editor controls</h2>
+      <p>
+        Choose New sketch and click two corners on the XY plane, or enter dimensions. Finish the sketch,
+        select its profile and choose Extrude.
+      </p>
+      <p>
+        Drag to orbit, right-drag to pan and scroll to zoom. Click a cube face for a standard view, or Home to
+        fit the model. Escape cancels the current tool.
+      </p>
+      <form method="dialog"><button>Close</button></form>
+    </dialog>
+    <script type="module" src="./src/editor.ts"></script>
+  </body>
+</html>

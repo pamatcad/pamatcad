@@ -1,5 +1,6 @@
 [workspace]
-members = ["src/core", "src/host"]
+members = ["src/core", "src/host", "src/wasm"]
+exclude = ["apps/editor/src-tauri"]
 resolver = "2"
 
 [workspace.package]

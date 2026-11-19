@@ -1,5 +1,6 @@
 #pragma once
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,10 +49,10 @@ int pamat_partition_result(PamatPartition* partition, size_t group, size_t survi
 void pamat_partition_free(PamatPartition* partition);
 size_t pamat_face_count(const PamatShape* shape, size_t face_id);
 size_t pamat_face_slots(const PamatShape* shape);
-int pamat_face_ids(PamatShape* shape, size_t first, size_t count, void (*sink)(void*, size_t), void* context,
+int pamat_face_ids(const PamatShape* shape, size_t first, size_t count, void (*sink)(void*, size_t), void* context,
                    char* error, size_t error_size);
 int pamat_face_frame(const PamatShape* shape, size_t face_id, double* frame, char* error, size_t error_size);
-int pamat_face_by_normal(PamatShape* shape, const double* normal, size_t* count, size_t* face_id,
+int pamat_face_by_normal(const PamatShape* shape, const double* normal, size_t* count, size_t* face_id,
                          char* error, size_t error_size);
 int pamat_volume(const PamatShape* shape, double* output, char* error, size_t error_size);
 typedef void (*PamatBytes)(void* context, const unsigned char* data, size_t length);
@@ -59,6 +60,11 @@ typedef void (*PamatTriangle)(void* context, const double* xyz);
 int pamat_write_step(const PamatShape* const* shapes, size_t count, PamatBytes sink, void* context,
                      char* error, size_t error_size);
 int pamat_mesh(const PamatShape* shape, PamatTriangle sink, void* context, char* error, size_t error_size);
+typedef void (*PamatProxyFace)(void*, size_t face_id, size_t nodes, const float* xyz,
+                               const float* normals, size_t triangles, const uint32_t* indices);
+typedef void (*PamatProxyEdge)(void*, size_t edge_id, size_t points, const float* xyz, int closed);
+int pamat_proxy(const PamatShape* shape, PamatProxyFace face_sink, PamatProxyEdge edge_sink,
+                void* context, char* error, size_t error_size);
 void pamat_shape_free(PamatShape* shape);
 #ifdef __cplusplus
 }

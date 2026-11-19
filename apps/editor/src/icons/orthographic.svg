@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Orthographic projection</title>
+  <path fill="#d0e9e6" d="m3 12 12-9 14 3-12 9Z"/>
+  <path fill="#6a9eae" d="m17 15 12-9v14l-12 9Z"/>
+  <path fill="#a9cbd2" d="m3 12 14 3v14L3 26Z"/>
+  <path fill="none" stroke="#234b58" stroke-width="2" stroke-linejoin="round"
+    d="m3 12 12-9 14 3v14l-12 9-14-3ZM3 12l14 3 12-9M17 15v14"/>
+</svg>

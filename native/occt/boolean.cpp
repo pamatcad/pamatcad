@@ -211,6 +211,7 @@ extern "C" int pamat_partition_result(PamatPartition* p, size_t index, size_t su
         append(survivor);
         for (auto i : g.targets) if (i != survivor) append(i);
         for (auto i : g.tools) append(p->target_count + i);
+        result->index_faces();
         *output = result.release();
     }, error, error_size);
 }

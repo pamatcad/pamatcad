@@ -206,6 +206,7 @@ void extrude_face(TopoDS_Face face, std::vector<TopoDS_Edge> edges,
         result->named_faces = std::move(slots);
     }
     validated_volume(result->value);
+    result->index_faces();
     *output = result.release();
 }
 }

@@ -1,0 +1,11 @@
+[package]
+name = "pamatcad-wasm"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+pamatcad-core = { path = "../core" }
+serde_json.workspace = true

@@ -5,6 +5,7 @@ use ts_rs::TS;
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
     NotFound,
+    PreviewUnavailable,
     InvalidParameter,
     InvalidState,
     AmbiguousRegion,

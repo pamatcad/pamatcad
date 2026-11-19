@@ -1,7 +1,14 @@
-import type { AngleUnit, CaptureScene, EncodedFile, EvaluatedFormula, ExportScene, Formula, FormulaDimension, FormulaUnit, LengthUnit, SketchSupport, SceneData } from "./generated/protocol.js";
+import type { BodyProxy as WireBodyProxy, BodyRef, ProxyQuery, AngleUnit, CaptureScene, EncodedFile, EvaluatedFormula, ExportScene, Formula, FormulaDimension, FormulaUnit, LengthUnit, SketchSupport, SceneData } from "./generated/protocol.js";
 import { Sketch } from "./sketch.js";
 import { Body } from "./solid.js";
 import type { Transport } from "./transport.js";
+
+export type BodyProxy = Omit<WireBodyProxy, "positions" | "normals" | "triangles" | "edgePoints"> & {
+  positions: Float32Array;
+  normals: Float32Array;
+  triangles: Uint32Array;
+  edgePoints: Float32Array;
+};
 
 export type ExportOptions = Omit<ExportScene, "sceneId">;
 export type CaptureOptions = Omit<CaptureScene, "sceneId">;
@@ -34,6 +41,7 @@ export class Scene {
       },
     };
     this.bodies = {
+      revisions: () => transport.request("scene.bodies.revisions", { sceneId: this.id }),
       all: () => transport.request("scene.bodies.all", { sceneId: this.id }),
       get: async (id: string): Promise<Body> => new Body(transport,
         await transport.request("body.get", { body: { sceneId: this.id, id } })),
@@ -47,6 +55,19 @@ export class Scene {
     return this.transport.request("scene.evaluateFormula", {
       sceneId: this.id, expression, expectedDimension: options.expectedDimension,
     });
+  }
+
+  async getProxyFor(body: BodyRef, options: Omit<ProxyQuery, "body"> = {}): Promise<BodyProxy> {
+    if (body.sceneId !== this.id) throw new Error("Body belongs to another scene");
+    const result = await this.transport.request("scene.getProxyFor", {
+      ...options, body: { sceneId: body.sceneId, id: body.id },
+    });
+    return { ...result, positions: new Float32Array(result.positions), normals: new Float32Array(result.normals),
+      triangles: new Uint32Array(result.triangles), edgePoints: new Float32Array(result.edgePoints) };
+  }
+
+  async discardPreview(): Promise<void> {
+    await this.transport.request("scene.discardPreview", { sceneId: this.id });
   }
 
   async export(options: ExportOptions): Promise<SceneFile> {

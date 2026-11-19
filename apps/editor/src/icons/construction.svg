@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Construction</title>
+  <path d="m3 20 11-9 15 5-11 10Z" fill="#d0e9e6" stroke="#24716d" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M16 20V3m0 17 14 8" fill="none" stroke="#234b58" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="16" cy="20" r="2.5" fill="#a64a20"/>
+</svg>

@@ -26,3 +26,30 @@ To build without testing: `npm run build`. To run the server:
 ```sh
 cargo run --locked -p pamatcad-host -- serve --listen 127.0.0.1:8787
 ```
+
+## Editor
+
+Run `npm ci` from the repository root. Both editors use the JavaScript SDK and the same Rust and OCCT engine.
+
+### Browser
+
+Install Emscripten 4.0.23 once. The build finds it in `target/emsdk` or through an activated Emscripten environment.
+
+```sh
+git clone --depth 1 --branch 4.0.23 https://github.com/emscripten-core/emsdk.git target/emsdk
+target/emsdk/emsdk install 4.0.23
+target/emsdk/emsdk activate 4.0.23
+rustup target add wasm32-unknown-emscripten
+npm run build:web
+npm run dev:editor
+```
+
+Open the URL printed by Vite. To deploy the production build, serve `build/web/` over HTTP(S), including the `wasm/` folder. The browser runs the kernel in a worker. Changes to editor code reload during development. Rebuild the WASM module after changing the kernel. `PAMATCAD_BUILD_JOBS` sets the number of OCCT compile jobs for the first build.
+
+### Standalone
+
+Run `npm run build:desktop` with the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/) installed. On macOS, open `apps/editor/src-tauri/target/release/bundle/macos/PamatCAD.app`. This builds a locally ad-hoc signed application. The editor sends commands directly to the native engine.
+
+### UI tests
+
+Run `npm run test:editor:web` after the web build (installed Chrome, or set `CHROME_BIN` to a Chromium executable). Run `npm run test:editor:desktop` after building the SDK. Both checks operate the editor controls and use the console to measure the finished body.

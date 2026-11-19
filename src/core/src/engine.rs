@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 pub struct Engine {
     scenes: BTreeMap<String, Scene>,
     next_id: u64,
+    next_revision: u64,
+    previews: BTreeMap<(u64, String), modeling::PreviewOverlay>,
 }
 
 impl Engine {
@@ -49,6 +51,18 @@ impl Engine {
     }
 
     pub fn execute(&mut self, request: Request) -> Result<Response> {
+        self.execute_for(0, request)
+    }
+
+    pub fn end_session(&mut self, session: u64) {
+        self.previews.retain(|(owner, _), _| *owner != session);
+    }
+
+    fn invalidate_previews(&mut self, scene: &str) {
+        self.previews.retain(|(_, id), _| id != scene);
+    }
+
+    pub fn execute_for(&mut self, session: u64, request: Request) -> Result<Response> {
         match request {
             Request::SceneExport(input) => Ok(Response::SceneExport(
                 self.scene(&input.scene_id)?
@@ -95,6 +109,7 @@ impl Engine {
                     .unwrap()
                     .sketches
                     .insert(data.id.clone(), sketch);
+                self.invalidate_previews(&data.scene_id);
                 Ok(Response::SketchCreate(data))
             }
             Request::PrimitiveAdd(input) => {
@@ -121,6 +136,7 @@ impl Engine {
                         PrimitiveData::Circle(sketch::primitives::add_circle(sketch, id, params)?)
                     }
                 };
+                self.invalidate_previews(&input.sketch.scene_id);
                 Ok(Response::PrimitiveAdd(data))
             }
             Request::SketchComplete(input) => {
@@ -134,6 +150,7 @@ impl Engine {
                 scene.timeline.push(TimelineEntry::Sketch {
                     id: data.id.clone(),
                 });
+                self.invalidate_previews(&input.sketch.scene_id);
                 Ok(Response::SketchComplete(data))
             }
             Request::TimelineList(input) => Ok(Response::TimelineList(
@@ -146,7 +163,7 @@ impl Engine {
                 self.sketch(&input.sketch)?.only_region()?,
             )),
             Request::SolidExtrude(input) => self
-                .execute_modeling(input.preview.unwrap_or(false), input)
+                .execute_modeling(session, input)
                 .map(Response::SolidExtrude),
             Request::BodiesAll(input) => Ok(Response::BodiesAll(
                 self.scene(&input.scene_id)?
@@ -216,6 +233,27 @@ impl Engine {
             Request::BodyGet(input) => {
                 Ok(Response::BodyGet(self.body(&input.body)?.reference.clone()))
             }
+            Request::BodyRevisions(query) => Ok(Response::BodyRevisions(
+                self.scene(&query.scene_id)?
+                    .bodies
+                    .values()
+                    .map(|b| BodyRevision {
+                        body: b.reference.clone(),
+                        revision: b.revision.to_string(),
+                    })
+                    .collect(),
+            )),
+            Request::SceneGetProxyFor(query) => self
+                .proxy_for(session, query)
+                .map(Response::SceneGetProxyFor),
+            Request::SceneDiscardPreview(query) => {
+                self.scene(&query.scene_id)?;
+                self.previews.remove(&(session, query.scene_id));
+                Ok(Response::SceneDiscardPreview(()))
+            }
+            Request::BodyMesh(input) => Ok(Response::BodyMesh(
+                self.body(&input.body)?.shape.triangle_mesh()?,
+            )),
             Request::BodyProperties(input) => Ok(Response::BodyProperties(BodyProperties {
                 volume: Volume {
                     value: self.body(&input.body)?.shape.volume()?,

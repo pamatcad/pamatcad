@@ -11,7 +11,27 @@ fn main() {
         .nth(3)
         .unwrap()
         .join("pamatcad-native");
-    let install = cmake::Config::new(source)
+    // Separate desktop and CLI Cargo workspaces may share a same-target OCCT build.
+    println!("cargo:rerun-if-env-changed=PAMATCAD_NATIVE_DIR");
+    let target = env::var("TARGET").unwrap();
+    let native_output = if target == env::var("HOST").unwrap() {
+        env::var_os("PAMATCAD_NATIVE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or(native_output)
+    } else {
+        native_output
+    };
+    let mut config = cmake::Config::new(source);
+    for (env_name, setting) in [
+        ("PAMATCAD_OCCT_SOURCE", "FETCHCONTENT_SOURCE_DIR_OCCT"),
+        ("PAMATCAD_BUILD_JOBS", "PAMATCAD_BUILD_JOBS"),
+    ] {
+        println!("cargo:rerun-if-env-changed={env_name}");
+        if let Ok(value) = env::var(env_name) {
+            config.define(setting, value);
+        }
+    }
+    let install = config
         .out_dir(native_output)
         .profile("Release")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
@@ -48,7 +68,6 @@ fn main() {
     ] {
         println!("cargo:rustc-link-lib=static={library}");
     }
-    let target = env::var("TARGET").unwrap();
     if target.contains("apple") {
         println!("cargo:rustc-link-lib=c++");
         println!("cargo:rustc-link-lib=framework=AppKit");

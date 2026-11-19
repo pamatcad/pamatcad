@@ -13,8 +13,12 @@ struct PamatShape {
     // Cap slots come first (end 1, then start or end 2), followed by source edges
     // for each side. Booleans update the descendants without moving the slots.
     std::vector<TopTools_IndexedMapOfShape> named_faces;
+    TopTools_IndexedMapOfShape faces;
+    std::vector<size_t> selectable_slots; // Indexed by the one-based face map.
+    void index_faces();
 };
 
+double mesh_for_display(const TopoDS_Shape& copy);
 double validated_volume(const TopoDS_Shape& solid);
 
 template <typename Operation>

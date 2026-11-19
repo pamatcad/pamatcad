@@ -1,13 +1,20 @@
 use super::Engine;
 use crate::{
-    error::Result,
+    error::{CoreError, ErrorCode, Result},
     kernel::Shape,
     model::{Body, Scene},
     protocol::{
-        BodyProperties, BodyRef, Feature, FeaturePreview, FeatureResult, Operation, Volume,
-        VolumeUnit,
+        BodyProperties, BodyProxy, BodyRef, Feature, FeaturePreview, FeatureResult,
+        ModelingRequest, Operation, ProxyQuery, Volume, VolumeUnit,
     },
 };
+
+use std::collections::BTreeMap;
+
+pub(super) struct PreviewOverlay {
+    revision: String,
+    shapes: BTreeMap<String, Shape>,
+}
 
 pub(crate) trait ModelingCommand {
     fn scene_id(&self) -> Result<&str>;
@@ -36,40 +43,92 @@ impl ProposedChanges {
             .collect()
     }
 
-    fn preview(self) -> Result<FeaturePreview> {
+    fn preview(self, scene: &str, revision: String) -> Result<(FeaturePreview, PreviewOverlay)> {
         let affected_solids = self.affected_solids();
-        let new_solids = self
-            .created
-            .iter()
-            .map(|shape| {
-                Ok(BodyProperties {
-                    volume: Volume {
-                        value: shape.volume()?,
-                        unit: VolumeUnit::CubicMillimetres,
-                    },
-                })
-            })
-            .collect::<Result<_>>()?;
-        Ok(FeaturePreview {
+        let mut shapes = BTreeMap::new();
+        let mut new_solids = Vec::with_capacity(self.created.len());
+        let mut new_solid_properties = Vec::with_capacity(self.created.len());
+        for (index, shape) in self.created.into_iter().enumerate() {
+            let id = format!("preview-{revision}-{index}");
+            new_solid_properties.push(BodyProperties {
+                volume: Volume {
+                    value: shape.volume()?,
+                    unit: VolumeUnit::CubicMillimetres,
+                },
+            });
+            new_solids.push(BodyRef {
+                scene_id: scene.to_owned(),
+                id: id.clone(),
+            });
+            shapes.insert(id, shape);
+        }
+        for update in self
+            .updated
+            .into_iter()
+            .filter(|update| update.material_changed)
+        {
+            shapes.insert(update.body.reference.id, update.body.shape);
+        }
+        let result = FeaturePreview {
             operation: self.operation,
+            revision: revision.clone(),
             new_solids,
+            new_solid_properties,
             affected_solids,
             removed_solids: self.removed,
-        })
+        };
+        Ok((result, PreviewOverlay { revision, shapes }))
     }
 }
 
 impl Engine {
-    pub(super) fn execute_modeling(
-        &mut self,
-        preview: bool,
-        command: impl ModelingCommand,
-    ) -> Result<FeatureResult> {
-        let scene_id = command.scene_id()?.to_owned();
-        let changes = command.evaluate(self.scene(&scene_id)?)?;
-        if preview {
-            return changes.preview().map(FeatureResult::Preview);
+    pub(super) fn proxy_for(&self, session: u64, query: ProxyQuery) -> Result<BodyProxy> {
+        let (shape, revision) = if query.preview.unwrap_or(false) {
+            let overlay = self.previews.get(&(session, query.body.scene_id.clone()));
+            let (overlay, shape) = overlay
+                .and_then(|p| p.shapes.get(&query.body.id).map(|s| (p, s)))
+                .ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::PreviewUnavailable,
+                        "No cached preview B-rep for this body",
+                    )
+                })?;
+            (shape, overlay.revision.clone())
+        } else {
+            let body = self.body(&query.body)?;
+            (&body.shape, body.revision.to_string())
+        };
+        if query
+            .revision
+            .as_ref()
+            .is_some_and(|expected| expected != &revision)
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidState,
+                "Geometry revision has changed",
+            ));
         }
+        shape.proxy(query.body, revision)
+    }
+
+    pub(super) fn execute_modeling<C: ModelingCommand>(
+        &mut self,
+        session: u64,
+        request: ModelingRequest<C>,
+    ) -> Result<FeatureResult> {
+        let scene_id = request.command.scene_id()?.to_owned();
+        let preview = request.preview.unwrap_or(false);
+        if preview {
+            self.previews.remove(&(session, scene_id.clone()));
+        }
+        let changes = request.command.evaluate(self.scene(&scene_id)?)?;
+        self.next_revision += 1;
+        if preview {
+            let (result, overlay) = changes.preview(&scene_id, self.next_revision.to_string())?;
+            self.previews.insert((session, scene_id), overlay);
+            return Ok(FeatureResult::Preview(result));
+        }
+        self.invalidate_previews(&scene_id);
         Ok(FeatureResult::Feature(
             self.commit_changes(scene_id, changes),
         ))
@@ -90,6 +149,7 @@ impl Engine {
                 reference,
                 shape,
                 created_at: self.next_id,
+                revision: self.next_revision,
             });
         }
         let feature = Feature {
@@ -113,6 +173,7 @@ impl Engine {
         }
         let mut faces_by_body = std::collections::BTreeMap::new();
         for mut body in bodies {
+            body.revision = self.next_revision;
             faces_by_body.insert(
                 body.reference.id.clone(),
                 std::mem::take(&mut body.shape.profile_slots),

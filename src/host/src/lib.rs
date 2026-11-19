@@ -8,9 +8,13 @@ use pamatcad_core::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-struct Job {
-    request: Request,
-    reply: oneshot::Sender<Result<Response>>,
+enum Job {
+    Execute {
+        session: u64,
+        request: Request,
+        reply: oneshot::Sender<Result<Response>>,
+    },
+    Disconnect(u64),
 }
 
 #[derive(Clone)]
@@ -25,7 +29,16 @@ impl Default for Host {
             // OCCT shapes never cross thread boundaries; requests are serialized here.
             let mut engine = Engine::default();
             while let Some(job) = receiver.blocking_recv() {
-                let _ = job.reply.send(engine.execute(job.request));
+                match job {
+                    Job::Execute {
+                        session,
+                        request,
+                        reply,
+                    } => {
+                        let _ = reply.send(engine.execute_for(session, request));
+                    }
+                    Job::Disconnect(id) => engine.end_session(id),
+                }
             }
         });
         Self { sender }
@@ -33,13 +46,29 @@ impl Default for Host {
 }
 
 impl Host {
-    async fn execute(
+    pub async fn execute(
         &self,
+        request: Request,
+    ) -> std::result::Result<Result<Response>, &'static str> {
+        self.execute_for(0, request).await
+    }
+
+    async fn disconnect(&self, session: u64) {
+        let _ = self.sender.send(Job::Disconnect(session)).await;
+    }
+
+    async fn execute_for(
+        &self,
+        session: u64,
         request: Request,
     ) -> std::result::Result<Result<Response>, &'static str> {
         let (reply, receiver) = oneshot::channel();
         self.sender
-            .send(Job { request, reply })
+            .send(Job::Execute {
+                session,
+                request,
+                reply,
+            })
             .await
             .map_err(|_| "Core worker stopped")?;
         receiver.await.map_err(|_| "Core worker stopped")

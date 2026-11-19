@@ -25,12 +25,24 @@ Currently the sections, starting from ribbon configurations, are:
 
 #### Working area
 
-3D viewport of the current scene with a scene browser on the left (tabbed, full height block displaying Bodies / Sketches), and a 3d view on the right. On the 3D view there are at least three overlays - a gizmo cube, axes and a home button in the top left, a current tool configuration in the pop-up just below the gizmo, and a misc switcher in the right bottom corner.
+3D viewport of the current scene with a scene browser on the left (tabbed, full height block displaying Construction / Bodies / Sketches ), and a 3d view on the right. On the 3D view there are at least three overlays - a gizmo cube, axes and a home button in the top right, a current tool configuration in the pop-up just below the gizmo, and a misc switcher in the right bottom corner.
+
+See [Scene browser](scene_browser.md) for more details.
+
+#### Timeline
+
+Current timeline display.
 
 #### Logs and JS console area
 
 Tabbed logs windows. **Console** is an interactive js console, and **CAD log** logs every  command sent to backend. **Scene browser** displays current scene as a browseable tree view.
 
+This block is collapsed by default, and can be popped out (and back) as a separate window, similar to Chrome dev console. To open console, click "Debug console" button.
+
+See [Logs and console](logs_and_console.md) for more details.
+
 #### Status line
 
 Thin line, displaying either current status or a progress bar for lengthy operations (e.g. timeline recalculation).
+
+See [Status line](status_line.md) for more details.
