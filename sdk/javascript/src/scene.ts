@@ -70,6 +70,11 @@ export class Scene {
     await this.transport.request("scene.discardPreview", { sceneId: this.id });
   }
 
+  /** Release this scene and all its previews. Existing references become invalid. */
+  async close(): Promise<void> {
+    await this.transport.request("scene.close", { sceneId: this.id });
+  }
+
   async export(options: ExportOptions): Promise<SceneFile> {
     return decode(await this.transport.request("scene.export", { ...options, sceneId: this.id }));
   }

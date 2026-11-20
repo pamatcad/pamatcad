@@ -4,10 +4,14 @@ import faviconUrl from "../../../doc/media/logo.svg?url";
 import extrudeIconUrl from "../../../doc/api/command/solid/extrude/icon.svg?url";
 import { Core, type Scene, type RegionRef, type BodyProxy, type TimelineEntry } from "@pamatcad/sdk";
 import { editorTransport } from "./runtime/transport";
-import { appendOutput, initOutputDock, logCommand, setConsoleEnabled, updateSceneTree } from "./dock";
-import { Viewport, type Point, type Rectangle, type TopologyPick } from "./viewport";
-import { initSceneBrowser } from "./scene-browser";
+import { appendOutput, initOutputDock, logCommand, setConsoleEnabled, updateSceneTree, captureOutput, restoreOutput, type OutputState } from "./dock";
+import { Viewport, type Point, type Rectangle, type TopologyPick, type ViewState } from "./viewport";
+import { initSceneBrowser, type BrowserTab, type TreeNode } from "./scene-browser";
 import { editorTheme } from "./theme";
+import { initStatusLine } from "./status-line";
+import { initMenu } from "./menu";
+import { initDocumentTabs } from "./documents";
+import { resetUiSettings } from "./ui-settings";
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const button = (id: string) => el<HTMLButtonElement>(id);
@@ -17,31 +21,68 @@ const desktop = import.meta.env.MODE === "desktop";
 let scene: Scene;
 let viewport: Viewport;
 let entries: TimelineEntry[] = [];
-const rectangles = new Map<string, Rectangle>();
-const regions = new Map<string, RegionRef>();
-const proxies = new Map<string, BodyProxy>();
+let rectangles = new Map<string, Rectangle>();
+let regions = new Map<string, RegionRef>();
+let proxies = new Map<string, BodyProxy>();
 let selectedSketch: string | undefined;
 let selectedBody: string | undefined;
 let selectedTopology: { pick: TopologyPick; revision: string } | undefined;
-let objectTab: "Components" | "Construction" | "Bodies" | "Sketches" = "Bodies";
+let objectTab: BrowserTab = "Bodies";
+let selectedPlane: string | undefined;
+let hiddenObjects = new Set<string>();
+let previewBodies: BodyProxy[] = [];
+let previewRemoved: string[] = [];
 let tool: "sketch" | "extrude" | undefined;
 let busy = false;
 let anchor: Point | undefined;
 let drawing = false;
+let draftRectangle: Rectangle | undefined;
 let revision = 0;
 let timer: ReturnType<typeof setTimeout>;
 let pendingPreview = false;
 let renderedLength: string | undefined;
 let fitFirstPreview = false;
+type EditorDocument = {
+  scene: Scene;
+  entries: TimelineEntry[];
+  rectangles: Map<string, Rectangle>;
+  regions: Map<string, RegionRef>;
+  proxies: Map<string, BodyProxy>;
+  selectedSketch?: string;
+  selectedBody?: string;
+  selectedPlane?: string;
+  selectedTopology?: { pick: TopologyPick; revision: string };
+  objectTab: BrowserTab;
+  hiddenObjects: Set<string>;
+  tool?: "sketch" | "extrude";
+  anchor?: Point;
+  drawing: boolean;
+  draft?: Rectangle;
+  renderedLength?: string;
+  fitFirstPreview: boolean;
+  previewBodies: BodyProxy[];
+  previewRemoved: string[];
+  panel: Node[];
+  view?: ViewState;
+  output?: OutputState;
+  status: string;
+};
+const documents = new Map<string, EditorDocument>();
+let activeDocument: EditorDocument | undefined;
+let nextDocument = 0;
+let documentTabs: ReturnType<typeof initDocumentTabs>;
+let browser: ReturnType<typeof initSceneBrowser>;
+let menu: ReturnType<typeof initMenu>;
 const status = (text: string) => {
   el("status").textContent = text;
+  if (activeDocument) activeDocument.status = text;
 };
 
 const transport = editorTransport(logCommand);
 const core = new Core(transport);
 
 function controls() {
-  button("new-sketch").disabled = busy || !scene || !!tool;
+  button("new-sketch").disabled = busy || !activeDocument || !!tool;
   button("extrude").disabled = busy || !selectedSketch || !!tool;
   for (const [id, name] of [
     ["new-sketch", "sketch"],
@@ -50,11 +91,16 @@ function controls() {
     button(id).setAttribute("aria-pressed", String(tool === name));
   }
   el("progress").hidden = !busy && !pendingPreview;
-  setConsoleEnabled(!busy && !!scene && !tool);
-  button("menu-new").disabled = busy;
+  setConsoleEnabled(!busy && !!activeDocument && !tool && !pendingPreview);
+  menu?.setBusy(busy || pendingPreview);
+  documentTabs?.render([...documents.values()].map(({ scene }) => ({ id: scene.id, name: scene.name ?? "Untitled" })), activeDocument?.scene.id, busy || pendingPreview);
   if (tool) {
     button("cancel").disabled = busy;
-    button("apply").disabled = busy || (tool === "extrude" && renderedLength !== input("length").value);
+    let valid = true;
+    if (tool === "sketch") {
+      try { rectangle(); } catch { valid = false; }
+    }
+    button("apply").disabled = busy || (tool === "sketch" ? drawing || !valid : renderedLength !== input("length").value);
   }
 }
 
@@ -69,20 +115,24 @@ async function work(fn: () => Promise<void>) {
     appendOutput(message(e), true);
   } finally {
     busy = false;
+    drawLists();
     controls();
   }
 }
 
-function select(sketch?: string, body?: string, pick?: TopologyPick) {
-  if (busy || tool) return;
+function select(sketch?: string, body?: string, pick?: TopologyPick, plane?: string) {
+  if (busy || tool || !activeDocument) return;
+  selectedPlane = plane;
   selectedSketch = sketch;
   selectedBody = body;
   const proxy = body && proxies.get(body);
   selectedTopology = proxy && pick ? { pick, revision: proxy.revision } : undefined;
+  if (plane) objectTab = "Construction";
   if (sketch || body) objectTab = sketch ? "Sketches" : "Bodies";
   drawLists();
   viewport.setSketches(rectangles, sketch);
   viewport.setBodies(proxies, body, pick);
+  viewport.setConstruction(Object.values(scene.construction.builtin.planes), plane);
   controls();
   status(
     pick
@@ -93,42 +143,35 @@ function select(sketch?: string, body?: string, pick?: TopologyPick) {
         ? "Profile selected"
         : body
           ? "Body selected"
-          : "Ready",
+          : plane ? "Plane selected" : "Ready",
   );
 }
 
-function drawLists() {
-  const ids =
-    objectTab === "Bodies"
-      ? Array.from(proxies.keys())
-      : objectTab === "Sketches"
-        ? entries.filter((e) => e.type === "sketch").map((e) => e.id)
-        : [];
-  el("object-list").replaceChildren();
-  el("object-list").hidden = objectTab === "Construction";
-  el("construction-list").hidden = objectTab !== "Construction";
-  if (!ids.length && objectTab !== "Construction") {
-    const note = document.createElement("p");
-    note.className = "empty";
-    note.textContent = "No " + objectTab.toLowerCase();
-    el("object-list").append(note);
-  }
-  ids.forEach((id, index) => {
-    const b = document.createElement("button");
-    b.className = "object-row";
-    b.textContent = (objectTab === "Bodies" ? "Body " : "Sketch ") + (index + 1);
-    b.title = id;
-    b.disabled = !!tool;
-    b.setAttribute("aria-pressed", String(id === (selectedBody || selectedSketch)));
-    b.onclick = () => (objectTab === "Bodies" ? select(undefined, id) : select(id));
-    el("object-list").append(b);
+function treeNodes(): TreeNode[] {
+  if (!activeDocument) return [];
+  const leaf = (id: string, label: string, kind: "body" | "sketch" | "plane"): TreeNode => ({
+    id, label, kind, visible: !hiddenObjects.has(id),
+    selected: id === selectedBody || id === selectedSketch || id === selectedPlane,
   });
-  for (const tab of el("browser-tabs").querySelectorAll<HTMLButtonElement>("[role=tab]")) {
-    const selected = tab.id === objectTab.toLowerCase() + "-tab";
-    tab.setAttribute("aria-selected", String(selected));
-    tab.tabIndex = selected ? 0 : -1;
+  let children: TreeNode[] = [];
+  if (objectTab === "Bodies") children = [...proxies.keys()].map((id, i) => leaf(id, "Body " + (i + 1), "body"));
+  if (objectTab === "Sketches") children = entries.filter((e) => e.type === "sketch").map((entry, i) => leaf(entry.id, "Sketch " + (i + 1), "sketch"));
+  if (objectTab === "Construction") {
+    const planes = Object.entries(scene.construction.builtin.planes).map(([name, plane]) => leaf(plane.id, name.toUpperCase() + " plane", "plane"));
+    children = [{ id: "origin", stateKey: "origin", label: "Origin", kind: "group", children: planes,
+      visible: planes.some((plane) => plane.visible) }];
   }
-  el("browser-content").setAttribute("aria-labelledby", objectTab.toLowerCase() + "-tab");
+  return [{ id: "scene-root", stateKey: objectTab + "/root", label: scene.name ?? "Untitled", kind: "scene", children,
+    visible: children.some((child) => child.visible) }];
+}
+
+function drawLists() {
+  browser?.render(objectTab, treeNodes(), busy || !!tool, activeDocument?.scene.id);
+  if (!activeDocument) {
+    el("features").replaceChildren();
+    updateSceneTree([]);
+    return;
+  }
   const features = entries.map((entry) => {
     const li = document.createElement("li");
     li.title = entry.id;
@@ -182,29 +225,155 @@ function closeTool(discard = true) {
   anchor = undefined;
   drawing = false;
   el("tool-panel").hidden = true;
-  viewport.setDraft();
-  viewport.setPreview();
+  setDraft();
+  setPreview();
   if (wasSketching) viewport.sketching(false);
   controls();
   drawLists();
 }
 
+function setPreview(bodies: BodyProxy[] = [], removed: string[] = []) {
+  previewBodies = bodies;
+  previewRemoved = removed;
+  viewport.setPreview(bodies, removed);
+}
+
+function setDraft(rectangle?: Rectangle) {
+  draftRectangle = rectangle;
+  viewport.setDraft(rectangle);
+}
+
+function saveDocument() {
+  if (!activeDocument) return;
+  Object.assign(activeDocument, { entries, rectangles, regions, proxies, selectedSketch, selectedBody,
+    selectedPlane, selectedTopology, objectTab, hiddenObjects, tool, anchor, drawing, renderedLength,
+    fitFirstPreview, previewBodies, previewRemoved, draft: draftRectangle, panel: [...el("tool-panel").childNodes],
+    view: viewport.captureView(), output: captureOutput(), status: el("status").textContent ?? "Ready" });
+  clearTimeout(timer);
+  revision++;
+}
+
+function showDocument(doc?: EditorDocument) {
+  activeDocument = doc;
+  entries = doc?.entries ?? [];
+  rectangles = doc?.rectangles ?? new Map();
+  regions = doc?.regions ?? new Map();
+  proxies = doc?.proxies ?? new Map();
+  selectedSketch = doc?.selectedSketch;
+  selectedBody = doc?.selectedBody;
+  selectedPlane = doc?.selectedPlane;
+  selectedTopology = doc?.selectedTopology;
+  objectTab = doc?.objectTab ?? browser.initialTab;
+  hiddenObjects = doc?.hiddenObjects ?? new Set();
+  tool = doc?.tool;
+  anchor = doc?.anchor;
+  drawing = doc?.drawing ?? false;
+  renderedLength = doc?.renderedLength;
+  fitFirstPreview = doc?.fitFirstPreview ?? false;
+  if (doc) scene = doc.scene;
+  el("tool-panel").replaceChildren(...doc?.panel ?? []);
+  el("tool-panel").hidden = !tool;
+  restoreOutput(doc?.output);
+  setDraft(doc?.draft);
+  setPreview();
+  viewport.setVisibility(hiddenObjects);
+  viewport.setBodies(proxies, selectedBody, selectedTopology?.pick);
+  viewport.setSketches(rectangles, selectedSketch);
+  viewport.setConstruction(doc ? Object.values(scene.construction.builtin.planes) : [], selectedPlane);
+  viewport.sketching(tool === "sketch");
+  setPreview(doc?.previewBodies, doc?.previewRemoved);
+  if (doc?.view) viewport.restoreView(doc.view);
+  else viewport.home();
+  const mode = doc?.view?.mode ?? "orthographic";
+  const radio = document.querySelector<HTMLInputElement>(`input[name="projection"][value="${mode}"]`)!;
+  radio.checked = true;
+  if (!doc?.view) viewport.setCameraMode(mode);
+  el("camera-modes").hidden = true;
+  button("camera-mode").setAttribute("aria-expanded", "false");
+  document.title = doc ? `PamatCAD · ${scene.name}` : "PamatCAD";
+  status(doc?.status ?? "No open documents");
+  drawLists();
+  controls();
+  if (tool === "extrude" && renderedLength !== input("length").value) schedulePreview();
+}
+
+function activateDocument(id: string) {
+  if (busy || pendingPreview || activeDocument?.scene.id === id) return;
+  const doc = documents.get(id);
+  if (!doc) return;
+  saveDocument();
+  showDocument(doc);
+}
+
+function reorderDocument(id: string, beforeId: string | null) {
+  if (busy || pendingPreview || id === beforeId) return;
+  const moved = documents.get(id);
+  if (!moved || (beforeId !== null && !documents.has(beforeId))) return;
+  const ordered = [...documents.entries()].filter(([key]) => key !== id);
+  const index = beforeId === null ? ordered.length : ordered.findIndex(([key]) => key === beforeId);
+  ordered.splice(index, 0, [id, moved]);
+  documents.clear();
+  for (const [key, doc] of ordered) documents.set(key, doc);
+  controls();
+}
+
 async function newScene() {
-  if (scene && (entries.length || tool) && !window.confirm("Discard the current scene and start a new one?"))
-    return;
+  if (pendingPreview) return;
+  clearTimeout(timer);
+  revision++;
   await work(async () => {
-    const created = await core.scene.create("Untitled");
-    if (tool) closeTool();
-    scene = created;
-    rectangles.clear();
-    regions.clear();
-    proxies.clear();
-    selectedBody = selectedSketch = undefined;
-    objectTab = "Bodies";
-    await refresh();
-    viewport.home();
-    status("Ready");
+    const created = await core.scene.create("Untitled " + (++nextDocument));
+    saveDocument();
+    const doc: EditorDocument = { scene: created, entries: [], rectangles: new Map(), regions: new Map(),
+      proxies: new Map(), objectTab: browser.initialTab,
+      hiddenObjects: new Set(Object.values(created.construction.builtin.planes).map((plane) => plane.id)),
+      drawing: false, fitFirstPreview: false, previewBodies: [], previewRemoved: [], panel: [], status: "Ready" };
+    documents.set(created.id, doc);
+    showDocument(doc);
   });
+  if (tool === "extrude" && renderedLength !== input("length").value && !pendingPreview) schedulePreview();
+}
+
+async function closeDocument(id: string) {
+  if (busy || pendingPreview) return;
+  const doc = documents.get(id);
+  if (!doc) return;
+  const hasContent = doc === activeDocument ? entries.length || tool : doc.entries.length || doc.tool;
+  if (hasContent && !window.confirm(`Close "${doc.scene.name}" and discard its contents?`)) return;
+  if (doc === activeDocument) saveDocument();
+  await work(async () => {
+    await doc.scene.close();
+    const ids = [...documents.keys()];
+    const index = ids.indexOf(id);
+    documents.delete(id);
+    if (activeDocument === doc) {
+      clearTimeout(timer);
+      revision++;
+      const next = ids[index + 1] ?? ids[index - 1];
+      showDocument(next ? documents.get(next) : undefined);
+    }
+  });
+}
+
+function changeVisibility(id: string, visible: boolean) {
+  if (!activeDocument || busy || tool) return;
+  const visit = (node: TreeNode, inherited = false) => {
+    const change = inherited || node.id === id;
+    if (node.children) node.children.forEach((child) => visit(child, change));
+    else if (change) {
+      if (visible) hiddenObjects.delete(node.id); else hiddenObjects.add(node.id);
+      if (!visible && node.id === selectedSketch) selectedSketch = undefined;
+      if (!visible && node.id === selectedBody) { selectedBody = undefined; selectedTopology = undefined; }
+      if (!visible && node.id === selectedPlane) selectedPlane = undefined;
+    }
+  };
+  treeNodes().forEach((node) => visit(node));
+  viewport.setVisibility(hiddenObjects);
+  viewport.setBodies(proxies, selectedBody, selectedTopology?.pick);
+  viewport.setSketches(rectangles, selectedSketch);
+  viewport.setConstruction(Object.values(scene.construction.builtin.planes), selectedPlane);
+  drawLists();
+  controls();
 }
 
 function openPanel(name: "sketch" | "extrude") {
@@ -229,10 +398,10 @@ function rectangle(): Rectangle {
 }
 function updateDraft() {
   try {
-    viewport.setDraft(rectangle());
-    button("apply").disabled = false;
+    setDraft(rectangle());
+    button("apply").disabled = busy || drawing;
   } catch {
-    viewport.setDraft();
+    setDraft();
     button("apply").disabled = true;
   }
 }
@@ -296,7 +465,7 @@ async function preview() {
         changed.map((body) => scene.getProxyFor(body, { preview: true, revision: result.revision })),
       );
       if (revision !== version) return;
-      viewport.setPreview(
+      setPreview(
         replacements,
         result.removedSolids.map((body) => body.id),
       );
@@ -309,7 +478,7 @@ async function preview() {
     }
   } catch (e) {
     if (revision === version) {
-      viewport.setPreview();
+      setPreview();
       input("length").setCustomValidity(message(e));
       status(message(e));
     }
@@ -387,8 +556,9 @@ async function runConsole(source: string) {
   });
 }
 
-async function start() {
+export async function startEditor() {
   editorTheme.apply(document);
+  initStatusLine();
   document.querySelector<HTMLImageElement>(".wordmark")!.src = wordmarkUrl;
   document.querySelector<HTMLImageElement>("#extrude img")!.src = extrudeIconUrl;
   document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href = faviconUrl;
@@ -402,15 +572,16 @@ async function start() {
         if (drawing) {
           updateCorner(hit.point);
           drawing = false;
+          controls();
           status("Rectangle ready");
         } else {
           anchor = hit.point;
           drawing = true;
-          viewport.setDraft();
+          setDraft();
           button("apply").disabled = true;
           status("Pick the opposite corner");
         }
-      } else if (!tool) select(hit.sketch, hit.body, hit.pick);
+      } else if (!tool) select(hit.sketch, hit.body, hit.pick, hit.plane);
     },
     (point) => {
       if (tool === "sketch" && drawing && point && !busy) updateCorner(point);
@@ -443,26 +614,27 @@ async function start() {
   };
   document.addEventListener("pointerdown", closeCameraMenuOutside);
   document.addEventListener("focusin", closeCameraMenuOutside);
-  for (const name of ["Components", "Construction", "Bodies", "Sketches"] as const) {
-    button(name.toLowerCase() + "-tab").onclick = () => {
-      objectTab = name;
-      drawLists();
-    };
-  }
-  initSceneBrowser();
+  browser = initSceneBrowser({
+    onTab(tab) { objectTab = tab; drawLists(); },
+    onSelect(id) {
+      if (proxies.has(id)) select(undefined, id);
+      else if (entries.some((entry) => entry.type === "sketch" && entry.id === id)) select(id);
+      else if (activeDocument && Object.values(scene.construction.builtin.planes).some((plane) => plane.id === id)) select(undefined, undefined, undefined, id);
+    },
+    onVisibility: changeVisibility,
+  });
+  documentTabs = initDocumentTabs({ activate: activateDocument, close: (id) => { void closeDocument(id); }, create: () => { void newScene(); }, reorder: reorderDocument });
   await initOutputDock(runConsole, status);
-  const menu = (id: string) => {
-    document.querySelectorAll<HTMLDetailsElement>("nav details").forEach((node) => (node.open = false));
-    if (id === "new" && !busy) void newScene();
-    if (id === "help") el<HTMLDialogElement>("help").showModal();
-  };
-  button("menu-new").onclick = () => menu("new");
-  button("menu-help").onclick = () => menu("help");
-  if (desktop) {
-    const { listen } = await import("@tauri-apps/api/event");
-    await listen<string>("editor-menu", (e) => menu(e.payload));
-  }
+  menu = initMenu({ newScene: () => { void newScene(); }, resetUi: () => {
+    resetUiSettings();
+    for (const doc of documents.values()) doc.objectTab = "Bodies";
+    objectTab = "Bodies";
+    viewport.setCameraMode("orthographic");
+    document.querySelector<HTMLInputElement>('input[name="projection"][value="orthographic"]')!.checked = true;
+    drawLists();
+  } });
   document.addEventListener("keydown", (e) => {
+    if (e.target instanceof Element && e.target.closest("dialog")) return;
     if (!cameraModes.hidden) {
       if (e.key === "Escape") {
         setCameraMenuOpen(false);
@@ -480,8 +652,5 @@ async function start() {
     if (e.key === "Enter" && tool && e.target instanceof HTMLInputElement) button("apply").click();
   });
   await newScene();
+  if (!activeDocument) throw new Error(el("status").textContent || "Could not create the initial scene");
 }
-start().catch((e) => {
-  status(message(e));
-  appendOutput(message(e), true);
-});

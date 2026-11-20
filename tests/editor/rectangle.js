@@ -58,5 +58,18 @@ async function testRectangleEditor() {
   ) {
     throw new Error("Unexpected rectangle extrusion: " + JSON.stringify(result));
   }
-  return result;
+  let footprint = null;
+  if (window.__TAURI_INTERNALS__) {
+    footprint = await window.__TAURI_INTERNALS__.invoke("memory_footprint");
+    if (footprint && !(footprint.bytes > 0 && footprint.processes >= 1)) {
+      throw new Error("Invalid app memory footprint: " + JSON.stringify(footprint));
+    }
+  }
+  await wait(
+    () => footprint
+      ? /^\d+\.\d{2} GB RAM$/.test(find("memory-footprint").textContent)
+      : find("memory-footprint").textContent === "RAM unavailable",
+    "Display app memory footprint",
+  );
+  return { ...result, footprint, memory: find("memory-footprint").textContent };
 }

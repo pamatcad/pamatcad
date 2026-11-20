@@ -4,6 +4,9 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { testEditorTheme } from "./theme.mjs";
+import { testSceneBrowser } from "./scene-browser.mjs";
+import { testLoadingScreen } from "./loading.mjs";
+import { testDocumentTabs } from "./document-tabs.mjs";
 
 const root = resolve("build/web");
 const types = {
@@ -42,10 +45,11 @@ try {
   const popup = page.waitForEvent("popup");
   await Promise.all([popup, page.evaluate(() => testOutputDock())]);
   console.log("Detached console, live CAD log and scene tree, docking, and window close passed");
+  await page.addScriptTag({ path: "tests/editor/documents.js" });
+  console.log(await page.evaluate(() => testDocumentEditor()));
   if (process.env.PAMATCAD_SCREENSHOT) await page.screenshot({ path: process.env.PAMATCAD_SCREENSHOT });
 
   // Draw and select through the actual canvas in a fresh document.
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByText("File", { exact: true }).click();
   await page.getByRole("button", { name: "New scene" }).click();
   await page.waitForFunction(() => document.querySelector("#features").children.length === 0);
@@ -77,6 +81,12 @@ try {
   const topView = await cubeCenter(bounds); // XY sketching looks straight down on the cube.
   const clickAt = (x, y) => page.mouse.click(bounds.x + x * bounds.width, bounds.y + y * bounds.height);
   await clickAt(0.55, 0.35);
+  const drawingDocument = await page.locator('#document-tabs [aria-selected="true"]').getAttribute("data-document");
+  await page.getByText("File", { exact: true }).click();
+  await page.getByRole("button", { name: "New scene", exact: true }).click();
+  await page.waitForFunction((id) => document.querySelector('#document-tabs [aria-selected="true"]')?.getAttribute("data-document") !== id && !document.querySelector("#menu-new").disabled, drawingDocument);
+  await page.locator(`#document-tabs [data-document="${drawingDocument}"]`).click();
+  assert.ok(await page.getByRole("button", { name: "Finish sketch" }).isDisabled(), "Keep the draft waiting for its second corner");
   await clickAt(0.7, 0.6);
   const width = Number(await page.locator("#width").inputValue());
   const height = Number(await page.locator("#height").inputValue());
@@ -103,7 +113,6 @@ try {
   console.log("Pointer-drawn rectangle", { width, height, volume });
 
   await chooseProjection("Orthographic");
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByText("File", { exact: true }).click();
   await page.getByRole("button", { name: "New scene" }).click();
   await page.waitForFunction(() => document.querySelector("#features").children.length === 0);
@@ -186,6 +195,9 @@ try {
   assert.ok((await page.screenshot({ clip: modelClip })).equals(framed), "Restore orbit center and scale");
   console.log("Camera mode drop-up, perspective sketch, projected rim picks, and round-trip framing passed");
   await testEditorTheme(browser);
+  await testSceneBrowser(browser, "http://127.0.0.1:" + server.address().port);
+  await testLoadingScreen(browser, "http://127.0.0.1:" + server.address().port);
+  await testDocumentTabs(browser, "http://127.0.0.1:" + server.address().port);
 } finally {
   await browser?.close();
   server.close();

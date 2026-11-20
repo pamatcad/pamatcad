@@ -1,0 +1,61 @@
+body[data-loading] {
+  margin: 0;
+  overflow: hidden;
+  background: var(--background);
+}
+body[data-loading] > :not(#loading-screen) {
+  visibility: hidden;
+}
+#loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 32px;
+  color: var(--foreground);
+  background: var(--background);
+  font: 13px var(--font-family);
+  text-align: center;
+}
+#loading-screen[hidden] {
+  display: none;
+}
+#loading-screen .loading-logo {
+  width: 196px;
+  height: 64px;
+  object-fit: contain;
+}
+#loading-screen p {
+  margin: 0;
+  max-width: 480px;
+  line-height: 1.5;
+}
+#loading-progress {
+  width: 196px;
+  height: 5px;
+  accent-color: var(--accent);
+}
+#loading-error {
+  color: var(--error);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#reload-editor {
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--on-accent);
+  background: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+#reload-editor:hover {
+  background: var(--accent-hover);
+}
+#reload-editor:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

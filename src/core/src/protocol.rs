@@ -724,6 +724,7 @@ macro_rules! api {
 
 api! {
     SceneCreate(CreateScene) -> SceneData = "scene.create",
+    SceneClose(SceneQuery) -> () = "scene.close",
     SceneEvaluateFormula(EvaluateFormula) -> EvaluatedFormula<FormulaUnit> = "scene.evaluateFormula",
     SceneExport(ExportScene) -> EncodedFile = "scene.export",
     SceneCapture(CaptureScene) -> EncodedFile = "scene.capture",

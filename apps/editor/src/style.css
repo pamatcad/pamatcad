@@ -12,7 +12,7 @@ body {
   height: 100vh;
   min-height: 530px;
   display: grid;
-  grid-template-rows: 40px 90px minmax(200px, 1fr) 43px var(--output-height, 0px) 26px;
+  grid-template-rows: 40px 32px 90px minmax(200px, 1fr) 43px var(--output-height, 0px) 26px;
 }
 button,
 select,
@@ -83,22 +83,6 @@ button:active:not(:disabled) {
   list-style: none;
   padding: 5px 9px;
   border-radius: 4px;
-}
-.menubar details > button {
-  position: absolute;
-  top: 29px;
-  left: 0;
-  background: var(--panel-background);
-  box-shadow: 0 3px 14px color-mix(in srgb, var(--shadow) calc(var(--shadow-opacity) * 100%), transparent);
-  border: 1px solid var(--border);
-  min-width: 135px;
-  padding: 8px;
-  text-align: left;
-}
-.doc-title {
-  position: absolute;
-  left: 50%;
-  font-weight: 550;
 }
 .menubar #runtime {
   margin-left: auto;
@@ -268,18 +252,6 @@ h2 {
   background: var(--active-background);
   outline: none;
 }
-.scene-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 14px 3px 5px;
-  font-weight: 620;
-}
-.scene-title img {
-  width: 17px;
-}
-.origin,
-.object-row,
 .empty {
   margin: 3px 0 3px 14px;
 }
@@ -433,7 +405,8 @@ dialog button {
   color: var(--on-accent);
   border-color: var(--accent);
 }
-.actions button:last-child:hover:not(:disabled) {
+.actions button:last-child:is(:hover, :active):not(:disabled),
+dialog button:is(:hover, :active):not(:disabled) {
   background: var(--accent-hover);
 }
 .timeline {
@@ -538,7 +511,8 @@ body.output-window {
   color: var(--error);
 }
 footer {
-  grid-row: 6;
+  min-width: 0;
+  grid-row: 7;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -547,20 +521,53 @@ footer {
   padding: 0 12px;
   font-size: 11px;
 }
+.status-message,
+.status-details {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.status-message {
+  flex: 1;
+  min-width: 0;
+}
+#status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-details {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+#memory-footprint {
+  font-variant-numeric: tabular-nums;
+}
 .indicator {
   background: var(--success);
   border-radius: 50%;
   width: 6px;
   height: 6px;
+  flex-shrink: 0;
 }
 footer progress {
   width: 70px;
   height: 4px;
+  flex-shrink: 0;
 }
 #toggle-output {
-  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: inherit;
   padding: 2px 7px;
+}
+.console-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  mask: url("./icons/console.svg") center / contain no-repeat;
 }
 #toggle-output:hover,
 #toggle-output[aria-expanded="true"] {

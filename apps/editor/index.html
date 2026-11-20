@@ -5,22 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PamatCAD · Untitled</title>
     <link rel="icon" type="image/svg+xml" />
+    <link rel="stylesheet" href="./src/loading.css" />
   </head>
-  <body>
+  <body data-loading>
+    <section id="loading-screen" aria-label="Starting PamatCAD" aria-busy="true">
+      <img class="loading-logo" src="../../doc/media/logo-letters.svg" alt="PamatCAD" />
+      <p id="loading-message" role="status">Starting PamatCAD…</p>
+      <progress id="loading-progress" aria-label="Initializing editor"></progress>
+      <p id="loading-error" role="alert" hidden></p>
+      <button id="reload-editor" type="button" hidden>Reload</button>
+    </section>
     <header class="menubar">
       <img class="wordmark" alt="PamatCAD" />
-      <nav id="web-menu" aria-label="Application">
-        <details>
-          <summary>File</summary>
-          <button id="menu-new">New scene</button>
-        </details>
-        <details>
-          <summary>Help</summary>
-          <button id="menu-help">Editor controls</button>
-        </details>
-      </nav>
-      <span class="doc-title">Untitled</span><span id="runtime"></span>
+      <nav id="web-menu" aria-label="Application"></nav>
+      <span id="runtime"></span>
     </header>
+    <section class="document-bar" aria-label="Documents">
+      <button id="document-home" type="button" aria-label="Home" title="Home"><img src="./src/icons/home.svg" alt="" /></button>
+      <div id="document-tabs" role="tablist" aria-label="Open documents"></div>
+    </section>
     <section class="ribbon" aria-label="Modelling tools">
       <div class="workbench">
         <label for="workbench">Workbench</label
@@ -64,22 +67,12 @@
             <img src="./src/icons/collapse-left.svg" alt="" />
           </button>
         </div>
-        <div id="browser-content" role="tabpanel" aria-labelledby="bodies-tab">
-          <div class="scene-title"><img src="./src/icons/scene.svg" alt="" />Untitled</div>
-          <div id="object-list"></div>
-          <details class="origin" id="construction-list" open hidden>
-            <summary>Origin</summary>
-            <ul>
-              <li>XY plane</li>
-              <li>XZ plane</li>
-              <li>YZ plane</li>
-            </ul>
-          </details>
-        </div>
+        <div id="browser-content" role="tabpanel" aria-labelledby="bodies-tab"></div>
         <div id="browser-resize" role="separator" tabindex="0" aria-label="Resize scene browser"
           aria-orientation="vertical" aria-controls="scene-browser" aria-valuemin="220" aria-valuenow="220"></div>
       </aside>
-      <section id="viewport" aria-label="3D viewport">
+      <section id="viewport" role="tabpanel" aria-label="3D viewport">
+        <div id="empty-document" hidden><p>No open documents</p><button id="empty-new-scene" type="button">New scene</button></div>
         <div class="view-top">
           <button id="home" title="Fit isometric view" aria-label="Fit isometric view">
             <img src="./src/icons/home.svg" alt="" />
@@ -133,9 +126,18 @@
       <div id="tree" class="dock-page" hidden></div>
     </section>
     <footer>
-      <span class="indicator"></span><span id="status" role="status">Starting geometry engine…</span
-      ><progress id="progress" hidden></progress
-      ><button id="toggle-output" type="button" aria-expanded="false" aria-controls="output-dock">Debug console</button>
+      <div class="status-message">
+        <span class="indicator" aria-hidden="true"></span>
+        <span id="status" role="status">Starting geometry engine…</span>
+        <progress id="progress" hidden></progress>
+      </div>
+      <div class="status-details" aria-label="Application information">
+        <span id="versions"></span><span aria-hidden="true">|</span>
+        <span id="memory-footprint">RAM unavailable</span><span aria-hidden="true">|</span>
+        <button id="toggle-output" type="button" aria-expanded="false" aria-controls="output-dock">
+          <span class="console-icon" aria-hidden="true"></span>Debug console
+        </button>
+      </div>
     </footer>
     <template id="sketch-fields">
       <h2>Rectangle</h2>
@@ -162,6 +164,6 @@
       </p>
       <form method="dialog"><button>Close</button></form>
     </dialog>
-    <script type="module" src="./src/editor.ts"></script>
+    <script type="module" src="./src/bootstrap.ts"></script>
   </body>
 </html>

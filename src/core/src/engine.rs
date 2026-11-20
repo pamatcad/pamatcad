@@ -89,6 +89,13 @@ impl Engine {
                 )?;
                 Ok(Response::SceneEvaluateFormula(result))
             }
+            Request::SceneClose(query) => {
+                self.scenes.remove(&query.scene_id).ok_or_else(|| {
+                    CoreError::new(ErrorCode::NotFound, "Scene does not exist")
+                })?;
+                self.invalidate_previews(&query.scene_id);
+                Ok(Response::SceneClose(()))
+            }
             Request::SketchCreate(input) => {
                 let frame = match &input.plane {
                     SketchSupport::Plane(plane) => {

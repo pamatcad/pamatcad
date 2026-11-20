@@ -6,7 +6,14 @@ import type { ThemeDefinition } from "./theme";
 export type Point = [number, number];
 export type Rectangle = { from: Point; to: Point };
 export type TopologyPick = { face: FaceRef } | { edge: EdgeRef };
-type Hit = { point: Point | null; sketch?: string; body?: string; pick?: TopologyPick };
+type Hit = { point: Point | null; sketch?: string; body?: string; plane?: string; pick?: TopologyPick };
+export type ViewState = {
+  mode: "orthographic" | "perspective";
+  position: [number, number, number];
+  target: [number, number, number];
+  span: number;
+  zoom: number;
+};
 
 const iso = new T.Vector3(1, -1, 1);
 const gizmoSize = 120;
@@ -210,6 +217,9 @@ export class Viewport {
   private axes = new T.AxesHelper(14);
   private triad: T.AxesHelper;
   private sketches = new T.Group();
+  private construction = new T.Group();
+  private hidden = new Set<string>();
+  private previewHidden = new Set<string>();
   private bodies = new T.Group();
   private draft = new T.Group();
   private preview = new T.Group();
@@ -251,7 +261,7 @@ export class Viewport {
     this.orbit.addEventListener("change", () => this.render());
     this.grid.rotation.x = Math.PI / 2;
     this.grid.position.z = -0.02;
-    this.scene.add(this.grid, this.axes, this.bodies, this.sketches, this.draft, this.preview);
+    this.scene.add(this.grid, this.axes, this.bodies, this.sketches, this.construction, this.draft, this.preview);
     this.light.position.set(-3, -5, 8);
     this.scene.add(this.hemisphere, this.light);
     this.cubeLight.position.set(-3, 4, 6);
@@ -281,7 +291,7 @@ export class Viewport {
       const tolerance = (4 * this.span) / (this.viewZoom * canvas.clientHeight);
       this.ray.params.Line.threshold = tolerance;
       const hits = this.ray.intersectObjects(bodies, true);
-      const sketch = this.ray.intersectObjects(this.sketches.children, false)[0];
+      const sketch = this.ray.intersectObjects(this.sketches.children.filter((node) => node.visible), false)[0];
       if (sketch && (!hits.length || sketch.distance < hits[0].distance - 1e-6)) {
         onClick({ point, sketch: sketch.object.userData.sketch });
         return;
@@ -298,7 +308,8 @@ export class Viewport {
         );
         onClick({ point, body: hit.object.proxy.body.id, pick: range && { face: range.face } });
       } else {
-        onClick({ point });
+        const plane = this.ray.intersectObjects(this.construction.children.filter((node) => node.visible), false)[0];
+        onClick({ point, plane: plane?.object.userData.plane });
       }
     });
     canvas.addEventListener("pointermove", (e) => onMove(this.point(e)));
@@ -326,7 +337,7 @@ export class Viewport {
       colors.setXYZ(i + 1, color.r, color.g, color.b);
     }
     colors.needsUpdate = true;
-    for (const group of [this.sketches, this.draft]) {
+    for (const group of [this.sketches, this.draft, this.construction]) {
       for (const profile of group.children) {
         if (profile instanceof T.Mesh) styleProfile(profile, theme);
       }
@@ -425,11 +436,53 @@ export class Viewport {
     this.home();
     this.renderer.domElement.style.cursor = enabled ? "crosshair" : "";
   }
+  captureView(): ViewState {
+    return { mode: this.camera === this.orthographic ? "orthographic" : "perspective",
+      position: this.camera.position.toArray(), target: this.orbit.target.toArray(),
+      span: this.span, zoom: this.camera.zoom };
+  }
+  restoreView(view: ViewState) {
+    this.camera = view.mode === "orthographic" ? this.orthographic : this.perspective;
+    this.orbit.object = this.camera;
+    this.span = view.span;
+    this.camera.position.fromArray(view.position);
+    this.camera.zoom = view.zoom;
+    this.orbit.target.fromArray(view.target);
+    this.orbit.minDistance = this.perspectiveHomeDistance / this.orbit.maxZoom;
+    this.orbit.maxDistance = this.perspectiveHomeDistance / this.orbit.minZoom;
+    this.orbit.update();
+    this.resize();
+  }
+  setVisibility(hidden: Set<string>) {
+    this.hidden = new Set(hidden);
+    for (const node of this.sketches.children) node.visible = !hidden.has(node.userData.sketch);
+    for (const node of this.construction.children) node.visible = !hidden.has(node.userData.plane);
+    for (const node of this.bodies.children) {
+      if (node instanceof SolidDisplay) node.visible = !hidden.has(node.proxy.body.id) && !this.previewHidden.has(node.proxy.body.id);
+    }
+    for (const node of this.preview.children) {
+      if (node instanceof SolidDisplay) node.visible = !hidden.has(node.proxy.body.id);
+    }
+    this.render();
+  }
+  setConstruction(planes: { id: string; plane: "xy" | "xz" | "yz" }[], selected?: string) {
+    discard(this.construction);
+    for (const plane of planes) {
+      const node = rectangleObject({ from: [-10, -10], to: [10, 10] }, plane.id === selected, this.theme);
+      if (plane.plane === "xz") node.rotation.x = Math.PI / 2;
+      if (plane.plane === "yz") node.rotation.y = Math.PI / 2;
+      node.userData.plane = plane.id;
+      node.visible = !this.hidden.has(plane.id);
+      this.construction.add(node);
+    }
+    this.render();
+  }
   setSketches(records: Map<string, Rectangle>, selected?: string) {
     discard(this.sketches);
     for (const [id, rect] of records) {
       const profile = rectangleObject(rect, id === selected, this.theme);
       profile.userData.sketch = id;
+      profile.visible = !this.hidden.has(id);
       this.sketches.add(profile);
     }
     this.render();
@@ -453,7 +506,7 @@ export class Viewport {
       solid.highlight(id === selected, id === selected ? pick : undefined);
       this.bodies.add(solid);
     }
-    this.render();
+    this.setVisibility(this.hidden);
   }
   setDraft(rect?: Rectangle) {
     discard(this.draft);
@@ -462,12 +515,9 @@ export class Viewport {
   }
   setPreview(proxies: BodyProxy[] = [], removed: string[] = []) {
     discard(this.preview);
-    const hidden = new Set([...removed, ...proxies.map((proxy) => proxy.body.id)]);
-    for (const child of this.bodies.children) {
-      if (child instanceof SolidDisplay) child.visible = !hidden.has(child.proxy.body.id);
-    }
+    this.previewHidden = new Set([...removed, ...proxies.map((proxy) => proxy.body.id)]);
     proxies.forEach((proxy) => this.preview.add(new SolidDisplay(proxy, true, this.theme)));
-    this.render();
+    this.setVisibility(this.hidden);
   }
 
   private render() {

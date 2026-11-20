@@ -1,0 +1,44 @@
+#web-menu summary::-webkit-details-marker {
+  display: none;
+}
+#web-menu .menu-items {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-background);
+  box-shadow: 0 3px 14px color-mix(in srgb, var(--shadow) calc(var(--shadow-opacity) * 100%), transparent);
+}
+#web-menu .menu-items button {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  text-align: left;
+  white-space: nowrap;
+}
+#about a {
+  color: var(--accent);
+}
+#about .about-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+}
+#about .secondary {
+  color: var(--foreground);
+  background: var(--field-background);
+  border-color: var(--border);
+}
+#about .secondary:hover {
+  background: var(--hover-background);
+}
+#about .secondary:active:not(:disabled) {
+  background: var(--active-background);
+}

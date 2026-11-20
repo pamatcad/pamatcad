@@ -2313,8 +2313,10 @@ dependencies = [
 name = "pamatcad-editor"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "pamatcad-core",
  "pamatcad-host",
+ "serde",
  "tauri",
  "tauri-build",
 ]

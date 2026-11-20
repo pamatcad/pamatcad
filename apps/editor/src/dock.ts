@@ -13,6 +13,20 @@ const tree = panel.querySelector<HTMLElement>("#tree")!;
 const footer = document.querySelector("footer")!;
 let detached: Window | null = null;
 let releaseTheme: (() => void) | undefined;
+let collapseOnReturn = false;
+
+export type OutputState = { history: Node[]; commands: Node[]; input: string };
+
+export function captureOutput(): OutputState {
+  return { history: [...output.childNodes], commands: [...log.childNodes], input: input.value };
+}
+
+export function restoreOutput(state?: OutputState) {
+  output.replaceChildren(...state?.history ?? []);
+  log.replaceChildren(...state?.commands ?? []);
+  input.value = state?.input ?? "";
+  tree.replaceChildren();
+}
 
 export function appendOutput(text: string, error = false) {
   const line = document.createElement("div");
@@ -66,7 +80,8 @@ function dockBack() {
   footer.before(panel);
   locationButton.textContent = "Pop out";
   toggle.title = "";
-  showDock(true);
+  showDock(!collapseOnReturn);
+  collapseOnReturn = false;
   locationButton.focus();
 }
 
@@ -142,5 +157,13 @@ export async function initOutputDock(run: (source: string) => void, report: (mes
   };
   window.addEventListener("pagehide", () => {
     if (detached) closeWindow(detached);
+  });
+  window.addEventListener("pamatcad:reset-ui", () => {
+    if (detached) {
+      collapseOnReturn = true;
+      closeWindow(detached);
+    }
+    else showDock(false);
+    (tabs[0] as HTMLButtonElement).click();
   });
 }
