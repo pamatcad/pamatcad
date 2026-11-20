@@ -22,6 +22,8 @@ For a to-object extent, advance a planar end cap along the configured side’s e
 
 Extrusion, by default, affects all bodies on the way of extrusion. Supply `targets` to restrict it to specific bodies.
 
+A join skips connected profile groups that add no material and merge no bodies. It raises `INVALID_PARAMETER` if the entire operation has no effect.
+
 # Topology
 
 On a committed extrusion, `feature.faces` selects faces by their origin in one input `profile` (a sketch region or planar face).
@@ -40,6 +42,7 @@ Body IDs follow the [body identity rules](../../../../body-identity.md).
 
 # Test cases
 
+- Join with an unchanged profile. Create separated 10 × 10 mm blocks of heights 10 and 5 mm, then join both footprints to height 8 mm in one command. Preview and commit affect only the shorter block; volumes become 1000 and 800 mm³, both IDs remain, and the unchanged block retains its geometry revision. Reversing the profile order in a fresh scene gives the same geometry and effects. Repeating the join, in preview or commit, raises `INVALID_PARAMETER` without changing bodies or the timeline.
 - Formula length. Extrude a 10 × 10 mm square by `"20/ 2"` in a default scene. Expect a 10 mm cap height and 1000 mm³ volume. The feature retains the expression and its computed length.
 - Cube extrusion: extrude a 10 × 10 mm rectangle by 15 mm. Expect one new solid with a volume of 1500 mm³.
 - Cube with hole: extrude a 10 × 10 mm rectangle by 10 mm. Sketch a centered circle of diameter 8 mm on the top face. Cut by −5 mm. Expect volume (1000 − 80π) mm³, an empty `newSolids` array, and the original cube as the sole member of `affectedSolids`.

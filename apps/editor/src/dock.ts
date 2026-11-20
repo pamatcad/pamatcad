@@ -7,6 +7,7 @@ const panel = document.querySelector<HTMLElement>("#output-dock")!;
 const toggle = document.querySelector<HTMLButtonElement>("#toggle-output")!;
 const locationButton = panel.querySelector<HTMLButtonElement>("#dock-location")!;
 const input = panel.querySelector<HTMLInputElement>("#js")!;
+const runButton = panel.querySelector<HTMLButtonElement>("#console-form button")!;
 const output = panel.querySelector<HTMLElement>("#console-output")!;
 const log = panel.querySelector<HTMLElement>("#log")!;
 const tree = panel.querySelector<HTMLElement>("#tree")!;
@@ -14,6 +15,7 @@ const footer = document.querySelector("footer")!;
 let detached: Window | null = null;
 let releaseTheme: (() => void) | undefined;
 let collapseOnReturn = false;
+let stopConsole: (() => void) | undefined;
 
 export type OutputState = { history: Node[]; commands: Node[]; input: string };
 
@@ -62,8 +64,11 @@ export function updateSceneTree(groups: [string, string[]][]) {
   }));
 }
 
-export function setConsoleEnabled(enabled: boolean) {
+export function setConsoleEnabled(enabled: boolean, stop?: () => void) {
+  stopConsole = stop;
   input.disabled = !enabled;
+  runButton.textContent = stop ? "Stop" : "Run";
+  runButton.disabled = !enabled && !stop;
 }
 
 function showDock(open: boolean) {
@@ -97,6 +102,10 @@ export async function initOutputDock(run: (source: string) => void, report: (mes
   }
   panel.querySelector<HTMLFormElement>("#console-form")!.onsubmit = (event) => {
     event.preventDefault();
+    if (stopConsole) {
+      stopConsole();
+      return;
+    }
     const source = input.value.trim();
     if (!source || input.disabled) return;
     input.value = "";

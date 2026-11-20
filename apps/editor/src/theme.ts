@@ -97,6 +97,15 @@ export const lightTheme: ThemeDefinition = {
   },
 };
 
+export function themeVariables(theme: ThemeDefinition): [string, string][] {
+  return Object.entries(theme).flatMap(([group, tokens]) =>
+    Object.entries(tokens).map(([name, value]): [string, string] => {
+      const key = name.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase());
+      return ["--" + key + (group === "opacity" ? "-opacity" : ""), String(value)];
+    }),
+  );
+}
+
 export class EditorTheme {
   private current: ThemeDefinition;
   private readonly documents = new Set<Document>();
@@ -129,11 +138,8 @@ export class EditorTheme {
   }
 
   private writeVariables(doc: Document) {
-    for (const [group, tokens] of Object.entries(this.current)) {
-      for (const [name, value] of Object.entries(tokens)) {
-        const key = name.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase());
-        doc.documentElement.style.setProperty("--" + key + (group === "opacity" ? "-opacity" : ""), String(value));
-      }
+    for (const [name, value] of themeVariables(this.current)) {
+      doc.documentElement.style.setProperty(name, value);
     }
   }
 }

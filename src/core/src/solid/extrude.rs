@@ -170,17 +170,16 @@ fn apply_boolean(
             });
         } else if !join {
             changes.removed.push(body.reference.clone());
-        } else {
-            return Err(CoreError::new(
-                ErrorCode::InvalidParameter,
-                "Join neither adds material nor merges bodies",
-            ));
         }
     }
     if changes.updated.is_empty() && changes.removed.is_empty() {
         return Err(CoreError::new(
             ErrorCode::InvalidParameter,
-            "Cut removes no material from its targets",
+            if join {
+                "Join neither adds material nor merges bodies"
+            } else {
+                "Cut removes no material from its targets"
+            },
         ));
     }
     Ok(())

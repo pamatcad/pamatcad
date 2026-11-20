@@ -34,6 +34,7 @@ Currently the sections, starting from ribbon configurations, are:
 3D viewport of the current scene with a scene browser on the left (tabbed, full height block displaying Construction / Bodies / Sketches ), and a 3d view on the right. On the 3D view there are at least three overlays - a gizmo cube, axes and a home button in the top right, a current tool configuration in the pop-up just below the gizmo, and a misc switcher in the right bottom corner.
 
 See [Scene browser](scene_browser.md) for more details.
+See [Working area and tool window guidelines](working_area_and_tool_windows.md)
 
 ### Timeline
 

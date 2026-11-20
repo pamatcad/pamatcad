@@ -8,6 +8,8 @@ async function testOutputDock() {
     : location.click();
   const js = panel.querySelector("#js");
   const output = panel.querySelector("#console-output");
+  const form = panel.querySelector("#console-form");
+  const runButton = form.querySelector("button");
   const wait = async (check, reason) => {
     const start = Date.now();
     while (!check()) {
@@ -16,6 +18,26 @@ async function testOutputDock() {
     }
   };
   const check = (value, reason) => { if (!value) throw new Error(reason); };
+  async function stopScript(source) {
+    const features = document.querySelector("#features").children.length;
+    const logs = panel.querySelector("#log").children.length;
+    js.value = "scene.bodies.all();\n" + source;
+    form.requestSubmit();
+    await wait(() => panel.querySelector("#log").children.length > logs && runButton.textContent === "Stop",
+      "Start nonterminating script");
+    check(js.disabled && !runButton.disabled, "Keep Stop available while the console runs");
+    runButton.click();
+    await wait(() => !js.disabled, "Stop script without reloading");
+    check(runButton.textContent === "Run" && output.lastElementChild.textContent === "Script stopped",
+      "Report cancellation and restore Run");
+    check(!document.querySelector("#new-sketch").disabled && !document.querySelector("#menu-new").disabled &&
+      [...document.querySelectorAll('#document-tabs [role="tab"]')].every(tab => !tab.disabled),
+      "Restore editing and document controls");
+    check(document.querySelector("#features").children.length === features, "Preserve completed edits");
+    js.value = 'return "Recovered: " + (await scene.bodies.all()).length';
+    form.requestSubmit();
+    await wait(() => !js.disabled && output.lastElementChild.textContent === "Recovered: 1", "Run another script");
+  }
   const viewportHeight = () => document.querySelector("#viewport").clientHeight;
   const docked = () => panel.ownerDocument === document && !panel.hidden && toggle.getAttribute("aria-expanded") === "true";
   const expanded = viewportHeight();
@@ -23,6 +45,7 @@ async function testOutputDock() {
   check(panel.hidden && viewportHeight() > expanded, "Collapse should give space to the viewport");
   toggle.click();
 
+  for (const source of ["while (true) {}", "await new Promise(() => {})"]) await stopScript(source);
   const history = output.textContent;
   js.value = "return await scene.bodies.all()";
   const logTab = panel.querySelector('[data-dock="log"]');
@@ -49,6 +72,44 @@ async function testOutputDock() {
   check(output.lastElementChild.textContent.includes("Detached sketch complete"), "Detached command result");
   check(panel.querySelector("#log").children.length > oldLogs, "Live CAD log");
   check(panel.querySelector("#tree").textContent.includes("Sketches (2)"), "Live scene tree");
+
+  for (const source of ["while (true) {}", "await new Promise(() => {})"]) await stopScript(source);
+  if (!window.__TAURI_INTERNALS__) {
+    // Hold one CAD dispatch to verify Stop waits before refreshing or enabling another edit.
+    const post = Worker.prototype.postMessage;
+    let release;
+    Worker.prototype.postMessage = function (data, ...args) {
+      if (data?.request?.method === "sketch.complete") {
+        release = () => post.call(this, data, ...args);
+        return;
+      }
+      return post.call(this, data, ...args);
+    };
+    try {
+      const before = document.querySelector("#features").children.length;
+      js.value = `const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+        await sketch.primitives.add("rectangle", {from: [30, 30], to: [32, 32]});
+        await sketch.complete(); while (true) {}`;
+      form.requestSubmit();
+      await wait(() => release, "Dispatch pending model edit");
+      const logs = panel.querySelector("#log").children.length;
+      runButton.click();
+      await wait(() => runButton.textContent === "Run", "Terminate console worker");
+      check(js.disabled && runButton.disabled && document.querySelector("#new-sketch").disabled,
+        "Keep editing disabled until the pending CAD command finishes");
+      check(panel.querySelector("#log").children.length === logs, "Wait before refreshing the scene");
+      release();
+      release = undefined;
+      await wait(() => !js.disabled, "Finish pending edit and recover");
+      check(document.querySelector("#features").children.length === before + 1,
+        "Keep the model edit dispatched before Stop");
+      check(output.lastElementChild.textContent === "Script stopped", "Report cancellation after pending work");
+    } finally {
+      Worker.prototype.postMessage = post;
+      release?.();
+    }
+    await stopScript("await new Promise(() => {})");
+  }
 
   js.value = "unfinished input";
   const treeTab = panel.querySelector('[data-dock="tree"]');

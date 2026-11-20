@@ -326,5 +326,5 @@ export function initSceneBrowser(callbacks: Callbacks) {
     callbacks.onTab("Bodies");
   }
   window.addEventListener("pamatcad:reset-ui", reset);
-  return { get initialTab() { return initialTab; }, render, reset };
+  return { get initialTab() { return initialTab; }, get activeTab() { return activeTab; }, render, reset };
 }
