@@ -38,14 +38,17 @@ typedef struct {
     const size_t* tools;
     size_t tool_count;
 } PamatCellGroup;
+enum PamatBooleanMode { PAMAT_NEW_BODY, PAMAT_CUT, PAMAT_JOIN, PAMAT_INTERSECT, PAMAT_AUTO };
 int pamat_partition(const PamatShape* const* targets, size_t target_count,
-                    const PamatShape* const* tools, size_t tool_count, int join,
-                    PamatPartition** output, size_t* group_count, char* error, size_t error_size);
+                    const PamatShape* const* tools, size_t tool_count, int mode,
+                    PamatPartition** output, size_t* group_count, int* resolved_mode,
+                    char* error, size_t error_size);
 PamatCellGroup pamat_partition_group(const PamatPartition* partition, size_t index);
-// Null output means complete consumption (cut) or no effect (join). Slots are ordered by survivor,
-// then other group targets, then group tools.
+// No results means complete consumption or no effect (see material_changed). The sink owns each
+// result. Largest fragment comes first; slots follow survivor, other targets, then tools.
 int pamat_partition_result(PamatPartition* partition, size_t group, size_t survivor,
-                           PamatShape** output, int* material_changed, char* error, size_t error_size);
+                           void (*sink)(void*, PamatShape*), void* context,
+                           int* material_changed, char* error, size_t error_size);
 void pamat_partition_free(PamatPartition* partition);
 size_t pamat_face_count(const PamatShape* shape, size_t face_id);
 size_t pamat_face_slots(const PamatShape* shape);

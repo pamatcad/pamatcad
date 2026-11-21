@@ -5,6 +5,13 @@
 #include <Precision.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <set>
@@ -26,11 +33,11 @@ struct PamatPartition {
     BOPAlgo_CellsBuilder builder;
     std::vector<InputCells> inputs; // Targets followed by tools.
     size_t target_count;
-    bool join;
+    int mode;
     std::vector<CellGroup> groups;
 
     PamatPartition(const PamatShape* const* targets, size_t nt, const PamatShape* const* tools,
-                   size_t np, bool fuse) : target_count(nt), join(fuse) {
+                   size_t np, int requested) : target_count(nt), mode(requested) {
         NCollection_List<TopoDS_Shape> arguments;
         for (size_t i = 0; i < nt + np; ++i) {
             const auto* shape = i < nt ? targets[i] : tools[i - nt];
@@ -59,18 +66,30 @@ struct PamatPartition {
             }
             if (input.cells.empty()) throw std::runtime_error("Boolean input contains no solid cells");
         }
-        if (join) group_joins(cells);
+        if (mode == PAMAT_AUTO) {
+            mode = PAMAT_CUT;
+            group_cuts();
+            if (groups.empty()) {
+                mode = PAMAT_JOIN;
+                group_joins(cells);
+                if (std::none_of(groups.begin(), groups.end(), [](const auto& g) { return !g.targets.empty(); })) {
+                    mode = PAMAT_NEW_BODY;
+                    groups.clear();
+                }
+            }
+        } else if (mode == PAMAT_JOIN) group_joins(cells);
         else group_cuts();
     }
 
     void group_cuts() {
         for (size_t t = 0; t < target_count; ++t) {
-            CellGroup group{{t}, {}, inputs[t].cells};
+            CellGroup group{{t}, {}, mode == PAMAT_INTERSECT ? std::set<int>{} : inputs[t].cells};
             for (size_t i = target_count; i < inputs.size(); ++i) {
                 bool intersects = false;
                 for (int cell : inputs[i].cells) {
                     if (inputs[t].cells.count(cell)) {
-                        group.result_cells.erase(cell);
+                        if (mode == PAMAT_INTERSECT) group.result_cells.insert(cell);
+                        else group.result_cells.erase(cell);
                         intersects = true;
                     }
                 }
@@ -122,12 +141,13 @@ struct PamatPartition {
 };
 
 extern "C" int pamat_partition(const PamatShape* const* targets, size_t nt, const PamatShape* const* tools,
-                               size_t np, int join, PamatPartition** output, size_t* count,
+                               size_t np, int mode, PamatPartition** output, size_t* count, int* resolved_mode,
                                char* error, size_t error_size) {
     *output = nullptr;
     return checked([&] {
-        auto partition = std::make_unique<PamatPartition>(targets, nt, tools, np, join != 0);
+        auto partition = std::make_unique<PamatPartition>(targets, nt, tools, np, mode);
         *count = partition->groups.size();
+        *resolved_mode = partition->mode;
         *output = partition.release();
     }, error, error_size);
 }
@@ -140,7 +160,9 @@ extern "C" PamatCellGroup pamat_partition_group(const PamatPartition* partition,
 static void append_faces(PamatShape& result, const PamatShape& input,
                          BOPAlgo_CellsBuilder& builder, const occ::handle<BRepTools_History>& unified,
                          const TopTools_IndexedMapOfShape& faces) {
-    for (const auto& slot : input.named_faces) {
+    for (size_t id = 0; id < input.named_faces.size(); ++id) {
+        const auto& slot = input.named_faces[id];
+        if (input.historical_slots.count(id)) result.historical_slots.insert(result.named_faces.size());
         auto& output = result.named_faces.emplace_back();
         auto keep = [&](const TopoDS_Shape& face) {
             const int index = faces.FindIndex(face);
@@ -160,15 +182,15 @@ static void append_faces(PamatShape& result, const PamatShape& input,
 }
 
 extern "C" int pamat_partition_result(PamatPartition* p, size_t index, size_t survivor,
-                                      PamatShape** output, int* changed, char* error, size_t error_size) {
-    *output = nullptr;
+                                      void (*sink)(void*, PamatShape*), void* context,
+                                      int* changed, char* error, size_t error_size) {
     return checked([&] {
         const auto& g = p->groups.at(index);
         *changed = g.result_cells != p->inputs.at(survivor).cells;
         if (g.result_cells.empty() || (!*changed && g.targets.size() == 1)) return;
  
         NCollection_List<TopoDS_Shape> avoid;
-        if (!p->join) {
+        if (p->mode == PAMAT_CUT) {
             for (auto i : g.tools) avoid.Append(p->inputs[p->target_count + i].shape->value);
         }
         auto& builder = p->builder;
@@ -178,23 +200,26 @@ extern "C" int pamat_partition_result(PamatPartition* p, size_t index, size_t su
             take.Append(p->inputs[i].shape->value);
             builder.AddToResult(take, avoid, 1);
         };
-        for (auto i : g.targets) add(i);
-        if (p->join) {
+        if (p->mode == PAMAT_INTERSECT) {
+            for (auto target : g.targets) for (auto tool : g.tools) {
+                NCollection_List<TopoDS_Shape> take;
+                take.Append(p->inputs[target].shape->value);
+                take.Append(p->inputs[p->target_count + tool].shape->value);
+                builder.AddToResult(take, avoid, 1);
+            }
+        } else for (auto i : g.targets) add(i);
+        if (p->mode == PAMAT_JOIN) {
             for (auto i : g.tools) add(p->target_count + i);
         }
         builder.RemoveInternalBoundaries();
         if (builder.HasErrors()) throw std::runtime_error("Boolean result assembly failed");
         TopExp_Explorer solids(builder.Shape(), TopAbs_SOLID);
         if (!solids.More()) throw std::runtime_error("Expected a surviving Boolean solid");
-        auto result = std::make_unique<PamatShape>();
-        result->value = solids.Current();
-        solids.Next();
-        if (solids.More()) throw std::runtime_error(p->join ? "Join did not form one solid"
-                                                             : "Cuts that split the target are not supported");
-
-        occ::handle<BRepTools_History> unified;
-        if (p->join) {
-            // Preserve the previous join behavior of merging coplanar boundary faces.
+        std::vector<std::unique_ptr<PamatShape>> results;
+        std::vector<double> volumes;
+        for (; solids.More(); solids.Next()) {
+            auto result = std::make_unique<PamatShape>();
+            result->value = solids.Current();
             ShapeUpgrade_UnifySameDomain simplify(result->value, true, true, true);
             simplify.SetLinearTolerance(builder.FuzzyValue());
             simplify.SetAngularTolerance(Precision::Angular());
@@ -202,17 +227,42 @@ extern "C" int pamat_partition_result(PamatPartition* p, size_t index, size_t su
             simplify.AllowInternalEdges(false);
             simplify.Build();
             result->value = simplify.Shape();
-            unified = simplify.History();
+            volumes.push_back(validated_volume(result->value));
+            TopTools_IndexedMapOfShape faces;
+            TopExp::MapShapes(result->value, TopAbs_FACE, faces);
+            auto append = [&](size_t i) {
+                append_faces(*result, *p->inputs[i].shape, builder, simplify.History(), faces);
+            };
+            append(survivor);
+            for (auto i : g.targets) if (i != survivor) append(i);
+            for (auto i : g.tools) append(p->target_count + i);
+            results.push_back(std::move(result));
         }
-        validated_volume(result->value);
-        TopTools_IndexedMapOfShape faces;
-        TopExp::MapShapes(result->value, TopAbs_FACE, faces);
-        auto append = [&](size_t i) { append_faces(*result, *p->inputs[i].shape, builder, unified, faces); };
-        append(survivor);
-        for (auto i : g.targets) if (i != survivor) append(i);
-        for (auto i : g.tools) append(p->target_count + i);
-        result->index_faces();
-        *output = result.release();
+        if (results.size() == 1) {
+            results.front()->index_faces();
+            sink(context, results.front().release());
+            return;
+        }
+        if (p->mode == PAMAT_JOIN) throw std::runtime_error("Join did not form one solid");
+        // Ignore integration roundoff when equal-volume fragments need a geometric tie-break.
+        const double quantum = std::max(1e-9, *std::max_element(volumes.begin(), volumes.end()) * 1e-12);
+        std::vector<std::pair<std::array<double, 10>, size_t>> order;
+        for (size_t i = 0; i < results.size(); ++i) {
+            auto& result = *results[i];
+            for (size_t slot = 0; slot < result.named_faces.size(); ++slot)
+                result.historical_slots.insert(slot);
+            result.index_faces();
+            GProp_GProps props;
+            BRepGProp::VolumeProperties(result.value, props);
+            const auto center = props.CentreOfMass();
+            Bnd_Box bounds;
+            BRepBndLib::AddOptimal(result.value, bounds, false, false);
+            std::array<double, 10> key{-std::round(volumes[i] / quantum), center.X(), center.Y(), center.Z()};
+            bounds.Get(key[4], key[5], key[6], key[7], key[8], key[9]);
+            order.emplace_back(key, i);
+        }
+        std::sort(order.begin(), order.end());
+        for (const auto& entry : order) sink(context, results[entry.second].release());
     }, error, error_size);
 }
 

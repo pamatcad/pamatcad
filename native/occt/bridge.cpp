@@ -80,7 +80,7 @@ void PamatShape::index_faces() {
     selectable_slots.assign(faces.Extent() + 1, unassigned);
     for (size_t id = 0; id < unassigned; ++id) {
         const auto& descendants = named_faces[id];
-        if (descendants.Extent() == 1) {
+        if (descendants.Extent() == 1 && !historical_slots.count(id)) {
             const int index = faces.FindIndex(descendants.FindKey(1));
             if (index && selectable_slots[index] == unassigned) selectable_slots[index] = id;
         }

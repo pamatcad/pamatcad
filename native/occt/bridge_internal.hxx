@@ -7,12 +7,15 @@
 #include <exception>
 #include <stdexcept>
 #include <vector>
+#include <set>
 
 struct PamatShape {
     TopoDS_Shape value;
     // Cap slots come first (end 1, then start or end 2), followed by source edges
     // for each side. Booleans update the descendants without moving the slots.
     std::vector<TopTools_IndexedMapOfShape> named_faces;
+    // Cross-body ancestors cannot be used as unambiguous selectable face IDs.
+    std::set<size_t> historical_slots;
     TopTools_IndexedMapOfShape faces;
     std::vector<size_t> selectable_slots; // Indexed by the one-based face map.
     void index_faces();

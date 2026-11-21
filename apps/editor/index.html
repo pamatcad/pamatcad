@@ -219,15 +219,8 @@
         </select>
       </label>
       <label id="extrude-direction-field">
-        Direction
-        <select id="extrude-direction">
-          <option value="positive">
-            Along normal
-          </option>
-          <option value="negative">
-            Reverse
-          </option>
-        </select>
+        Reverse extent direction
+        <input id="extrude-reverse" type="checkbox" />
       </label>
       <label id="symmetric-field">
         Length means
@@ -377,6 +370,7 @@
 <label id="extrude-mode-field">
 Result
 <select id="extrude-mode">
+  <option value="auto">Auto — New</option>
   <option value="newBody">
     New body
   </option>
@@ -386,6 +380,7 @@ Result
   <option value="join">
     Join
   </option>
+  <option value="intersect">Intersect</option>
 </select>
 </label>
 <div id="targets-section">

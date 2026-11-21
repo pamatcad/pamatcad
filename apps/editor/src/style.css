@@ -409,6 +409,8 @@ h2 {
 .tool-handle-label { position: absolute; z-index: 1; background: var(--handle); color: var(--handle-edge); border: 1px solid var(--handle-edge); padding: 3px 6px; font-size: 12px; line-height: 16px; min-height: 24px; font-variant-numeric: tabular-nums; touch-action: none; cursor: grab; }
 .tool-handle-label:hover:not(:disabled), .tool-handle-label:active:not(:disabled) { background: var(--handle); }
 .tool-handle-label:active { cursor: grabbing; }
+.tool-handle-label { transform: translate(-50%, -50%); }
+.tool-handle-label[data-kind="angle"], .tool-handle-label[data-kind="angle"]:hover:not(:disabled), .tool-handle-label[data-kind="angle"]:active:not(:disabled) { background: transparent; border-color: transparent; padding: 0 2px; font-size: 11px; }
 #tool-panel p,
 dialog p {
   color: var(--foreground-muted);
@@ -429,6 +431,7 @@ dialog p {
   padding: 5px 8px;
   width: 98px;
 }
+#tool-panel input[type="checkbox"] { width: auto; padding: 0; accent-color: var(--accent); }
 #tool-panel .actions {
   display: flex;
   justify-content: flex-end;

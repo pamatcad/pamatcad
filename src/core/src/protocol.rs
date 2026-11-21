@@ -279,6 +279,8 @@ pub enum ExtrudeMode {
     NewBody,
     Cut,
     Join,
+    Intersect,
+    Auto,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -441,6 +443,9 @@ pub enum Operation {
     Extrude {
         inputs: ExtrudeInputs,
         parameters: Box<ExtrudeParameters>,
+        #[serde(rename = "resolvedMode", skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "resolvedMode")]
+        resolved_mode: Option<ExtrudeMode>,
     },
 }
 

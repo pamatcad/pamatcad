@@ -1,6 +1,8 @@
 import * as T from "three";
+import { SVGLoader, type StrokeStyle } from "three/addons/loaders/SVGLoader.js";
+import lengthArrow from "./icons/handle-length.svg?raw";
 import type { FormulaUnit } from "@pamatcad/sdk";
-import { lengthStep } from "./formula-input";
+import { lengthStep, unitScale } from "./formula-input";
 
 type XYZ = [number, number, number];
 export type ToolHandle = {
@@ -90,8 +92,8 @@ export class ToolHandles {
     if (handle.kind === "angle") {
       const bounds = this.canvas.getBoundingClientRect();
       const center = this.project(origin).add(new T.Vector2(bounds.left, bounds.top));
-      const a = this.project(origin.clone().addScaledVector(direction, mm * 28)).sub(this.project(origin));
-      const b = this.project(origin.clone().addScaledVector(new T.Vector3(...handle.tangent), mm * 28)).sub(this.project(origin));
+      const a = this.project(origin.clone().addScaledVector(direction, mm * 42)).sub(this.project(origin));
+      const b = this.project(origin.clone().addScaledVector(new T.Vector3(...handle.tangent), mm * 42)).sub(this.project(origin));
       if (Math.abs(a.cross(b)) > 20) {
         const start = this.angle(new T.Vector2(event.clientX, event.clientY).sub(center), a, b);
         this.drag.angular = { center, a, b, start };
@@ -138,7 +140,7 @@ export class ToolHandles {
       const previous = group.userData.handle as ToolHandle;
       if (items.some((item) => item.id === previous.id && item.kind === previous.kind)) continue;
       group.traverse((object) => {
-        if (object instanceof T.Mesh) {
+        if (object instanceof T.Mesh || object instanceof T.Line) {
           object.geometry.dispose();
           object.material.dispose();
         }
@@ -158,36 +160,70 @@ export class ToolHandles {
       if (!group) {
         group = new T.Group();
         // Geometry stays in pixel-sized units; the group supplies its world scale.
-        const material = new T.MeshBasicMaterial({ color: this.color, depthTest: false });
+        const material = new T.MeshBasicMaterial({ color: this.color, depthTest: false, depthWrite: false, side: T.DoubleSide, transparent: true });
         if (item.kind === "length") {
-          group.add(new T.Mesh(new T.ConeGeometry(5, 15, 12), material));
-          const shaft = new T.Mesh(new T.CylinderGeometry(1.5, 1.5, 32, 8), material.clone());
-          shaft.position.y = -23;
-          group.add(shaft);
+          const path = new SVGLoader().parse(lengthArrow).paths[0];
+          const fill = new T.ShapeGeometry(SVGLoader.createShapes(path)).scale(1, -1, 1);
+          group.add(new T.Mesh(fill, material));
+          const outline = SVGLoader.pointsToStroke(path.subPaths[0].getPoints(), path.userData!.style as StrokeStyle).scale(1, -1, 1);
+          group.add(new T.Mesh(outline, material.clone()));
+          const connector = new T.BufferGeometry();
+          connector.setAttribute("position", new T.Float32BufferAttribute(new Float32Array(6), 3));
+          connector.setAttribute("lineDistance", new T.Float32BufferAttribute([0, 0], 1));
+          const line = new T.Line(connector, new T.LineDashedMaterial({ color: this.edgeColor, dashSize: 2, gapSize: 4, depthTest: false, depthWrite: false }));
+          line.raycast = () => {};
+          group.add(line);
         } else {
-          group.add(new T.Mesh(new T.TorusGeometry(28, 2, 8, 64), material));
-          group.add(new T.Mesh(new T.SphereGeometry(5, 12, 8), material.clone()));
+          const translucent = material.clone();
+          translucent.transparent = true;
+          translucent.opacity = 0.45;
+          group.add(new T.Mesh(new T.CircleGeometry(28, 64), translucent));
+          const sector = new T.CircleGeometry(28, 64);
+          // Keep the full disk bounds as the sweep changes, including across zero.
+          sector.computeBoundingSphere();
+          (sector.attributes.position as T.BufferAttribute).setUsage(T.DynamicDrawUsage);
+          group.add(new T.Mesh(sector, material));
+          group.add(new T.Mesh(new T.RingGeometry(27, 28.5, 64), material.clone()));
+          group.add(new T.Mesh(new T.CircleGeometry(5.5, 24), material.clone()));
+          group.add(new T.Mesh(new T.RingGeometry(4.5, 5.5, 24), material.clone()));
         }
-        group.traverse((node) => { node.renderOrder = 10; });
+        group.children.forEach((node, index) => { node.renderOrder = 10 + index; });
         this.group.add(group);
       }
       group.userData.handle = item;
-      group.scale.setScalar(mm);
-      for (const [index, child] of group.children.entries()) if (child instanceof T.Mesh) {
-        const filled = item.kind === "length" ? index === 0 : index === 1;
+      group.scale.setScalar(mm * (item.kind === "angle" ? 1.5 : 1));
+      for (const [index, child] of group.children.entries()) if (child instanceof T.Mesh || child instanceof T.Line) {
+        const filled = item.kind === "length" ? index === 0 : index === 0 || index === 1 || index === 3;
         child.material.color.set(filled ? this.color : this.edgeColor);
       }
       if (item.kind === "length") {
         group.position.copy(tip);
-        group.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), direction);
+        const axis = this.project(tip.clone().addScaledVector(direction, mm * 100 * (item.value < 0 ? -1 : 1))).sub(this.project(tip));
+        const rotation = axis.length() < 10 ? (item.value < 0 ? Math.PI : 0) : Math.atan2(-axis.x, -axis.y);
+        group.quaternion.copy(this.camera().quaternion).multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 0, 1), rotation));
+        group.updateMatrix();
+        const start = origin.clone().applyMatrix4(group.matrix.clone().invert());
+        const line = group.children[2] as T.Line<T.BufferGeometry, T.LineDashedMaterial>;
+        line.geometry.attributes.position.setXYZ(0, start.x, start.y, start.z);
+        line.geometry.attributes.position.needsUpdate = true;
+        line.geometry.attributes.lineDistance.setX(1, start.length());
+        line.geometry.attributes.lineDistance.needsUpdate = true;
+        line.geometry.computeBoundingSphere();
       } else {
         const tangent = new T.Vector3(...item.tangent).normalize();
         const normal = new T.Vector3().crossVectors(direction, tangent).normalize();
         group.position.copy(origin);
         group.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(direction, tangent, normal));
         const angle = T.MathUtils.degToRad(item.value);
-        tip.copy(origin).addScaledVector(direction, Math.cos(angle) * mm * 28).addScaledVector(tangent, Math.sin(angle) * mm * 28);
-        group.children[1].position.set(Math.cos(angle) * 28, Math.sin(angle) * 28, 0);
+        const sector = group.children[1] as T.Mesh<T.CircleGeometry>;
+        sector.visible = angle !== 0;
+        const points = sector.geometry.attributes.position;
+        for (let i = 1; i < points.count; i++) {
+          const theta = angle * (i - 1) / (points.count - 2);
+          points.setXYZ(i, Math.cos(theta) * 28, Math.sin(theta) * 28, 0);
+        }
+        points.needsUpdate = true;
+        for (const knob of group.children.slice(3)) knob.position.set(Math.cos(angle) * 28, Math.sin(angle) * 28, 0);
       }
       let label = this.labels.get(item.id);
       if (!label) {
@@ -206,11 +242,15 @@ export class ToolHandles {
         this.labels.set(item.id, label);
         this.host.append(label);
       }
-      label.textContent = item.label;
+      const text = `${Number((item.value / unitScale[item.unit]).toPrecision(6))} ${item.unit}`;
+      if (label.textContent !== text) label.textContent = text;
+      label.title = item.label;
+      label.dataset.kind = item.kind;
       label.setAttribute("aria-label", "Drag " + item.label);
-      const p = this.project(tip);
-      label.style.left = Math.max(0, Math.min(this.canvas.clientWidth - 90, p.x + 12)) + "px";
-      label.style.top = Math.max(0, Math.min(this.canvas.clientHeight - 24, p.y - 12)) + "px";
+      const p = this.project(item.kind === "length" ? origin.clone().lerp(tip, 0.5) : origin);
+      const halfWidth = label.offsetWidth / 2, halfHeight = label.offsetHeight / 2;
+      label.style.left = Math.max(halfWidth, Math.min(this.canvas.clientWidth - halfWidth, p.x)) + "px";
+      label.style.top = Math.max(halfHeight, Math.min(this.canvas.clientHeight - halfHeight, p.y)) + "px";
       label.hidden = tip.clone().project(this.camera()).z > 1;
     }
   }

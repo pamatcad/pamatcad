@@ -24,7 +24,6 @@ pub(crate) trait ModelingCommand {
 pub(crate) struct BodyUpdate {
     pub body: Body,
     pub material_changed: bool,
-    pub absorbed_slots: Vec<(String, std::ops::Range<usize>)>,
 }
 
 pub(crate) struct ProposedChanges {
@@ -160,16 +159,44 @@ impl Engine {
             removed_solids: changes.removed,
         };
         let scene = self.scenes.get_mut(&scene_id).unwrap();
+        bodies.extend(changes.updated.into_iter().map(|update| update.body));
+        let mut remapped = BTreeMap::<(String, usize), Vec<(String, usize)>>::new();
+        for removed in &feature.removed_solids {
+            for slot in 0..scene.bodies[&removed.id].shape.slot_count() {
+                remapped.insert((removed.id.clone(), slot), Vec::new());
+            }
+        }
+        for body in &mut bodies {
+            for (source, faces) in std::mem::take(&mut body.shape.inherited_faces) {
+                remapped.entry(source).or_default().extend(
+                    faces
+                        .into_iter()
+                        .map(|slot| (body.reference.id.clone(), slot)),
+                );
+            }
+        }
+        // Keep the history flattened: split/rejoin chains must not form cycles when
+        // a surviving body ID is reused. Each entry points directly at current faces.
+        for descendants in scene.face_successors.values_mut() {
+            *descendants = descendants
+                .iter()
+                .flat_map(|face| {
+                    remapped
+                        .get(face)
+                        .cloned()
+                        .unwrap_or_else(|| vec![face.clone()])
+                })
+                .collect();
+            descendants.sort();
+            descendants.dedup();
+        }
+        for (source, mut descendants) in remapped {
+            descendants.sort();
+            descendants.dedup();
+            scene.face_successors.entry(source).or_insert(descendants);
+        }
         for removed in &feature.removed_solids {
             scene.bodies.remove(&removed.id);
-        }
-        for update in changes.updated {
-            for (id, slots) in update.absorbed_slots {
-                scene
-                    .face_successors
-                    .insert(id, (update.body.reference.id.clone(), slots));
-            }
-            bodies.push(update.body);
         }
         let mut faces_by_body = std::collections::BTreeMap::new();
         for mut body in bodies {

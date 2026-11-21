@@ -93,7 +93,7 @@ export const lightTheme: ThemeDefinition = {
     previewEdge: "#536974",
     edge: "#65727b",
     highlight: "#487561",
-    handle: "#dcb58c",
+    handle: "#f3e5d7",
     handleEdge: "#815a36",
     construction: "#edf1f3",
     constructionEdge: "#81909b",

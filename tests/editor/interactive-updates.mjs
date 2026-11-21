@@ -94,12 +94,96 @@ export async function testInteractiveUpdates(page, sdk) {
       frame();
       check(JSON.stringify([[5, 0, 5], [5, 5, 10]].map(pick)) === JSON.stringify(before), "Merged groups must preserve canvas face picks");
 
+      const move = (xyz, buttons = 0) => {
+        const p = viewport.camera.position.clone().set(...xyz).project(viewport.camera);
+        const bounds = canvas.getBoundingClientRect();
+        canvas.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, buttons,
+          clientX: bounds.left + (p.x + 1) * bounds.width / 2, clientY: bounds.top + (1 - p.y) * bounds.height / 2 }));
+      };
+      viewport.setSelection([], "all"); frame();
+      let hoverPicks = 0;
+      const originalPick = viewport.pick.bind(viewport);
+      viewport.pick = (...args) => { hoverPicks++; return originalPick(...args); };
+      const beforeHover = renders;
+      for (let i = 0; i < 40; i++) move(i === 39 ? [5, 5, 10] : [5, 0, 5]);
+      check(hoverPicks === 0, "Pointer bursts must defer hover picking to the next frame");
+      frame();
+      check(hoverPicks === 1 && renders === beforeHover + 1, "Hover must pick and render only once per frame");
+      const hoveredFace = viewport.hover;
+      check(JSON.stringify(hoveredFace) === JSON.stringify(before[1]), "Hover must use the latest pointer and identify the same face as a click");
+      check(viewport.selection.length === 0 && solid.geometry.groups.some(group => group.materialIndex === 2), "Face hover must highlight without selecting");
+      check(solid.material[2].color.equals(solid.material[0].color.clone().lerp(solid.material[1].color, 0.5)), "Face hover must blend halfway toward selection");
+      viewport.setSelection([hoveredFace]); frame();
+      check(!solid.geometry.groups.some(group => group.materialIndex === 2), "Selection must take priority over hover");
+      viewport.setSelection([]); move([5, 0, 10]); frame();
+      check(viewport.hover?.kind === "edge" && solid.edgeHover?.visible, "Visible edges must receive a wide hover stroke");
+      const edgeHover = solid.edgeHover, hoverGeometry = edgeHover.geometry, hoverMaterial = edgeHover.material;
+      const edgePick = viewport.hover;
+      check(JSON.stringify(edgePick) === JSON.stringify(pick([5, 0, 10])), "Edge hover and click must agree");
+      move([5, 0, 10]); frame();
+      viewport.setSelection([edgePick]); frame();
+      check(solid.edgeHighlight?.visible && !edgeHover.visible, "Selected edges must retain the full selection stroke");
+      viewport.setSelection([]); move([5, 0, 5]); frame(); move([5, 0, 10]); frame();
+      check(solid.edgeHover === edgeHover && edgeHover.geometry === hoverGeometry && edgeHover.material === hoverMaterial, "Hover strokes must reuse their GPU resources");
+      viewport.setSelection([], "faces"); frame();
+      check(viewport.hover?.kind === "face" && !edgeHover.visible, "Face-only tools must not advertise edge selection");
+      viewport.setSelection([], "bodies"); frame();
+      check(viewport.hover?.kind === "body", "Body-only tools must advertise the body they will select");
+      viewport.setSelection([], "none"); frame(); check(!viewport.hover, "Disabled selection must suppress hover");
+      viewport.setSelection([], "all"); move([5, 0, 10]); frame();
+      viewport.setVisibility(new Set([proxy.body.id])); frame(); check(!viewport.hover, "Hidden bodies must not retain hover");
+      viewport.setVisibility(new Set()); frame(); check(viewport.hover?.kind === "edge", "Hover must update under a stationary pointer when visibility changes");
+      move([5, 0, 10], 1); frame(); check(!viewport.hover, "Dragging must clear hover");
+      move([5, 0, 10]); frame(); canvas.dispatchEvent(new PointerEvent("pointerleave")); frame();
+      check(!viewport.hover && !edgeHover.visible, "Leaving the canvas must clear hover");
+      viewport.setSelection([], "faces"); viewport.setPreview([proxy]); move([5, 5, 10]); frame();
+      check(viewport.preview.children[0].geometry.groups.some(group => group.materialIndex === 2), "Matching preview faces must show hover for selectable source faces");
+      viewport.setPreview(); viewport.setSelection([], "all");
+      canvas.dispatchEvent(new PointerEvent("pointerleave")); frame();
+      viewport.pick = originalPick;
+
+      // Solid topology takes precedence over an overlapping sketch after Apply.
+      viewport.setSketches(new Map([[sketch.id, sketchProxy]]));
+      for (const mode of ["orthographic", "perspective"]) {
+        viewport.restoreView({ mode, position: [25, -35, 35], target: [5, 5, 5], span: 40, zoom: 1 });
+        frame();
+        viewport.setSelection([], "all");
+        for (const point of [[5, 0, 0], [5, 0, 10], [0, 0, 5]])
+          check(pick(point)?.kind === "edge", `${mode}: visible solid edges must beat sketch fills`);
+        check(pick([2, 10, 0])?.kind === "face", `${mode}: an occluded edge must not be selected`);
+        viewport.restoreView({ mode, position: [5, 5, -45], target: [5, 5, 0], span: 40, zoom: 1 });
+        frame();
+        check(pick([5, 5, 0])?.kind === "face", `${mode}: bottom face must beat coplanar sketch fill`);
+        viewport.setSelection([], "profiles");
+        check(pick([5, 5, 0])?.kind === "region", "Profile field must still prefer sketch regions");
+      }
+      const roundSketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+      await roundSketch.primitives.add("circle", { center: [5, 5], diameter: 10 });
+      await roundSketch.complete();
+      const cylinder = await core.solid.extrude(await roundSketch.regions.only(), { length1: 10 });
+      const roundProxy = await scene.getProxyFor(cylinder.newSolids[0]);
+      viewport.setBodies(new Map([[roundProxy.body.id, roundProxy]]));
+      viewport.setSketches(new Map([[roundSketch.id, await roundSketch.getProxy()]]));
+      viewport.setSelection([], "all");
+      for (const mode of ["orthographic", "perspective"]) {
+        viewport.restoreView({ mode, position: [5, -45, 35], target: [5, 5, 5], span: 40, zoom: 1 }); frame();
+        check(pick([5, 0, 0])?.kind === "edge", `${mode}: circular edge must beat sketch fill`);
+      }
+      viewport.setBodies(new Map([[proxy.body.id, proxy]]));
+      viewport.setSelection([], "all");
+      viewport.setSketches(new Map());
+      viewport.restoreView({ mode: "orthographic", position: [5, -45, 35], target: [5, 5, 5], span: 40, zoom: 1 });
+      frame();
       const handle = { id: "length", label: "Length", kind: "length", origin: [0, 0, 0], direction: [0, 0, 1],
         tangent: [1, 0, 0], value: 10, unit: "mm", change() {} };
       const angle = { ...handle, id: "angle", label: "Angle", kind: "angle", unit: "deg", value: 0 };
       viewport.setHandles([handle, angle]);
       frame();
+      check(host.querySelector('[data-handle="length"]').textContent === "10 mm", "Length annotation must display its value and unit");
+      check(host.querySelector('[data-handle="angle"]').textContent === "0 deg", "Angle annotation must display its value and unit");
       const resources = viewport.handles.group.children.flatMap((group) => group.children.map((mesh) => [mesh.geometry, mesh.material]));
+      const resourceCount = resources.flat().length;
+      const lengthResources = viewport.handles.group.children[0].children.length * 2;
       let released = 0;
       resources.flat().forEach((resource) => resource.addEventListener("dispose", () => released++));
       const initialRenders = renders;
@@ -114,20 +198,32 @@ export async function testInteractiveUpdates(page, sdk) {
       const retained = viewport.handles.group.children.flatMap((group) => group.children.map((mesh) => [mesh.geometry, mesh.material]));
       check(retained.every((pair, i) => pair.every((resource, j) => resource === resources[i][j])), "Handle updates must retain geometry and materials");
       check(released === 0, "Updating handle transforms must not dispose their resources");
+      const angleGroup = viewport.handles.group.children.find((group) => group.userData.handle.id === "angle");
+      for (const mesh of angleGroup.children) {
+        const bounds = mesh.geometry.boundingSphere, points = mesh.geometry.attributes.position;
+        if (!bounds) continue;
+        for (let i = 0; i < points.count; i++) check(Math.hypot(points.getX(i) - bounds.center.x,
+          points.getY(i) - bounds.center.y, points.getZ(i) - bounds.center.z) <= bounds.radius + 1e-5,
+        "Changing an angle must keep its sweep inside the culling bounds");
+      }
       const lengthGroup = viewport.handles.group.children.find((group) => group.userData.handle.id === "length");
       check(Math.abs(lengthGroup.position.z - 30) < 1e-10, "Retained length handle must move to its new endpoint");
       const scale = lengthGroup.scale.x;
       viewport.restoreView({ ...viewport.captureView(), zoom: 2 }); frame();
       check(Math.abs(lengthGroup.scale.x * 2 - scale) < 1e-10, "Handle world scale must follow zoom to preserve screen size");
+      viewport.setHandles([{ ...handle, value: 6.35, unit: "in" }, { ...angle, value: 90, unit: "rad" }]); frame();
+      check(host.querySelector('[data-handle="length"]').textContent === "0.25 in", "Length annotation must convert millimetres to scene units");
+      check(host.querySelector('[data-handle="angle"]').textContent === "1.5708 rad", "Angle annotation must convert degrees to scene units");
       viewport.setHandles([angle]); frame();
-      check(released === 4, "Removing one handle must release only its two meshes and materials");
+      check(released === lengthResources, "Removing one handle must release only its own resources");
       viewport.setHandles([]); frame();
-      check(released === 8, "Removing all handles must release their retained resources");
+      check(released === resourceCount, "Removing all handles must release their retained resources");
       window.requestAnimationFrame = originalFrame;
 
       const createTool = () => {
         panel.replaceChildren(document.querySelector("#extrude-fields").content.cloneNode(true));
         panel.querySelector("#length").value = "10";
+        panel.querySelector("#extrude-mode").value = "newBody";
         return new ExtrudeTool(panel, scene, transport, new Map([[sketch.id, sketchProxy]]), new Map([[proxy.body.id, proxy]]), {
           changed() {}, status() {}, handles(items = []) { handles = items; },
           preview(bodies = []) {
@@ -211,7 +307,7 @@ export async function testInteractiveUpdates(page, sdk) {
       await until(() => !tool.pending);
       check(snapshots.length === displayed && handles.length === 0, "A cancelled mesh response must not restore previews or handles");
       check(delays.length === 0, `Preview scheduling must not use timer delays: ${delays}`);
-      return { groups, rendersPerBurst, released,
+      return { groups, rendersPerBurst, released, resourceCount,
         evaluatedLengths: requests.filter((request) => request.method === "solid.extrude").map((request) => request.params.parameters.length1),
         snapshots, volume };
     } finally {
@@ -231,8 +327,53 @@ export async function testInteractiveUpdates(page, sdk) {
   assert.deepEqual(result.groups.map((groups) => groups.length), [1, 3, 5, 1, 1]);
   for (const groups of result.groups) assert.equal(groups.reduce((sum, group) => sum + group[1], 0), 36);
   assert.equal(result.rendersPerBurst, 1);
-  assert.equal(result.released, 8);
+  assert.equal(result.released, result.resourceCount);
   assert.deepEqual(result.evaluatedLengths.slice(1, 4), ["15 mm", "23", "21"]);
   assert.ok(Math.abs(result.volume - 2100) < 1e-7);
   console.log("Interactive updates: response-driven previews, latest input, cancellation, one render per frame, persistent handles, and merged face groups passed", result);
+  await page.evaluate(async () => {
+    const { Viewport } = await import("/src/viewport.ts");
+    const check = (condition, message) => { if (!condition) throw new Error(message); };
+    const until = async (condition) => {
+      const deadline = performance.now() + 10000;
+      while (!condition()) {
+        if (performance.now() > deadline) throw new Error("Editor camera check timed out: " + document.querySelector("#status").textContent);
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    };
+    let editor;
+    const home = Viewport.prototype.home;
+    Viewport.prototype.home = function (...args) { editor = this; return home.apply(this, args); };
+    try {
+      await until(() => !document.querySelector("#new-sketch").disabled);
+      document.querySelector("#new-sketch").click();
+      await until(() => editor && !document.querySelector("#apply").disabled);
+    } finally { Viewport.prototype.home = home; }
+    editor.restoreView({ mode: "orthographic", position: [3, 2, 60], target: [3, 2, 0], span: 60, zoom: 1.7 });
+    let view = JSON.stringify(editor.captureView());
+    document.querySelector("#apply").click();
+    await until(() => !document.querySelector("#extrude").disabled);
+    check(JSON.stringify(editor.captureView()) === view, "Finish sketch must preserve the camera");
+    for (const mode of ["orthographic", "perspective"]) {
+      document.querySelector("#sketches-tab").click();
+      // The sketch row is exposed through its accessible text rather than a private selector.
+      const row = [...document.querySelectorAll("#object-list button")].find(b => b.textContent.trim() === "Sketch 1");
+      row.click();
+      document.querySelector("#extrude").click();
+      await until(() => !document.querySelector("#apply").disabled);
+      editor.restoreView({ mode, position: [35, -45, 50], target: [3, 2, 4], span: 45, zoom: 1.3 });
+      view = JSON.stringify(editor.captureView());
+      document.querySelector("#apply").click();
+      await until(() => !document.querySelector("#js").disabled);
+      check(JSON.stringify(editor.captureView()) === view, `${mode}: Apply must preserve the camera`);
+      check(editor.filter === "all", "Apply must restore general selection including edges");
+    }
+    document.querySelector("#new-sketch").click();
+    editor.restoreView({ mode: "orthographic", position: [2, 3, 50], target: [2, 3, 0], span: 30, zoom: 2 });
+    view = JSON.stringify(editor.captureView());
+    document.querySelector("#cancel").click();
+    check(JSON.stringify(editor.captureView()) === view, "Cancel sketch must preserve the camera");
+  });
+  console.log("Camera preserved through Finish, Cancel and Apply in both projections; general edge selection restored");
+
 }

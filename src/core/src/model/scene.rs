@@ -24,8 +24,8 @@ pub struct Scene {
     pub bodies: BTreeMap<String, Body>,
     pub timeline: Vec<TimelineEntry>,
     pub features: BTreeMap<String, StoredFeature>,
-    // An absorbed body's face slots occupy this range on its successor.
-    pub face_successors: BTreeMap<String, (String, Range<usize>)>,
+    // Historical body/slot pairs resolve directly to distinct current descendants.
+    pub face_successors: BTreeMap<(String, usize), Vec<(String, usize)>>,
 }
 
 impl Scene {
@@ -62,17 +62,30 @@ impl Scene {
         [&planes.xy, &planes.xz, &planes.yz].contains(&plane)
     }
 
-    pub(crate) fn face_owner(&self, original: &str) -> Option<(&Body, Range<usize>)> {
-        let mut id = original;
-        let mut offset = 0;
-        let first = self.face_successors.get(original);
-        while let Some((next, slots)) = self.face_successors.get(id) {
-            id = next;
-            offset += slots.start;
+    pub(crate) fn face_descendants(
+        &self,
+        original: &str,
+        slots: Range<usize>,
+    ) -> Result<Vec<(&Body, usize)>> {
+        let mut faces = std::collections::BTreeSet::new();
+        for slot in slots {
+            if let Some(descendants) = self.face_successors.get(&(original.to_owned(), slot)) {
+                faces.extend(descendants.iter().cloned());
+            } else if let Some(body) = self.bodies.get(original) {
+                if slot < body.shape.slot_count() {
+                    faces.extend(
+                        body.shape
+                            .face_ids(Some(slot..slot + 1))?
+                            .into_iter()
+                            .map(|id| (original.to_owned(), id)),
+                    );
+                }
+            }
         }
-        let body = self.bodies.get(id)?;
-        let count = first.map_or_else(|| body.shape.slot_count(), |(_, slots)| slots.len());
-        Some((body, offset..offset + count))
+        Ok(faces
+            .into_iter()
+            .filter_map(|(id, slot)| self.bodies.get(&id).map(|body| (body, slot)))
+            .collect())
     }
 
     pub(crate) fn resolve_face(&self, face: &FaceRef) -> Result<(&Body, usize)> {
@@ -85,32 +98,43 @@ impl Scene {
         let body_id = match face {
             FaceRef::Origin { body_id, .. } | FaceRef::Selected { body_id, .. } => body_id,
         };
-        let (body, slots) = self.face_owner(body_id).ok_or_else(|| {
-            CoreError::new(ErrorCode::NotFound, "Body does not exist in this scene")
-        })?;
-        let slot =
-            match face {
-                FaceRef::Selected { face_id, .. } => *face_id,
-                FaceRef::Origin { origin, .. } => {
-                    if !self.features.get(&origin.feature).is_some_and(|feature| {
-                        feature.data.new_solids.iter().any(|r| &r.id == body_id)
-                    }) {
-                        return Err(CoreError::new(
+        let slots = match face {
+            FaceRef::Selected { face_id, .. } => vec![*face_id],
+            FaceRef::Origin { origin, .. } => {
+                let feature = self
+                    .features
+                    .get(&origin.feature)
+                    .filter(|feature| feature.data.new_solids.iter().any(|r| &r.id == body_id))
+                    .ok_or_else(|| {
+                        CoreError::new(
                             ErrorCode::NotFound,
                             "This feature did not create the selected body",
-                        ));
-                    }
-                    match origin.role {
-                        FaceRole::EndCap1 => 0,
-                    }
-                }
-            };
-        if slot >= slots.len() {
-            return Err(CoreError::new(
-                ErrorCode::NotFound,
-                "Face does not exist on this body",
-            ));
+                        )
+                    })?;
+                feature
+                    .faces_by_body
+                    .get(body_id)
+                    .into_iter()
+                    .flatten()
+                    .map(|(_, range)| match origin.role {
+                        FaceRole::EndCap1 => range.start,
+                    })
+                    .collect()
+            }
+        };
+        let mut faces = Vec::new();
+        for slot in slots {
+            faces.extend(self.face_descendants(body_id, slot..slot.saturating_add(1))?);
         }
-        Ok((body, slots.start + slot))
+        faces.sort_by(|(a, i), (b, j)| (&a.reference.id, i).cmp(&(&b.reference.id, j)));
+        faces.dedup_by(|(a, i), (b, j)| a.reference.id == b.reference.id && i == j);
+        match faces.as_slice() {
+            [face] => Ok(*face),
+            [] => Err(CoreError::new(ErrorCode::NotFound, "No matching face")),
+            _ => Err(CoreError::new(
+                ErrorCode::AmbiguousFace,
+                "Multiple matching faces",
+            )),
+        }
     }
 }

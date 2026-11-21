@@ -40,7 +40,13 @@ export class ExtrudeTool {
       ["taper1", "angle"], ["taper2", "angle"]] as const) {
       this.formulas.set(id, new FormulaInput(this.field(id), dimension, scene, () => this.change()));
     }
-    for (const select of panel.querySelectorAll("select")) select.onchange = () => this.change();
+    for (const select of panel.querySelectorAll("select")) select.onchange = () => {
+      if (select.id === "extrude-mode" && select.value !== "auto") {
+        select.querySelector<HTMLOptionElement>('option[value="auto"]')!.disabled = true;
+      }
+      this.change();
+    };
+    this.field("extrude-reverse").onchange = () => this.change();
     for (const slot of ["profiles", "start", "limit1", "limit2", "targets"] as const) {
       this.button("pick-" + slot).onclick = () => { this.selectionVersion++; this.slot = slot; this.updateForm(); this.callbacks.changed(); };
       this.button("clear-" + slot).onclick = () => { this.selectionVersion++; this.inputs[slot] = []; this.slot = slot; this.change(); };
@@ -124,6 +130,8 @@ export class ExtrudeTool {
     show("start-selection", start === "object");
     show("side2", type === "twoSides");
     show("symmetric-field", type === "symmetric");
+    show("extrude-direction-field", type !== "symmetric" && (this.value("extent1") !== "length" ||
+      (type === "twoSides" && this.value("extent2") !== "length")));
     show("targets-section", mode !== "newBody");
     show("target-selection", mode !== "newBody" && this.value("target-scope") === "selected");
     for (const side of [1, 2]) {
@@ -204,8 +212,10 @@ export class ExtrudeTool {
     this.center = this.center.map((n, i) => n - distance * this.frame!.normal[i]) as [number, number, number];
     this.radius = points.reduce((radius, p) => Math.max(radius, Math.hypot(...p.map((n, i) => n - this.center[i]))), 1);
     const type = this.value("extrude-type") as NonNullable<ExtrudeParameters["type"]>;
-    const parameters: ExtrudeParameters = { type, mode: this.value("extrude-mode") as NonNullable<ExtrudeParameters["mode"]>,
-      direction: this.value("extrude-direction") as NonNullable<ExtrudeParameters["direction"]> };
+    const parameters: ExtrudeParameters = { type, mode: this.value("extrude-mode") as NonNullable<ExtrudeParameters["mode"]> };
+    const reverse = type !== "symmetric" && this.field("extrude-reverse").checked &&
+      (this.value("extent1") !== "length" || (type === "twoSides" && this.value("extent2") !== "length"));
+    if (reverse) parameters.direction = "negative";
     const fields: string[] = [];
     if (this.value("extrude-start") === "offset") { parameters.start = { type: "offset", offset: this.value("offset") }; fields.push("offset"); }
     else if (this.value("extrude-start") === "object") {
@@ -217,7 +227,9 @@ export class ExtrudeTool {
       const extent = type === "symmetric" ? "length" : this.value("extent" + side);
       if (extent === "length") {
         const id = side === 1 ? "length" : "length2";
-        parameters[side === 1 ? "length1" : "length2"] = this.value(id);
+        // The API direction reverses both sides. Compensate length extents so the
+        // editor's Reverse checkbox affects only extents without a signed length.
+        parameters[side === 1 ? "length1" : "length2"] = reverse ? `-(${this.value(id)})` : this.value(id);
         parameters[side === 1 ? "extent1" : "extent2"] = { type: "length" };
         fields.push(id);
       } else if (extent === "throughAll") parameters[side === 1 ? "extent1" : "extent2"] = { type: "throughAll" };
@@ -267,9 +279,7 @@ export class ExtrudeTool {
     const add = (id: string, label: string, at: [number, number, number], direction: [number, number, number], factor = 1) => {
       const field = this.formulas.get(id)!;
       handles.push({ id, label, origin: at, direction, tangent: u, kind: field.dimension, value: field.value, unit: field.unit, factor,
-        min: field.dimension === "length" && id !== "offset" ? 0 : undefined,
         change: (value) => {
-          if (field.dimension === "length" && id !== "offset") value = Math.max(0, value);
           this.handleInput = true;
           try { field.setFromHandle(value); }
           finally { this.handleInput = false; }
@@ -277,18 +287,20 @@ export class ExtrudeTool {
     };
     if (this.value("extrude-start") === "offset") add("offset", "Start offset", this.center, normal);
     const type = this.value("extrude-type");
-    const sign = this.value("extrude-direction") === "negative" ? -1 : 1;
     for (const side of (type === "oneSide" ? [1] : [1, 2])) {
-      const direction = normal.map((n) => n * sign * (side === 1 ? 1 : -1)) as [number, number, number];
+      const extent = type === "symmetric" ? "length" : this.value("extent" + side);
+      const direction = normal.map((n) => n * (side === 1 ? 1 : -1)) as [number, number, number];
       const id = type === "symmetric" || side === 1 ? "length" : "length2";
       const factor = type === "symmetric" && this.value("symmetric-length") === "total" ? 0.5 : 1;
-      if (type === "symmetric" || this.value("extent" + side) === "length") {
+      if (extent === "length") {
         add(id, type === "symmetric" ? "Symmetric length" : "Length " + side, origin, direction, factor);
         if (type === "symmetric") handles[handles.length - 1].id += "-side" + side;
       }
       if (type !== "symmetric" || side === 1) {
-        const at = origin.map((n, i) => n + u[i] * (this.radius + 4) + direction[i] * 2) as [number, number, number];
-        add("taper" + side, "Taper " + side, at, direction);
+        const reverse = extent === "length" ? this.formulas.get(id)!.value < 0 : this.field("extrude-reverse").checked;
+        const taperDirection = direction.map((n) => n * (reverse ? -1 : 1)) as [number, number, number];
+        const at = origin.map((n, i) => n + u[i] * (this.radius + 4) * (side === 1 ? 1 : -1) + taperDirection[i] * 2) as [number, number, number];
+        add("taper" + side, "Taper " + side, at, taperDirection);
       }
     }
     this.callbacks.handles(handles);
@@ -318,6 +330,11 @@ export class ExtrudeTool {
       });
       this.request = request;
       this.validVersion = version;
+      if (version === this.version && request.parameters.mode === "auto") {
+        const mode = result.operation.resolvedMode;
+        const label = mode === "join" ? "Join" : mode === "cut" ? "Cut" : "New";
+        this.panel.querySelector<HTMLOptionElement>('#extrude-mode option[value="auto"]')!.textContent = "Auto — " + label;
+      }
       this.callbacks.preview(proxies, result.removedSolids.map((body) => body.id));
       this.callbacks.status(version === this.version ? "Extrusion preview" : "Updating extrusion preview…");
     } catch (error) {

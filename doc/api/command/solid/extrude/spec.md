@@ -24,6 +24,8 @@ Extrusion, by default, affects all bodies on the way of extrusion. Supply `targe
 
 A join skips connected profile groups that add no material and merge no bodies. It raises `INVALID_PARAMETER` if the entire operation has no effect.
 
+Mode is auto-detected and updated on preview. If there are no adjacent bodies the mode is "New"; if it has adjacent bodies but does not get inside any of these the mode is "Join", otherwise "Cut". If the user ever changes the mode the autodetection is disabled. "Intersect" mode can be only selected manually.
+
 # Topology
 
 On a committed extrusion, `feature.faces` selects faces by their origin in one input `profile` (a sketch region or planar face).
@@ -37,6 +39,8 @@ On a committed extrusion, `feature.faces` selects faces by their origin in one i
 Side-2 selectors on one-sided features raise `INVALID_PARAMETER`.
 
 Each selector follows the faces through the extrusion's own Boolean operation and subsequent cuts and joins. `.all()` returns the distinct surviving face references across the result bodies, including all descendants of a split face and an empty list when none survive. `.only()` returns one face reference, raises `NOT_FOUND` for zero matches, and raises `AMBIGUOUS_FACE` for multiple matches.
+
+Contiguous faces on the same geometric surface merge after two-sided extrusion and Booleans; actual taper creases remain. Both side selectors may resolve to the same merged face. Cuts may produce multiple disconnected solid bodies.
 
 Body IDs follow the [body identity rules](../../../../body-identity.md).
 
@@ -61,7 +65,7 @@ Body IDs follow the [body identity rules](../../../../body-identity.md).
 - Offset start. From a 10 × 10 mm square on XY, start at offset −3 mm and extrude 8 mm toward +Z. Expect one 800 mm³ body with caps at Z = −3 and +5.
 - Parallel face start. Start the same extrusion from a face at Z = +7 and extrude 4 mm toward +Z in `newBody` mode. Expect caps at Z = +7 and +11. The reference body keeps its ID and geometry.
 - Tilted face start. Select a bounded planar face whose nearest point is at Z = 2 outside the profile footprint and whose nearest point over the footprint is at Z = 5. Extrude 4 mm from that face toward +Z. Expect flat caps parallel to XY at Z = 2 and 6.
-- Unequal sides. Extrude a 10 × 10 mm square 7 mm toward +Z on side 1 and 3 mm toward −Z on side 2. Expect one 1000 mm³ solid, end caps at Z = +7 and −3 respectively, and no start cap or internal face on XY.
+- Unequal sides. Extrude a 10 × 10 mm square 7 mm toward +Z on side 1 and 3 mm toward −Z on side 2. Expect one 1000 mm³ solid, end caps at Z = +7 and −3 respectively, and no start cap or internal face on XY. Expect six faces and twelve edges; both side selectors return the same four side faces.
 - Symmetric total length. From the same square at start offset +3 mm, extrude symmetrically with total length 8 mm. Expect caps at Z = +7 and −1 and a volume of 800 mm³.
 - Symmetric half-length. Use the same start and specify half-length 8 mm. Expect caps at Z = +11 and −5 and a volume of 1600 mm³.
 - Selected limiting body. Cover the profile with two bodies spanning Z = 3–4 and Z = 8–10. Extrude from XY toward +Z to first touch of the second body. Expect the cap at Z = 8.
@@ -72,3 +76,9 @@ Body IDs follow the [body identity rules](../../../../body-identity.md).
 - Independent tapers. Extrude that circle 4 mm on each side, with 45° outward taper on side 1 and zero taper on side 2. Expect end radii of 14 and 10 mm respectively. Querying each side using the same source edge identifies the conical face on side 1 and the cylindrical face on side 2.
 - Symmetric taper. Extrude that circle symmetrically with total length 8 mm and 45° outward taper. Expect radius 10 mm at the start plane and radius 14 mm at both end caps.
 - Invalid second side. Supplying `length2` to a one-sided extrusion raises `INVALID_PARAMETER` without adding a feature or changing the scene. Requesting a side-2 face selector on a valid one-sided feature also raises `INVALID_PARAMETER`.
+
+- Offset join topology. Create two 10 mm bodies, then join the cubes with XY footprints (0,0)–(10,10) and (5,5)–(15,15). Expect volume 1750 mm³, ten boundary faces, one top face and one bottom face of area 175 mm² each. Original and joining cap selectors resolve to the merged caps in preview and commit.
+- Split cut and rejoin. Cut a 10 mm cube through Z using a strip at X=3–5 spanning beyond Y=0–10. Preview reports one affected body and one new body without changing the scene. Commit leaves volumes 500 and 300 mm³; the right fragment retains the original ID. Original top/bottom selectors each return two faces and `.only()` is ambiguous. Current picked faces remain usable. Original body-origin cap references follow the split; a new fragment’s cut-origin end cap returns `NOT_FOUND` when the through-cut generated no surviving cap. Split the right fragment again at X=7–8: the equal-volume middle fragment retains the ID and the other receives a new one. Original selectors now return three descendants. Join both gaps back: retain the original ID, remove both additional bodies, restore volume 1000 mm³ and six faces, and resolve the original cap selectors uniquely. Repeat using the same API commands in a fresh CLI engine and compare effects, volumes, topology and references.
+- Multiple split targets. Cut a strip through two separated cubes in one operation, yielding four solids. Each original ID remains on its larger fragment; preview and commit report two affected and two new bodies, with unchanged committed state during preview.
+
+- Split reference survival. After the X=3–5 strip cut above, either fully consume the larger original-ID fragment or extrude the smaller fragment’s +X face 2 mm in join mode. Only the smaller fragment’s ID remains (volume 300 or 1000 mm³ respectively). The original top selector resolves uniquely on that surviving body, old face references follow it, and each current face remains independently usable.

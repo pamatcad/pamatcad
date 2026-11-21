@@ -419,7 +419,6 @@ function beginSketch() {
       doc.objectTab = "Sketches";
       closeTool();
       await refresh();
-      viewport.home();
       status("Profile selected");
     });
 }
@@ -450,11 +449,15 @@ async function beginExtrude() {
     doc.extrude = tool;
     button("apply").onclick = () => work(async () => {
       const feature = await tool.apply();
-      doc.selection = [...feature.newSolids, ...feature.affectedSolids].map((body) => ({ kind: "body", id: body.id }));
+      const profiles = feature.operation.inputs.profile;
+      for (const profile of Array.isArray(profiles) ? profiles : [profiles]) {
+        if ("sketchId" in profile) doc.hiddenObjects.add(profile.sketchId);
+      }
+      doc.selection = [];
+      viewport.setVisibility(doc.hiddenObjects);
       doc.objectTab = "Bodies";
       closeTool(false);
       await refresh();
-      viewport.home();
       status("Extrusion created");
     });
     await tool.seed(initial);

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CoreError } from "@pamatcad/sdk";
+import { CoreError, type ExtrudeParameters } from "@pamatcad/sdk";
 import { startCore } from "../../../support/core.js";
-import { block, checkSquare, near, rectangle, volume } from "../../../support/extrude.js";
+import { block, checkSquare, circle, near, rectangle, volume } from "../../../support/extrude.js";
 
 test("one side starts at a negative offset", async t => {
   const { core, scene } = await startCore(t, "offset-start");
@@ -39,9 +39,12 @@ test("two unequal sides form one solid with numbered caps", async t => {
   const { body, feature, profile } = await checkSquare(core, scene, { type: "twoSides", length1: 7, length2: 3 }, 7, -3, 1000);
   const sides1 = await feature.faces.sideFaces1({ profile }).all();
   const sides2 = await feature.faces.sideFaces2({ profile }).all();
+  assert.equal((await body.faces.all()).length, 6);
+  assert.equal((await scene.getProxyFor({ sceneId: scene.id, id: body.id })).edges.length, 12);
+  assert.deepEqual(new Set(sides1), new Set(sides2));
   // Every boundary face is accounted for; there is no face on the join plane.
   const caps = [await feature.faces.endCap1({ profile }).only(), await feature.faces.endCap2({ profile }).only()];
-  assert.deepEqual(new Set(await body.faces.all()), new Set([...caps, ...sides1, ...sides2]));
+  assert.deepEqual(new Set((await body.faces.all()).map(f => JSON.stringify(f))), new Set([...caps, ...sides1, ...sides2].map(f => JSON.stringify(f))));
 });
 
 test("symmetric total length is centered on the offset start", async t => {
@@ -67,4 +70,47 @@ test("one-sided extrusions reject second-side parameters and selectors", async t
   const feature = await core.solid.extrude(profile, { length1: 6 });
   await assert.rejects(feature.faces.endCap2({ profile }).only(), invalid);
   await assert.rejects(feature.faces.sideFaces2({ profile }).all(), invalid);
+});
+
+test("signed lengths reverse numbered sides and retain explicit API direction", async t => {
+  const { core, scene } = await startCore(t, "signed-side-lengths");
+  const cases: [ExtrudeParameters, number, number, number][] = [
+    [{ length1: "-8 mm" }, -8, 0, 800],
+    [{ length1: -8, direction: "positive" }, -8, 0, 800],
+    [{ length1: 8, direction: "negative" }, -8, 0, 800],
+    [{ length1: -8, direction: "negative" }, 8, 0, 800],
+    [{ type: "twoSides", length1: -7, length2: -3 }, -7, 3, 1000],
+    [{ type: "symmetric", start: { type: "offset", offset: 3 }, length1: -8 }, -1, 7, 800],
+    [{ type: "symmetric", start: { type: "offset", offset: 3 }, symmetricLength: "half", length1: -8 }, -5, 11, 1600],
+  ];
+  for (const [parameters, cap1, cap2, expected] of cases) {
+    const { body } = await checkSquare(core, scene, parameters, cap1, cap2, expected);
+    assert.equal((await body.faces.all()).length, 6);
+  }
+  // Reversing just one side can overlap the other side; the result is their union.
+  const { profile } = await rectangle(scene);
+  const together = await core.solid.extrude(profile, { type: "twoSides", length1: -7, length2: 3 });
+  const body = await scene.bodies.get(together.newSolids[0]!.id);
+  near(await volume(body), 700);
+  near((await body.faces.properties(await together.faces.endCap1({ profile }).only())).centroid[2], -7);
+  assert.deepEqual(await together.faces.endCap2({ profile }).all(), []);
+  assert.equal((await body.faces.all()).length, 6);
+  const revisions = await scene.bodies.revisions(), timeline = await scene.timeline.list();
+  for (const preview of [true, false]) {
+    await assert.rejects(core.solid.extrude(profile, { length1: 0 }, { preview }),
+      e => e instanceof CoreError && e.details?.code === "INVALID_PARAMETER");
+    assert.deepEqual(await scene.bodies.revisions(), revisions);
+    assert.deepEqual(await scene.timeline.list(), timeline);
+  }
+});
+
+test("negative taper narrows a negative length extrusion", async t => {
+  const { core, scene } = await startCore(t, "negative-length-and-taper");
+  const { profile } = await circle(scene, 10);
+  const feature = await core.solid.extrude(profile, { length1: -4, taperAngle1: -45 });
+  const body = await scene.bodies.get(feature.newSolids[0]!.id);
+  const cap = await body.faces.properties(await feature.faces.endCap1({ profile }).only());
+  near(cap.centroid[2], -4);
+  near(cap.areaMm2, Math.PI * 36);
+  near(await volume(body), Math.PI * 4 * (100 + 60 + 36) / 3);
 });

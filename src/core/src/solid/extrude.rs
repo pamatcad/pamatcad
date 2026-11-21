@@ -43,6 +43,17 @@ impl ModelingCommand for Extrude {
             Profiles::Faces(faces) => extrude_faces(scene, faces, resolve)?,
             regions => extrude_regions(scene, regions.regions(), resolve)?,
         };
+        let target_shapes: Vec<_> = bodies.iter().map(|body| &body.shape).collect();
+        let mut partition = if mode != ExtrudeMode::NewBody && !bodies.is_empty() {
+            Some(CellPartition::new(&target_shapes, &shapes, mode)?)
+        } else {
+            None
+        };
+        let resolved_mode = if mode == ExtrudeMode::Auto {
+            partition.as_ref().map_or(ExtrudeMode::NewBody, |p| p.mode)
+        } else {
+            mode
+        };
         let mut changes = ProposedChanges {
             created: vec![],
             updated: vec![],
@@ -53,10 +64,12 @@ impl ModelingCommand for Extrude {
                     targets: self.targets,
                 },
                 parameters: self.parameters,
+                resolved_mode: (mode == ExtrudeMode::Auto).then_some(resolved_mode),
             },
         };
         let Operation::Extrude { inputs, .. } = &changes.operation;
-        if mode == ExtrudeMode::NewBody {
+        if resolved_mode == ExtrudeMode::NewBody {
+            drop(partition);
             for (index, shape) in shapes.iter_mut().enumerate() {
                 shape.record_profile(index);
             }
@@ -76,7 +89,13 @@ impl ModelingCommand for Extrude {
                         .position(|target| target.reference == body.reference))
                 })
                 .collect::<Result<Vec<_>>>()?;
-            apply_boolean(&bodies, &shapes, &sources, mode, &mut changes)?;
+            let partition = partition.as_mut().ok_or_else(|| {
+                CoreError::new(
+                    ErrorCode::InvalidParameter,
+                    "The operation needs a target body",
+                )
+            })?;
+            apply_boolean(&bodies, &shapes, &sources, partition, &mut changes)?;
         }
         Ok(changes)
     }
@@ -108,18 +127,9 @@ fn apply_boolean(
     targets: &[&Body],
     tools: &[Shape],
     sources: &[Option<usize>],
-    mode: ExtrudeMode,
+    partition: &mut CellPartition<'_>,
     changes: &mut ProposedChanges,
 ) -> Result<()> {
-    let join = mode == ExtrudeMode::Join;
-    if targets.is_empty() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidParameter,
-            "The operation needs a target body",
-        ));
-    }
-    let shapes: Vec<_> = targets.iter().map(|body| &body.shape).collect();
-    let mut partition = CellPartition::new(&shapes, tools, join)?;
     for group in 0..partition.group_count {
         let (bodies, profiles) = partition.members(group);
         let oldest = bodies
@@ -142,10 +152,10 @@ fn apply_boolean(
         };
         let body = targets[survivor];
         let mut offset = body.shape.slot_count();
-        let mut absorbed_slots = Vec::new();
+        let mut inherited_slots = vec![(body.reference.id.clone(), 0..offset)];
         for &i in bodies.iter().filter(|&&i| i != survivor) {
             let end = offset + targets[i].shape.slot_count();
-            absorbed_slots.push((targets[i].reference.id.clone(), offset..end));
+            inherited_slots.push((targets[i].reference.id.clone(), offset..end));
             changes.removed.push(targets[i].reference.clone());
             offset = end;
         }
@@ -155,30 +165,44 @@ fn apply_boolean(
             profile_slots.push((i, offset..end));
             offset = end;
         }
-        let (shape, material_changed) = partition.result(group, survivor)?;
-        if let Some(mut shape) = shape {
-            shape.profile_slots = profile_slots;
-            changes.updated.push(BodyUpdate {
-                body: Body {
-                    reference: body.reference.clone(),
-                    created_at: body.created_at,
-                    revision: 0,
-                    shape,
-                },
-                material_changed,
-                absorbed_slots,
-            });
-        } else if !join {
+        let (shapes, material_changed) = partition.result(group, survivor)?;
+        if shapes.is_empty() && material_changed {
             changes.removed.push(body.reference.clone());
+        }
+        for (index, mut shape) in shapes.into_iter().enumerate() {
+            shape.profile_slots = profile_slots.clone();
+            for (source, slots) in &inherited_slots {
+                for (old_slot, slot) in slots.clone().enumerate() {
+                    let descendants = shape.face_ids(Some(slot..slot + 1))?;
+                    shape
+                        .inherited_faces
+                        .push(((source.clone(), old_slot), descendants));
+                }
+            }
+            if index == 0 {
+                changes.updated.push(BodyUpdate {
+                    body: Body {
+                        reference: body.reference.clone(),
+                        created_at: body.created_at,
+                        revision: 0,
+                        shape,
+                    },
+                    material_changed,
+                });
+            } else {
+                changes.created.push(shape);
+            }
         }
     }
     if changes.updated.is_empty() && changes.removed.is_empty() {
         return Err(CoreError::new(
             ErrorCode::InvalidParameter,
-            if join {
-                "Join neither adds material nor merges bodies"
-            } else {
-                "Cut removes no material from its targets"
+            match partition.mode {
+                ExtrudeMode::Join => "Join neither adds material nor merges bodies",
+                ExtrudeMode::Intersect => {
+                    "Intersect removes no material from its overlapping targets"
+                }
+                _ => "Cut removes no material from its targets",
             },
         ));
     }

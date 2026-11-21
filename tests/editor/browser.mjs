@@ -91,7 +91,8 @@ try {
   assert.ok(await page.getByRole("button", { name: "Finish sketch" }).isDisabled(), "Keep the draft waiting for its second corner");
   const toolBounds = await page.locator("#tool-panel").boundingBox();
   // Keep the second corner on the canvas when the tool panel's spacing changes.
-  await clickAt(Math.min(0.7, (toolBounds.x - bounds.x - 16) / bounds.width), 0.6);
+  const secondX = Math.min(0.7, (toolBounds.x - bounds.x - 16) / bounds.width);
+  await clickAt(secondX, 0.6);
   const width = Number(await page.locator("#width").inputValue());
   const height = Number(await page.locator("#height").inputValue());
   assert.ok(Math.abs(width * height) > 1);
@@ -99,7 +100,8 @@ try {
   await page.waitForFunction(() => document.querySelector("#features").children.length === 1);
   await clickAt(0.93, 0.85);
   assert.ok(await page.getByRole("button", { name: "Extrude", exact: true }).isEnabled(), "Extrude can start before selecting a profile");
-  await clickAt(0.5, 0.5);
+  // Finishing the sketch retains the drawing camera, so select its drawn center.
+  await clickAt((0.55 + secondX) / 2, (0.35 + 0.6) / 2);
   await page.getByRole("button", { name: "Extrude", exact: true }).click();
   await page.locator("#length").fill("25 / 2");
   await page.getByRole("button", { name: "Apply", exact: true }).click();

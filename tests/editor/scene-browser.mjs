@@ -22,9 +22,10 @@ export async function testSceneBrowser(browser, url) {
     };
     const tab = async (name) => page.locator("#browser-tabs").getByRole("tab", { name, exact: true }).click();
 
-    // Isolate the solid so its former surface cannot hit a sketch underneath it.
+    // Applying Extrude already hides its source sketch and clears the selection.
+    assert.equal(await row("Body 1").getAttribute("aria-pressed"), "false");
     await tab("Sketches");
-    await row("Hide Sketch 1").click();
+    assert.equal(await row("Show Sketch 1").getAttribute("aria-pressed"), "false");
     await tab("Bodies");
     await clickCenter();
     assert.match(await page.locator("#status").textContent(), /^(Face|Edge) selected$/);

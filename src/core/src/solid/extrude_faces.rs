@@ -13,7 +13,9 @@ impl Scene {
                 "Extrusion feature does not exist in this scene",
             )
         })?;
-        let Operation::Extrude { inputs, parameters } = &feature.data.operation;
+        let Operation::Extrude {
+            inputs, parameters, ..
+        } = &feature.data.operation;
         let index = match (&query.profile, &inputs.profile) {
             (ProfileRef::Region(r), inputs) => inputs.regions().iter().position(|p| p == r),
             (ProfileRef::Face(f), Profiles::Face(input)) => (f == input).then_some(0),
@@ -77,11 +79,7 @@ impl Scene {
             let Some((_, group)) = groups.iter().find(|(profile, _)| *profile == index) else {
                 continue;
             };
-            let Some((body, range)) = self.face_owner(body_id) else {
-                continue;
-            };
-            let start = range.start;
-            let base = start + group.start;
+            let base = group.start;
             let edges = (group.len() - 2) / if double { 2 } else { 1 };
             let side_start = base + 2 + if second { edges } else { 0 };
             let slots = match (cap_slot, edge_index) {
@@ -89,7 +87,7 @@ impl Scene {
                 (_, Some(n)) => side_start + n..side_start + n + 1,
                 _ => side_start..side_start + edges,
             };
-            for face_id in body.shape.face_ids(Some(slots))? {
+            for (body, face_id) in self.face_descendants(body_id, slots)? {
                 if seen.insert((&body.reference.id, face_id)) {
                     result.push(FaceRef::Selected {
                         scene_id: self.data.id.clone(),

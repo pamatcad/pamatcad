@@ -127,6 +127,38 @@ export async function testExtrudeEditor(browser, url) {
       await volumes([half === "total" ? 800 : 1600]);
     }
 
+    // A zero-length preview is invalid, but dragging can cross it in either direction.
+    await fresh(base); await sketch(); await start(); await page.locator("#length").fill("1"); await ready();
+    assert.ok(await page.locator("#extrude-direction-field").isHidden());
+    await page.locator("#length").fill("0");
+    await page.waitForFunction(() => document.querySelector("#extrude-error").textContent.includes("nonzero"));
+    assert.ok(await page.locator("#apply").isDisabled());
+    const zeroHandle = await page.locator('[data-handle="length"]').boundingBox();
+    await page.mouse.move(zeroHandle.x + zeroHandle.width / 2, zeroHandle.y + zeroHandle.height / 2);
+    await page.mouse.down(); await page.mouse.move(zeroHandle.x + zeroHandle.width / 2, zeroHandle.y + 150, { steps: 15 }); await page.mouse.up();
+    await ready();
+    assert.ok(parseFloat(await page.locator("#length").inputValue()) < 0, "Dragging past the origin must permit negative lengths");
+    await page.locator("#length").fill("-4 mm"); await ready();
+    assert.equal(await page.locator('[data-handle="length"]').textContent(), "-4 mm");
+    await apply(); await volumes([400]);
+    assert.deepEqual(await run(`const p = await scene.getProxyFor((await scene.bodies.all())[0]); const z = [...p.positions].filter((_,i)=>i%3===2); return [Math.min(...z), Math.max(...z)];`), [-4, 0]);
+
+    // Reversing a lengthless side does not change the signed length of the other side.
+    await fresh(base + `await core.solid.extrude(await s.regions.only(), {start:{type:"offset",offset:-10},length1:8});`);
+    await sketch(); await start(); await choose("extrude-mode", "newBody");
+    await choose("extrude-type", "twoSides"); await page.locator("#length2").fill("-2");
+    await choose("extent1", "throughAll"); await page.locator("#extrude-reverse").check(); await ready();
+    assert.equal(await page.locator("#length2").inputValue(), "-2");
+    await choose("extent1", "length"); await page.locator("#length").fill("5"); await ready();
+    assert.ok(await page.locator("#extrude-direction-field").isHidden());
+    await choose("extent1", "throughAll"); await ready(); await apply(); await volumes([800, 1200]);
+    assert.deepEqual(await run(`const p = await scene.getProxyFor((await scene.bodies.all())[1]); const z = [...p.positions].filter((_,i)=>i%3===2); return [Math.min(...z), Math.max(...z)];`), [-10, 2]);
+
+    await fresh(base + `await core.solid.extrude(await s.regions.only(), {start:{type:"offset",offset:-10},length1:8});`);
+    await sketch(); await start(); await choose("extrude-mode", "newBody"); await choose("extent1", "toObject");
+    await page.locator("#pick-limit1").click(); await page.locator("#bodies-tab").click(); await row("Body 1").click();
+    await page.locator("#extrude-reverse").check(); await apply(); await volumes([800, 200]);
+
     // Pick a preselected planar cap through the actual canvas and join outward.
     await fresh(base + `await core.solid.extrude(await s.regions.only(), {length1:10});`);
     await page.locator("#home").click();
@@ -134,8 +166,38 @@ export async function testExtrudeEditor(browser, url) {
     await page.mouse.click(view.x + view.width - 60, view.y + 38);
     await page.mouse.click(view.x + view.width / 2, view.y + view.height / 2);
     assert.equal(await page.locator("#status").textContent(), "Face selected");
-    await start(); await choose("extrude-mode", "join"); await page.locator("#length").fill("5"); await apply();
+    await start(); await ready();
+    assert.equal(await page.locator("#extrude-mode").inputValue(), "auto");
+    assert.equal(await page.locator('#extrude-mode option:checked').textContent(), "Auto — Join");
+    await page.locator("#length").fill("5"); await apply();
     await volumes([1500]);
+
+    // Detection follows the current volume, and an explicit choice disables it for this session.
+    await fresh(base + `await core.solid.extrude(await s.regions.only(), {length1:10});`);
+    await sketch(); await start(); await choose("extrude-start", "offset");
+    await page.locator("#length").fill("5");
+    for (const [offset, mode] of [[20, "New"], [10, "Join"], [5, "Cut"]]) {
+      await page.locator("#offset").fill(String(offset)); await ready();
+      assert.equal(await page.locator("#extrude-mode").inputValue(), "auto");
+      assert.equal(await page.locator('#extrude-mode option:checked').textContent(), "Auto — " + mode);
+    }
+    await choose("extrude-mode", "newBody"); await ready();
+    assert.ok(await page.locator('#extrude-mode option[value="auto"]').isDisabled());
+    await page.locator("#offset").fill("2"); await ready();
+    assert.equal(await page.locator("#extrude-mode").inputValue(), "newBody");
+    await apply(); await volumes([1000, 500]);
+
+    // Intersect is manual; only overlapping bodies are trimmed.
+    await fresh(base + `await core.solid.extrude(await s.regions.only(), {length1:10});
+      const other = await scene.sketches.create(scene.construction.builtin.planes.xy);
+      await other.primitives.add("rectangle", {from:[20,0],to:[30,10]}); await other.complete();
+      await core.solid.extrude(await other.regions.only(), {length1:10});
+      const trim = await scene.sketches.create(scene.construction.builtin.planes.xy);
+      await trim.primitives.add("rectangle", {from:[0,0],to:[4,10]}); await trim.complete();`);
+    await sketch("Sketch 3"); await start();
+    assert.equal(await page.locator("#extrude-mode").inputValue(), "auto");
+    await choose("extrude-mode", "intersect"); await page.locator("#length").fill("10"); await apply();
+    await volumes([400, 1000]);
 
     // Restrict a through-all cut to one of two aligned bodies.
     const blocks = `const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
@@ -149,21 +211,36 @@ export async function testExtrudeEditor(browser, url) {
     await choose("extent1", "throughAll"); await apply();
     await volumes([100]);
 
+    // A split cut previews and commits both surviving solids through the actual UI.
+    await fresh(base + `await core.solid.extrude(await s.regions.only(), {length1:10});
+      const cutter = await scene.sketches.create(scene.construction.builtin.planes.xy);
+      await cutter.primitives.add("rectangle", {from:[3,-1],to:[5,11]}); await cutter.complete();`);
+    const originalId = await run(`return (await scene.bodies.all())[0].id;`);
+    await sketch("Sketch 2"); await start(); await choose("extrude-mode", "cut");
+    await page.locator("#length").fill("10"); await ready(); await apply();
+    const fragments = await run(`return Promise.all((await scene.bodies.all()).map(async ref => ({id:ref.id,
+      volume:(await (await scene.bodies.get(ref.id)).properties()).volume.value,
+      faces:(await scene.getProxyFor(ref)).faces.length})));`);
+    assert.equal(fragments.length, 2);
+    assert.ok(Math.abs(fragments.find(fragment => fragment.id === originalId).volume - 500) < 1e-7);
+    assert.ok(Math.abs(fragments.find(fragment => fragment.id !== originalId).volume - 300) < 1e-7);
+    assert.ok(fragments.every(fragment => fragment.faces === 6));
+
     for (const [extent, height] of [["closest", 8], ["touch", 8], ["intersect", 8], ["farthest", 10]]) {
-      await fresh(blocks); await sketch(); await start(); await choose("extent1", "toObject");
+      await fresh(blocks); await sketch(); await start(); await choose("extrude-mode", "newBody"); await choose("extent1", "toObject");
       await page.locator("#pick-limit1").click(); await page.locator("#bodies-tab").click(); await row("Body 2").click();
       await choose("object-extent1", extent); await apply();
       await volumes([100, 200, height * 100]);
     }
 
     // From-face start has its own face-only selector; profiles remain selected separately.
-    await fresh(blocks); await sketch(); await start(); await ready();
+    await fresh(blocks); await sketch(); await start(); await choose("extrude-mode", "newBody"); await ready();
     await choose("extrude-start", "object"); await page.locator("#pick-start").click();
     await page.locator("#home").click(); view = await page.locator("#model-canvas").boundingBox();
     await page.mouse.click(view.x + view.width - 60, view.y + 38);
     await page.mouse.click(view.x + view.width / 2 + 60, view.y + view.height / 2 + 35);
     await page.waitForFunction(() => document.querySelector("#pick-start").textContent.startsWith("1 selected"));
-    await page.locator("#length").fill("4"); await choose("extrude-direction", "negative"); await apply();
+    await page.locator("#length").fill("-4"); await apply();
     const capBounds = await run(`const p = await scene.getProxyFor((await scene.bodies.all()).at(-1)); const z = [...p.positions].filter((_,i)=>i%3===2); return [Math.min(...z), Math.max(...z)];`);
     assert.deepEqual(capBounds, [6, 10]);
 
@@ -173,7 +250,7 @@ export async function testExtrudeEditor(browser, url) {
     await page.locator("#length").fill("4"); await page.locator("#length2").fill("4");
     await page.locator("#taper1").fill("45 deg"); await page.locator("#taper2").fill("0"); await apply();
     assert.ok(Math.abs((await volume())[0] - Math.PI * (4 * (100 + 140 + 196) / 3 + 400)) < 1e-7);
-    console.log("Interactive Extrude: profiles, formulas, length drag, window movement, sides, starts, limits, Boolean targets and tapers passed");
+    console.log("Interactive Extrude: profiles, formulas, length drag, window movement, sides, starts, limits, Boolean targets, split cuts and tapers passed");
   } finally {
     await context.close();
   }

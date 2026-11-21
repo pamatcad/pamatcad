@@ -72,10 +72,9 @@ impl ExtrudeParameters {
             .map(|formula| formula.resolve(units.angle))
             .transpose()?
             .unwrap_or(0.);
-        let new_body = self.mode.unwrap_or(ExtrudeMode::NewBody) == ExtrudeMode::NewBody;
         let make_side = |extent: &ExtrudeExtent,
                          length: Option<f64>,
-                         mut direction: f64,
+                         direction: f64,
                          taper: f64|
          -> Result<PrismSide<'a>> {
             if !taper.is_finite() || taper.abs() >= 90. {
@@ -91,15 +90,7 @@ impl ExtrudeParameters {
                     if !value.is_finite() || value.abs() <= LINEAR_TOLERANCE {
                         return Err(invalid("Length must be finite and nonzero"));
                     }
-                    if value < 0. {
-                        if kind != ExtrudeType::OneSide || new_body || self.direction.is_some() {
-                            return Err(invalid(
-                                "Use positive side lengths with an explicit direction",
-                            ));
-                        }
-                        direction = -direction;
-                    }
-                    Ok(PrismSide::new(None, direction * value.abs(), taper, 0))
+                    Ok(PrismSide::new(None, direction * value, taper, 0))
                 }
                 ExtrudeExtent::ThroughAll => {
                     let mut reach = 0_f64;

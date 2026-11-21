@@ -178,8 +178,9 @@ void extrude_face(TopoDS_Face face, std::vector<TopoDS_Edge> edges,
         NCollection_List<TopoDS_Shape> args, tools;
         args.Append(result->value); tools.Append(other.value);
         fuse.SetArguments(args); fuse.SetTools(tools);
-        auto joined = boolean_result(fuse);
-        TopExp_Explorer solids(joined, TopAbs_SOLID);
+        boolean_result(fuse);
+        fuse.SimplifyResult(true, true);
+        TopExp_Explorer solids(fuse.Shape(), TopAbs_SOLID);
         if (!solids.More()) throw std::runtime_error("Two sides did not form a solid");
         result->value = solids.Current();
         solids.Next();

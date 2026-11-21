@@ -1,8 +1,11 @@
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import type { BodyProxy, SketchProxy } from "@pamatcad/sdk";
 import type { ThemeDefinition } from "./theme";
-import { accepts, selectionKey, type SelectionItem, type SelectionFilter } from "./selection";
+import { accepts, selectionKey, selectionOwner, type SelectionItem, type SelectionFilter } from "./selection";
 import { ToolHandles, type ToolHandle } from "./tool-handles";
 
 export type Point = [number, number];
@@ -67,6 +70,11 @@ function rectangleObject({ from: [x, y], to: [u, v] }: Rectangle, selected: bool
 
 class SolidDisplay extends T.Mesh<T.BufferGeometry, T.MeshStandardMaterial[]> {
   private picks: SelectionItem[] = [];
+  private edgeHighlight?: LineSegments2;
+  private edgeHighlightKey = "";
+  private hover?: SelectionItem;
+  private edgeHover?: LineSegments2;
+  private edgeHoverKey = "";
 
   constructor(
     readonly proxy: BodyProxy,
@@ -86,7 +94,7 @@ class SolidDisplay extends T.Mesh<T.BufferGeometry, T.MeshStandardMaterial[]> {
       polygonOffsetUnits: 1,
     });
     const highlighted = material.clone();
-    super(geometry, [material, highlighted]);
+    super(geometry, [material, highlighted, material.clone()]);
     for (const range of proxy.edges) {
       const line = new T.BufferGeometry();
       const begin = range.firstPoint * 3;
@@ -106,6 +114,7 @@ class SolidDisplay extends T.Mesh<T.BufferGeometry, T.MeshStandardMaterial[]> {
     this.theme = theme;
     this.material[0].color.set(this.preview ? theme.colors.preview : theme.colors.surface);
     this.material[1].color.set(theme.colors.selection);
+    this.material[2].color.copy(this.material[0].color).lerp(this.material[1].color, 0.5);
     const opacity = this.preview ? theme.opacity.preview : 1;
     for (const material of this.material) {
       material.opacity = opacity;
@@ -116,15 +125,21 @@ class SolidDisplay extends T.Mesh<T.BufferGeometry, T.MeshStandardMaterial[]> {
     for (const edge of this.children) {
       if (!(edge instanceof T.Line)) continue;
       const selected = this.userData.selected || this.picks.some((pick) => pick.kind === "edge" && pick.ref.edgeId === edge.userData.edge.edgeId);
+      const hovered = this.hover?.kind === "body" || (this.hover?.kind === "edge" && this.hover.ref.edgeId === edge.userData.edge.edgeId);
+      // Retain the thin line for raycasting while the wider stroke handles drawing.
+      edge.visible = !(selected && this.edgeHighlight?.visible) && !(hovered && this.edgeHover?.visible);
       edge.material.color.set(selected ? theme.colors.highlight : this.preview ? theme.colors.previewEdge : theme.colors.edge);
       edge.material.opacity = opacity;
       if (edge.material.transparent !== (opacity < 1)) edge.material.needsUpdate = true;
       edge.material.transparent = opacity < 1;
       edge.material.depthWrite = opacity === 1;
     }
+    this.edgeHighlight?.material.color.set(theme.colors.highlight);
+    this.edgeHover?.material.color.set(this.preview ? theme.colors.previewEdge : theme.colors.edge).lerp(new T.Color(theme.colors.highlight), 0.5);
   }
 
-  highlight(selection: SelectionItem[]) {
+  highlight(selection: SelectionItem[], hover?: SelectionItem) {
+    this.hover = hover && selectionOwner(hover) === this.proxy.body.id ? hover : undefined;
     this.picks = selection.filter((item) => (item.kind === "face" || item.kind === "edge") && item.ref.bodyId === this.proxy.body.id);
     const whole = selection.some((item) => item.kind === "body" && item.id === this.proxy.body.id);
     this.userData.selected = whole;
@@ -134,10 +149,61 @@ class SolidDisplay extends T.Mesh<T.BufferGeometry, T.MeshStandardMaterial[]> {
     else for (const range of this.proxy.faces) {
       const key = selectionKey({ kind: "face", ref: range.face, revision: this.proxy.revision });
       const start = range.firstTriangle * 3, count = range.triangleCount * 3;
-      const material = selected.has(key) ? 1 : 0;
+      const material = selected.has(key) ? 1 : this.hover &&
+        (this.hover.kind === "body" || selectionKey(this.hover) === key) ? 2 : 0;
       const previous = this.geometry.groups.at(-1);
       if (previous?.materialIndex === material && previous.start + previous.count === start) previous.count += count;
       else this.geometry.addGroup(start, count, material);
+    }
+    const edges = new Set(this.picks.filter((pick) => pick.kind === "edge").map((pick) => pick.ref.edgeId));
+    const hoveredEdges = new Set(this.proxy.edges.filter(({ edge }) => !whole && !edges.has(edge.edgeId) &&
+      (this.hover?.kind === "body" || (this.hover?.kind === "edge" && this.hover.ref.edgeId === edge.edgeId))).map(({ edge }) => edge.edgeId));
+    for (const hovering of [false, true]) {
+      const active = hovering ? hoveredEdges : edges;
+      const all = !hovering && whole;
+      const key = all ? "*" : [...active].sort((a, b) => a - b).join(",");
+      let stroke = hovering ? this.edgeHover : this.edgeHighlight;
+      if (key && key !== (hovering ? this.edgeHoverKey : this.edgeHighlightKey)) {
+        const positions: number[] = [];
+        for (const range of this.proxy.edges) {
+          if (!all && !active.has(range.edge.edgeId)) continue;
+          const segments = range.pointCount - (range.closed ? 0 : 1);
+          for (let i = 0; i < segments; i++) {
+            const a = (range.firstPoint + i) * 3;
+            const b = (range.firstPoint + (i + 1) % range.pointCount) * 3;
+            const points = this.proxy.edgePoints;
+            positions.push(points[a], points[a + 1], points[a + 2], points[b], points[b + 1], points[b + 2]);
+          }
+        }
+        if (positions.length) {
+          if (!stroke) {
+            stroke = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({
+              linewidth: 3, worldUnits: false, depthTest: true, depthWrite: false,
+              polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+            }));
+            stroke.renderOrder = 1;
+            // This stroke only changes display; the original edge proxies handle picking.
+            stroke.raycast = () => {};
+            this.add(stroke);
+            if (hovering) this.edgeHover = stroke; else this.edgeHighlight = stroke;
+          }
+          const geometry = stroke.geometry;
+          let start = geometry.getAttribute("instanceStart") as T.InterleavedBufferAttribute | undefined;
+          if (!start || start.count * 6 < positions.length) {
+            if (start) geometry.dispose();
+            geometry.setPositions(new Float32Array(positions.length));
+            start = geometry.getAttribute("instanceStart") as T.InterleavedBufferAttribute;
+            start.data.setUsage(T.DynamicDrawUsage);
+          }
+          start.data.array.set(positions);
+          start.data.needsUpdate = true;
+          geometry.instanceCount = positions.length / 6;
+          geometry.computeBoundingBox();
+          geometry.computeBoundingSphere();
+        } else if (stroke) stroke.geometry.instanceCount = 0;
+        if (hovering) this.edgeHoverKey = key; else this.edgeHighlightKey = key;
+      }
+      if (stroke) stroke.visible = !!key;
     }
     this.setTheme(this.theme);
   }
@@ -237,6 +303,8 @@ export class Viewport {
   private down = new T.Vector2();
   private sketchMode = false;
   private selection: SelectionItem[] = [];
+  private hover?: SelectionItem;
+  private hoverPointer?: PointerEvent;
   private filter: SelectionFilter = "all";
   private handles: ToolHandles;
   private renderPending = false;
@@ -279,6 +347,12 @@ export class Viewport {
     const observer = new ResizeObserver(() => this.resize());
     observer.observe(host);
     this.home();
+    const clearHover = () => { this.hoverPointer = undefined; this.setHover(); this.render(); };
+    host.addEventListener("pointerdown", clearHover, true);
+    host.addEventListener("pointerleave", clearHover);
+    canvas.addEventListener("pointerleave", clearHover);
+    canvas.addEventListener("pointercancel", clearHover);
+    this.orbit.addEventListener("start", clearHover);
     canvas.addEventListener("pointerdown", (e) => this.down.set(e.clientX, e.clientY));
     canvas.addEventListener("pointerup", (e) => {
       if (e.button !== 0 || this.down.distanceTo(new T.Vector2(e.clientX, e.clientY)) > 4) return;
@@ -295,35 +369,61 @@ export class Viewport {
         return;
       }
       const point = this.point(e);
-      const send = (item?: SelectionItem) => {
-        if (!item || accepts(this.filter, item)) onClick({ point, item, additive: e.shiftKey });
-      };
-      const bodies = this.bodies.children.filter((body) => body.visible ||
-        (this.filter !== "all" && body instanceof SolidDisplay && !this.hidden.has(body.proxy.body.id)));
-      const tolerance = (4 * this.span) / (this.viewZoom * canvas.clientHeight);
-      this.ray.params.Line.threshold = tolerance;
-      const hits = this.ray.intersectObjects(bodies, this.filter === "all");
-      const sketch = ["all", "profiles"].includes(this.filter)
-        ? this.ray.intersectObjects(this.sketches.children.filter((node) => node.visible), false)[0] : undefined;
-      if (sketch && (!hits.length || sketch.distance <= hits[0].distance + 1e-6)) {
-        send({ kind: "region", ref: sketch.object.userData.region });
-        return;
-      }
-      const nearest = hits[0];
-      const hit = hits.find((h) => h.object instanceof T.Line && h.distance <= nearest.distance + tolerance) ?? nearest;
-      if (hit?.object instanceof T.Line && hit.object.parent instanceof SolidDisplay) {
-        send({ kind: "edge", ref: hit.object.userData.edge });
-      } else if (hit?.object instanceof SolidDisplay && hit.faceIndex != null) {
-        if (this.filter === "bodies") { send({ kind: "body", id: hit.object.proxy.body.id }); return; }
-        const triangle = hit.faceIndex;
-        const range = hit.object.proxy.faces.find((f) => triangle >= f.firstTriangle && triangle < f.firstTriangle + f.triangleCount);
-        if (range) send({ kind: "face", ref: range.face, revision: hit.object.proxy.revision });
-      } else {
-        const plane = this.filter === "all" ? this.ray.intersectObjects(this.construction.children.filter((node) => node.visible), false)[0] : undefined;
-        send(plane ? { kind: "plane", id: plane.object.userData.plane } : undefined);
-      }
+      const item = this.pick(e);
+      if (!item || accepts(this.filter, item)) onClick({ point, item, additive: e.shiftKey });
     });
-    canvas.addEventListener("pointermove", (e) => onMove(this.point(e)));
+    canvas.addEventListener("pointermove", (e) => {
+      onMove(this.point(e));
+      if (e.buttons || !this.orbit.enabled) { clearHover(); return; }
+      this.hoverPointer = e;
+      this.render();
+    });
+  }
+
+  private pick(e: PointerEvent): SelectionItem | undefined {
+    const canvas = this.renderer.domElement;
+    const { right, top } = canvas.getBoundingClientRect();
+    if (!this.sketchMode && e.clientX >= right - gizmoSize && e.clientY < top + gizmoSize) return;
+    this.point(e);
+    this.handles.group.updateMatrixWorld(true);
+    if (this.ray.intersectObjects(this.handles.group.children, true).length) return;
+    const bodies = this.bodies.children.filter((body) => body.visible ||
+      (this.filter !== "all" && body instanceof SolidDisplay && !this.hidden.has(body.proxy.body.id)));
+    const tolerance = (4 * this.span) / (this.viewZoom * canvas.clientHeight);
+    this.ray.params.Line.threshold = tolerance;
+    const hits = this.ray.intersectObjects(bodies, this.filter === "all");
+    const sketch = ["all", "profiles"].includes(this.filter)
+      ? this.ray.intersectObjects(this.sketches.children.filter((node) => node.visible), false)[0] : undefined;
+    const nearest = hits[0];
+    const hit = hits.find((h) => h.object instanceof T.Line && h.distance <= nearest.distance + tolerance) ?? nearest;
+    // A coplanar sketch fill must not steal a visible solid edge or face. The
+    // profile field still prefers sketch regions when configuring an extrusion.
+    if (sketch && (!hit || sketch.distance < hit.distance - tolerance ||
+      (this.filter === "profiles" && sketch.distance <= hit.distance + 1e-6))) {
+      return { kind: "region", ref: sketch.object.userData.region };
+    }
+    if (hit?.object instanceof T.Line && hit.object.parent instanceof SolidDisplay) {
+      return { kind: "edge", ref: hit.object.userData.edge };
+    } else if (hit?.object instanceof SolidDisplay && hit.faceIndex != null) {
+      if (this.filter === "bodies") return { kind: "body", id: hit.object.proxy.body.id };
+      const triangle = hit.faceIndex;
+      const range = hit.object.proxy.faces.find((f) => triangle >= f.firstTriangle && triangle < f.firstTriangle + f.triangleCount);
+      if (range) return { kind: "face", ref: range.face, revision: hit.object.proxy.revision };
+    } else {
+      const plane = this.filter === "all" ? this.ray.intersectObjects(this.construction.children.filter((node) => node.visible), false)[0] : undefined;
+      if (plane) return { kind: "plane", id: plane.object.userData.plane };
+    }
+  }
+
+  private setHover(item?: SelectionItem) {
+    if (item && (!accepts(this.filter, item) || !["face", "edge", "body"].includes(item.kind))) item = undefined;
+    if ((this.hover && selectionKey(this.hover)) === (item && selectionKey(item))) return;
+    const previous = this.hover;
+    this.hover = item;
+    for (const solid of [...this.bodies.children, ...this.preview.children]) if (solid instanceof SolidDisplay &&
+      ((previous && selectionOwner(previous) === solid.proxy.body.id) || (item && selectionOwner(item) === solid.proxy.body.id))) {
+      solid.highlight(solid.parent === this.bodies ? this.selection : [], item);
+    }
   }
 
   setTheme(theme: ThemeDefinition) {
@@ -447,7 +547,7 @@ export class Viewport {
   sketching(enabled: boolean) {
     this.sketchMode = enabled;
     this.orbit.enableRotate = !enabled;
-    this.home();
+    if (enabled) this.home();
     this.renderer.domElement.style.cursor = enabled ? "crosshair" : "";
   }
   captureView(): ViewState {
@@ -522,7 +622,9 @@ export class Viewport {
   setSelection(selection: SelectionItem[], filter: SelectionFilter = this.filter) {
     this.selection = selection;
     this.filter = filter;
-    for (const solid of this.bodies.children) if (solid instanceof SolidDisplay) solid.highlight(selection);
+    if (this.hover && !accepts(filter, this.hover)) this.hover = undefined;
+    for (const solid of this.bodies.children) if (solid instanceof SolidDisplay) solid.highlight(selection, this.hover);
+    for (const solid of this.preview.children) if (solid instanceof SolidDisplay) solid.highlight([], this.hover);
     const keys = new Set(selection.map(selectionKey));
     for (const profile of this.sketches.children) if (profile instanceof T.Mesh) {
       profile.userData.selected = keys.has("sketch:" + profile.userData.sketch) ||
@@ -539,6 +641,7 @@ export class Viewport {
   setHandles(handles: ToolHandle[] = []) { this.handles.set(handles); this.render(); }
 
   setBodies(records: Map<string, BodyProxy>) {
+    this.setHover();
     const present = new Set<string>();
     for (const child of [...this.bodies.children]) {
       if (!(child instanceof SolidDisplay)) continue;
@@ -567,7 +670,11 @@ export class Viewport {
   setPreview(proxies: BodyProxy[] = [], removed: string[] = []) {
     discard(this.preview);
     this.previewHidden = new Set([...removed, ...proxies.map((proxy) => proxy.body.id)]);
-    proxies.forEach((proxy) => this.preview.add(new SolidDisplay(proxy, true, this.theme)));
+    proxies.forEach((proxy) => {
+      const solid = new SolidDisplay(proxy, true, this.theme);
+      solid.highlight([], this.hover);
+      this.preview.add(solid);
+    });
     this.setVisibility(this.hidden);
   }
 
@@ -575,11 +682,12 @@ export class Viewport {
     if (this.renderPending) return;
     this.renderPending = true;
     requestAnimationFrame(() => {
-      this.renderPending = false;
       const w = this.host.clientWidth, h = this.host.clientHeight;
+      this.renderPending = false;
       if (!w || !h) return;
       this.camera.updateMatrixWorld();
       this.handles?.update();
+      if (this.hoverPointer) this.setHover(this.pick(this.hoverPointer));
       this.renderer.setViewport(0, 0, w, h);
       this.renderer.setClearColor(this.theme.colors.background);
       this.renderer.clear();

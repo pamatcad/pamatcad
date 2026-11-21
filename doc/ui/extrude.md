@@ -20,9 +20,9 @@ The tool window moves by its title bar, stays within the viewport, and scrolls i
 
 # Preview, results and effects
 
-Formula and selection edits invalidate Apply immediately. Preview evaluation starts immediately when idle. While evaluation or mesh retrieval is pending, retain only the newest input and start it as soon as that sequence finishes, without a timer delay. During continued handle changes, completed intermediate previews may update the view; typed edits, geometry or option changes, suspension, and cancellation invalidate pending display results. Only the latest validated input enables Apply. Apply sends the validated request. Cancel discards the overlay. Handles remain usable after a modeling validation error so the value can be corrected.
-
 Viewport changes share one render per animation frame. Handles retain their geometry and materials while updating position, orientation, scale, and color; remove their resources when the handle disappears or changes kind. Adjacent surface ranges with the same material share a draw group without reordering triangles or changing face references.
+
+The source sketch is hidden after the extrude operation is complete. No bodies are selected after the extrude operation.
 
 # Topology and references
 
@@ -42,7 +42,7 @@ Display field formula errors and operation errors in the window. Reject incompat
 - Hold preview and proxy responses while changing a handle repeatedly. Display the completed intermediate result, submit only the newest pending value after all mesh requests settle (including failures), and keep Apply disabled until that value is validated. Typed edits and cancellation reject obsolete results; invalid formulas recover. Scheduling introduces no timeout delay.
 - Multiple viewport updates before a frame produce one scene render; an idle viewport does not redraw. Repeated handle updates preserve geometry/material identities, maintain screen size and orientation, and release only removed handles. Surface groups merge for unselected, whole-body, adjacent-face, and separated-face selections while canvas picks retain the same face references.
 - Query multi-region rectangle/circle sketch proxies on XY, XZ, YZ and a planar face. Verify references, boundary points and orthonormal frames; repeated queries leave geometry and timeline unchanged. Incomplete sketches reject proxy requests. Curved face properties omit a planar frame.
-
+- 
 # History
 
 Initial interactive Extrude implementation.

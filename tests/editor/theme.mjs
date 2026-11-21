@@ -23,6 +23,7 @@ export async function testEditorTheme(browser) {
     await page.goto("http://127.0.0.1:" + server.httpServer.address().port);
     await page.addScriptTag({ path: "tests/editor/rectangle.js" });
     await page.evaluate(() => testRectangleEditor());
+    await page.getByRole("button", { name: "Body 1", exact: true }).click();
     const popupOpened = page.waitForEvent("popup");
     await page.getByRole("button", { name: "Pop out", exact: true }).click();
     const popup = await popupOpened;
@@ -68,6 +69,7 @@ export async function testEditorTheme(browser) {
     await popup.getByRole("button", { name: "Dock back", exact: true }).click();
     await page.locator("#output-dock").waitFor();
     await page.getByRole("tab", { name: "Sketches", exact: true }).click();
+    await page.getByRole("button", { name: "Show Sketch 1", exact: true }).click();
     await page.getByRole("button", { name: "Sketch 1", exact: true }).click();
     const sketchView = await page.locator("#model-canvas").screenshot();
     await setTheme(true);
