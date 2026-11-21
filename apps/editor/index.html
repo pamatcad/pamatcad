@@ -147,11 +147,289 @@
       <div class="actions"><button id="cancel">Cancel</button><button id="apply">Finish sketch</button></div>
     </template>
     <template id="extrude-fields">
-      <h2>Extrude</h2>
-      <p>One side · New body</p>
-      <label>Length (mm) <input id="length" value="15" /></label>
-      <div class="actions"><button id="cancel">Cancel</button><button id="apply">Create body</button></div>
-    </template>
+      <h2 tabindex="0">
+        Extrude
+      </h2>
+      <div class="tool-fields">
+        <p id="selection-hint">
+        </p>
+        <div id="profiles-selection" class="geometry-input">
+          <span>
+            Profiles
+          </span>
+          <div>
+            <button id="pick-profiles" type="button">
+              Select…
+            </button>
+            <button id="clear-profiles" type="button" aria-label="Clear profiles">
+              Clear
+            </button>
+          </div>
+          <small id="profiles-items">
+          </small>
+        </div>
+        <label id="extrude-start-field">
+          Start
+          <select id="extrude-start">
+            <option value="profilePlane">
+              Profile plane
+            </option>
+            <option value="offset">
+              Offset
+            </option>
+            <option value="object">
+              From a face
+            </option>
+          </select>
+        </label>
+        <label id="offset-field" class="formula-field">
+          <span>
+            Start offset
+          </span>
+          <input id="offset" value="0" />
+        </input>
+      </label>
+      <div id="start-selection" class="geometry-input">
+        <span>
+          Starting face
+        </span>
+        <div>
+          <button id="pick-start" type="button">
+            Select…
+          </button>
+          <button id="clear-start" type="button" aria-label="Clear starting face">
+            Clear
+          </button>
+        </div>
+        <small id="start-items">
+        </small>
+      </div>
+      <label id="extrude-type-field">
+        Sides
+        <select id="extrude-type">
+          <option value="oneSide">
+            One side
+          </option>
+          <option value="twoSides">
+            Two sides
+          </option>
+          <option value="symmetric">
+            Symmetric
+          </option>
+        </select>
+      </label>
+      <label id="extrude-direction-field">
+        Direction
+        <select id="extrude-direction">
+          <option value="positive">
+            Along normal
+          </option>
+          <option value="negative">
+            Reverse
+          </option>
+        </select>
+      </label>
+      <label id="symmetric-field">
+        Length means
+        <select id="symmetric-length">
+          <option value="total">
+            Total length
+          </option>
+          <option value="half">
+            Half-length
+          </option>
+        </select>
+      </label>
+      <fieldset id="side1">
+        <legend>
+          Side 1
+        </legend>
+        <label id="extent1-field">
+          End condition
+          <select id="extent1">
+            <option value="length">
+              Distance
+            </option>
+            <option value="throughAll">
+              Through all
+            </option>
+            <option value="toObject">
+              To object
+            </option>
+          </select>
+        </label>
+        <label id="length1-field" class="formula-field">
+          <span>
+            Length
+          </span>
+          <input id="length" value="15" />
+        </input>
+      </label>
+      <div id="limit1-selection">
+        <div class="geometry-input">
+          <span>
+            Limiting body
+          </span>
+          <div>
+            <button id="pick-limit1" type="button">
+              Select…
+            </button>
+            <button id="clear-limit1" type="button" aria-label="Clear limiting body">
+              Clear
+            </button>
+          </div>
+          <small id="limit1-items">
+          </small>
+        </div>
+        <label id="object-extent1-field">
+          Stop at
+          <select id="object-extent1">
+            <option value="closest">
+              Closest
+            </option>
+            <option value="touch">
+              Touch
+            </option>
+            <option value="intersect">
+              Intersect
+            </option>
+            <option value="farthest">
+              Farthest
+            </option>
+          </select>
+        </label>
+      </div>
+      <label id="taper1-field" class="formula-field">
+        <span>
+          Taper angle
+        </span>
+        <input id="taper1" value="0" />
+      </input>
+    </label>
+  </fieldset>
+  <fieldset id="side2">
+    <legend>
+      Side 2
+    </legend>
+    <label id="extent2-field">
+      End condition
+      <select id="extent2">
+        <option value="length">
+          Distance
+        </option>
+        <option value="throughAll">
+          Through all
+        </option>
+        <option value="toObject">
+          To object
+        </option>
+      </select>
+    </label>
+    <label id="length2-field" class="formula-field">
+      <span>
+        Length
+      </span>
+      <input id="length2" value="15" />
+    </input>
+  </label>
+  <div id="limit2-selection">
+    <div class="geometry-input">
+      <span>
+        Limiting body
+      </span>
+      <div>
+        <button id="pick-limit2" type="button">
+          Select…
+        </button>
+        <button id="clear-limit2" type="button" aria-label="Clear limiting body">
+          Clear
+        </button>
+      </div>
+      <small id="limit2-items">
+      </small>
+    </div>
+    <label id="object-extent2-field">
+      Stop at
+      <select id="object-extent2">
+        <option value="closest">
+          Closest
+        </option>
+        <option value="touch">
+          Touch
+        </option>
+        <option value="intersect">
+          Intersect
+        </option>
+        <option value="farthest">
+          Farthest
+        </option>
+      </select>
+    </label>
+  </div>
+  <label id="taper2-field" class="formula-field">
+    <span>
+      Taper angle
+    </span>
+    <input id="taper2" value="0" />
+  </input>
+</label>
+</fieldset>
+<label id="extrude-mode-field">
+Result
+<select id="extrude-mode">
+  <option value="newBody">
+    New body
+  </option>
+  <option value="cut">
+    Cut
+  </option>
+  <option value="join">
+    Join
+  </option>
+</select>
+</label>
+<div id="targets-section">
+<label id="target-scope-field">
+  Targets
+  <select id="target-scope">
+    <option value="all">
+      All bodies
+    </option>
+    <option value="selected">
+      Selected bodies
+    </option>
+  </select>
+</label>
+<div id="target-selection">
+  <div id="targets-selection" class="geometry-input">
+    <span>
+      Target bodies
+    </span>
+    <div>
+      <button id="pick-targets" type="button">
+        Select…
+      </button>
+      <button id="clear-targets" type="button" aria-label="Clear target bodies">
+        Clear
+      </button>
+    </div>
+    <small id="targets-items">
+    </small>
+  </div>
+</div>
+</div>
+<p id="extrude-error" class="field-error" role="status">
+</p>
+</div>
+<div class="actions">
+<button id="cancel">
+Cancel
+</button>
+<button id="apply">
+Apply
+</button>
+</div>
+</template>
     <dialog id="help">
       <h2>Editor controls</h2>
       <p>

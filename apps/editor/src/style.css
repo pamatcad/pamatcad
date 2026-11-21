@@ -1,5 +1,5 @@
 :root {
-  font: 13px var(--font-family);
+  font: 13px/20px var(--font-family);
   color: var(--foreground);
   background: var(--background);
 }
@@ -12,7 +12,7 @@ body {
   height: 100vh;
   min-height: 530px;
   display: grid;
-  grid-template-rows: 40px 32px 90px minmax(200px, 1fr) 43px var(--output-height, 0px) 26px;
+  grid-template-rows: 40px 32px 112px minmax(200px, 1fr) 44px var(--output-height, 0px) 28px;
 }
 button,
 select,
@@ -24,6 +24,11 @@ select,
 input {
   background: var(--field-background);
 }
+select,
+input:not([type="radio"]):not([type="checkbox"]) {
+  min-height: 32px;
+  font-variant-numeric: tabular-nums;
+}
 button,
 summary,
 select {
@@ -32,7 +37,8 @@ select {
 button {
   border: 1px solid transparent;
   background: none;
-  border-radius: 4px;
+  border-radius: 3px;
+  font-weight: 500;
 }
 button:hover:not(:disabled),
 summary:hover {
@@ -42,8 +48,8 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
 }
 button:disabled {
   opacity: var(--disabled-opacity);
@@ -60,7 +66,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 15px;
   background: var(--panel-background);
-  padding: 0 15px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
   position: relative;
   z-index: 4;
@@ -82,74 +88,78 @@ button:active:not(:disabled) {
 .menubar summary {
   list-style: none;
   padding: 5px 9px;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 .menubar #runtime {
   margin-left: auto;
   color: var(--foreground-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .ribbon {
   display: flex;
   align-items: stretch;
   background: var(--panel-background);
   border-bottom: 1px solid var(--border);
-  padding: 7px 14px;
+  padding: 8px 16px;
   gap: 16px;
 }
 .workbench {
   display: grid;
   align-content: center;
-  gap: 7px;
+  gap: 8px;
   border-right: 1px solid var(--border);
-  padding-right: 17px;
+  padding-right: 16px;
 }
 .workbench label,
 .tool-group > span {
-  font-size: 10px;
-  letter-spacing: 0.07em;
+  font-size: 12px;
+  line-height: 18px;
   color: var(--foreground-muted);
-  text-transform: uppercase;
-  font-weight: 650;
+  font-weight: 500;
 }
 .workbench select {
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 1px solid var(--field-border);
+  border-radius: 3px;
   background: var(--field-background);
   padding: 5px 21px 5px 8px;
-  font-weight: 600;
+  font-weight: 400;
 }
 .tool-group {
   display: grid;
   align-content: space-between;
   border-right: 1px solid var(--border);
-  padding-right: 14px;
+  padding-right: 16px;
   min-width: 135px;
 }
 .tools {
   display: grid;
-  grid-template-rows: 26px 26px;
-  gap: 1px;
+  grid-template-rows: 32px 32px;
+  gap: 4px;
 }
 .tools button {
   display: flex;
   align-items: center;
   gap: 8px;
   text-align: left;
-  padding: 0 6px;
-  font-size: 12px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+.tools button:not([aria-pressed="true"]) {
+  background: transparent;
+  border-color: transparent;
 }
 .tools img {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
 .tools button[aria-pressed="true"] {
-  background: var(--selection-background);
-  color: var(--selection-foreground);
+  background: var(--active-background);
+  color: var(--on-accent);
+  border-color: var(--accent-border);
+  opacity: 1;
 }
 .tool-group > span {
-  padding-left: 7px;
-  font-size: 9px;
+  padding-left: 8px;
 }
 main {
   display: grid;
@@ -168,8 +178,9 @@ main.browser-collapsed {
   background: var(--panel-background);
 }
 h2 {
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
   margin: 0;
 }
 .browser-header {
@@ -192,14 +203,15 @@ h2 {
 .tabs button {
   border-radius: 0;
   color: var(--foreground-muted);
-  font-size: 12px;
+  font-size: 13px;
   padding: 6px 10px 7px;
   border-bottom: 2px solid transparent;
 }
 .tabs [aria-selected="true"] {
-  color: var(--selection-foreground);
-  border-bottom-color: var(--accent);
-  font-weight: 650;
+  color: var(--on-accent);
+  border-bottom-color: var(--accent-border);
+  background: var(--active-background);
+  font-weight: 500;
 }
 .browser .tabs {
   gap: 0;
@@ -211,6 +223,8 @@ h2 {
   align-items: center;
   gap: 3px;
   padding: 5px 3px;
+  min-width: 24px;
+  min-height: 32px;
 }
 .browser .tabs img {
   width: 16px;
@@ -226,6 +240,8 @@ h2 {
   flex-shrink: 0;
   padding: 2px;
   border: 0;
+  min-width: 24px;
+  min-height: 28px;
 }
 #toggle-browser img {
   width: 16px;
@@ -306,13 +322,15 @@ h2 {
   place-items: center;
   padding: 2px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--panel-background);
+  min-width: 28px;
+  min-height: 28px;
 }
 .view-top img,
 .view-bottom img {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   display: block;
 }
 .view-bottom {
@@ -331,44 +349,66 @@ h2 {
   bottom: calc(100% + 5px);
   padding: 3px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--panel-background);
   box-shadow: 0 3px 12px color-mix(in srgb, var(--shadow) calc(var(--shadow-opacity) * 100%), transparent);
 }
 #camera-modes h2 {
   margin: 3px 5px;
-  font-size: 12px;
+  font-size: 14px;
 }
 #camera-modes label {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 5px;
+  gap: 8px;
+  padding: 4px 8px;
+  min-height: 28px;
   border-radius: 3px;
   cursor: pointer;
 }
 #camera-modes label:hover {
-  background: var(--selection-background);
+  background: var(--hover-background);
 }
 #camera-modes input {
   margin: 0;
-  accent-color: var(--accent);
+  accent-color: var(--accent-border);
 }
 #tool-panel {
   position: absolute;
   z-index: 2;
   top: calc(var(--gizmo-size) + 5px);
-  right: 13px;
-  width: 218px;
+  right: 48px;
+  width: 280px;
+  max-height: calc(100% - var(--gizmo-size) - 13px);
+  display: flex;
+  flex-direction: column;
   background: var(--panel-background);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   box-shadow: 0 4px 15px color-mix(in srgb, var(--shadow) calc(var(--shadow-opacity) * 100%), transparent);
-  padding: 13px;
+  padding: 12px;
 }
 #tool-panel h2 {
-  margin-bottom: 9px;
+  margin-bottom: 8px;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
 }
+.tool-fields { min-height: 0; overflow-y: auto; padding-right: 4px; }
+#tool-panel fieldset { margin: 16px 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 3px; }
+#tool-panel legend { color: var(--foreground-muted); font-size: 12px; }
+#tool-panel select { max-width: 150px; padding: 4px 8px; border: 1px solid var(--field-border); border-radius: 3px; }
+#tool-panel .formula-field { display: grid; grid-template-columns: 1fr 130px; gap: 3px; }
+#tool-panel .formula-field input { width: 100%; }
+.field-error, #tool-panel .field-error { color: var(--error); font-size: 12px; line-height: 18px; grid-column: 1 / -1; overflow-wrap: anywhere; }
+.geometry-input { margin: 12px 0; }
+.geometry-input > div { display: flex; gap: 8px; margin-top: 4px; }
+.geometry-input button { border: 1px solid var(--field-border); padding: 4px 8px; min-height: 32px; }
+.geometry-input [aria-pressed="true"] { background: var(--selection-background); color: var(--selection-foreground); }
+.geometry-input small { display: block; color: var(--foreground-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; margin-top: 4px; }
+.tool-handle-label { position: absolute; z-index: 1; background: var(--handle); color: var(--handle-edge); border: 1px solid var(--handle-edge); padding: 3px 6px; font-size: 12px; line-height: 16px; min-height: 24px; font-variant-numeric: tabular-nums; touch-action: none; cursor: grab; }
+.tool-handle-label:hover:not(:disabled), .tool-handle-label:active:not(:disabled) { background: var(--handle); }
+.tool-handle-label:active { cursor: grabbing; }
 #tool-panel p,
 dialog p {
   color: var(--foreground-muted);
@@ -379,41 +419,54 @@ dialog p {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 7px 0;
+  margin: 8px 0;
+  gap: 8px;
 }
 #tool-panel input {
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border);
   background: var(--field-background);
   border-radius: 3px;
-  padding: 5px 6px;
+  padding: 5px 8px;
   width: 98px;
 }
 #tool-panel .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 5px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 16px;
 }
 .actions button,
 dialog button {
-  border: 1px solid var(--border);
-  padding: 5px 9px;
+  border: 1px solid var(--field-border);
+  padding: 5px 12px;
+  min-height: 32px;
 }
 .actions button:last-child,
 dialog button {
   background: var(--accent);
   color: var(--on-accent);
-  border-color: var(--accent);
+  border-color: var(--accent-border);
 }
-.actions button:last-child:is(:hover, :active):not(:disabled),
-dialog button:is(:hover, :active):not(:disabled) {
+.actions button:last-child:hover:not(:disabled),
+dialog button:hover:not(:disabled) {
   background: var(--accent-hover);
 }
+.actions button:last-child:active:not(:disabled),
+dialog button:active:not(:disabled) {
+  background: var(--accent-pressed);
+}
+.actions button:disabled,
+dialog button:disabled {
+  background: var(--hover-background);
+  color: var(--foreground-muted);
+  border-color: var(--border);
+}
+#tool-panel input[aria-invalid="true"] { border-color: var(--error); }
 .timeline {
   display: flex;
   align-items: center;
-  gap: 15px;
-  padding: 0 14px;
+  gap: 16px;
+  padding: 0 16px;
   border-block: 1px solid var(--border);
   overflow: auto;
 }
@@ -430,10 +483,10 @@ dialog button:is(:hover, :active):not(:disabled) {
 .timeline li {
   background: var(--panel-background);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 3px;
   padding: 4px 8px;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 12px;
 }
 body.output-open {
   --output-height: clamp(100px, 17vh, 172px);
@@ -481,28 +534,37 @@ body.output-window {
 }
 #console-form label {
   font: 20px var(--mono-font-family);
-  color: var(--accent);
+  color: var(--on-accent);
 }
 #js {
   background: transparent;
   border: 0;
   flex: 1;
-  font: 12px var(--mono-font-family);
+  font: 12px/18px var(--mono-font-family);
 }
 #console-form button {
-  color: var(--accent);
-  font-size: 11px;
+  color: var(--on-accent);
+  font-size: 13px;
+  min-height: 32px;
 }
 .entry,
 #log summary,
 #log pre,
 #tree {
-  font: 11px/1.6 var(--mono-font-family);
+  font: 12px/18px var(--mono-font-family);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 #log details {
   border-bottom: 1px solid var(--border);
+}
+#log .command-duration {
+  float: right;
+  margin-left: 1em;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground-muted);
 }
 #log pre {
   margin: 4px 15px;
@@ -519,7 +581,9 @@ footer {
   background: var(--inverse-background);
   color: var(--inverse-foreground);
   padding: 0 12px;
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 18px;
+  border-top: 1px solid var(--border);
 }
 .status-message,
 .status-details {
@@ -561,6 +625,7 @@ footer progress {
   gap: 4px;
   color: inherit;
   padding: 2px 7px;
+  min-height: 24px;
 }
 .console-icon {
   display: inline-block;
@@ -577,10 +642,11 @@ dialog {
   color: var(--foreground);
   background: var(--panel-background);
   border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 20px;
+  border-radius: 4px;
+  padding: 16px;
   max-width: 420px;
 }
+dialog h2 { font-size: 16px; line-height: 24px; }
 dialog::backdrop {
   background: color-mix(in srgb, var(--shadow) calc(var(--backdrop-opacity) * 100%), transparent);
 }

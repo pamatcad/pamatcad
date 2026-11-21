@@ -335,6 +335,11 @@ impl Shape {
         Ok(FaceProperties {
             area_mm2,
             centroid: [x, y, z],
+            frame: if surface == 1 {
+                Some(self.face_frame(id)?)
+            } else {
+                None
+            },
             surface: match surface {
                 1 => SurfaceType::Plane,
                 2 => SurfaceType::Cylinder,

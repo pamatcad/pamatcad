@@ -4,7 +4,7 @@ type Response = { method: Method; value: unknown };
 type Pending = { resolve(value: Response): void; reject(error: Error): void };
 type Dispatch = (method: Method, params: unknown) => Promise<Response>;
 
-export function editorTransport(onCommand: (method: Method, params: unknown) => void): Transport {
+export function editorTransport(onCommand: (method: Method, params: unknown) => void | ((elapsedMs: number) => void)): Transport {
   let dispatch: Dispatch;
   let close = () => {};
   if (import.meta.env.MODE === "desktop") {
@@ -52,10 +52,15 @@ export function editorTransport(onCommand: (method: Method, params: unknown) => 
   }
   return {
     async request<M extends Method>(method: M, params: Parameters<M>): Promise<Result<M>> {
-      onCommand(method, params);
-      const result = await dispatch(method, params);
-      if (result.method !== method) throw new Error("Unexpected CAD response");
-      return result.value as Result<M>;
+      const finish = onCommand(method, params);
+      const started = performance.now();
+      try {
+        const result = await dispatch(method, params);
+        if (result.method !== method) throw new Error("Unexpected CAD response");
+        return result.value as Result<M>;
+      } finally {
+        finish?.(performance.now() - started);
+      }
     },
     close,
   };

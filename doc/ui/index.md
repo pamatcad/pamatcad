@@ -4,6 +4,8 @@
 
 UI should look the same on desktop and in browser. Mobile UI is not supported. During initial load the app should display a loading screen.
 
+See [Default palette and visual style](default_palette.md) for colors, typography, icons and control sizes.
+
 ## Screen structure
 
 ### Header 
@@ -35,6 +37,7 @@ Currently the sections, starting from ribbon configurations, are:
 
 See [Scene browser](scene_browser.md) for more details.
 See [Working area and tool window guidelines](working_area_and_tool_windows.md)
+See [Interactive Extrude](extrude.md) for tool behavior and acceptance cases.
 
 ### Timeline
 

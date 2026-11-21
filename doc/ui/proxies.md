@@ -37,6 +37,12 @@ Coordinates are in world-space millimetres. Ranges count vertices, triangles, or
 
 **Replay or load.** Finish evaluating the model, then call `scene.bodies.revisions()` once for the final view. It lists each present body and its revision without building any proxies. Reuse matching cached proxies, fetch new or changed bodies, and drop IDs absent from the list.
 
+## Sketches and planar frames
+
+`sketch.getProxy({ sketch })` returns a completed sketch's frame and each region's closed boundary in world-space millimetres (the first point is not repeated). Rectangles use their corners; circles use 128 display samples. Region references remain the exact modeling inputs. The SDK exposes this as `sketch.getProxy()` or `scene.sketches.getProxy(id)`. Incomplete sketches return `INVALID_STATE`. Queries do not change geometry or the timeline.
+
+`face.properties` includes `frame` for planar faces and omits it for curved faces. Frames contain `origin`, `u`, `v`, and `normal`; vectors are orthonormal and coordinates use millimetres.
+
 ## Verification
 
 - A cylinder’s side triangles map to its queried cylindrical face. Its circular rims have closed, distinct edge ranges.

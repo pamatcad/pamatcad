@@ -9,7 +9,7 @@ export type BrowserTab = "Components" | "Construction" | "Bodies" | "Sketches";
 export type TreeNode = {
   id: string;
   label: string;
-  kind: "scene" | "group" | "body" | "sketch" | "plane";
+  kind: "scene" | "group" | "body" | "sketch" | "region" | "plane";
   children?: TreeNode[];
   visible?: boolean;
   selected?: boolean;
@@ -18,11 +18,11 @@ export type TreeNode = {
 };
 type Callbacks = {
   onTab(tab: BrowserTab): void;
-  onSelect(id: string): void;
+  onSelect(id: string, additive: boolean): void;
   onVisibility(id: string, visible: boolean): void;
 };
 const tabNames: BrowserTab[] = ["Components", "Construction", "Bodies", "Sketches"];
-const icons = { scene: sceneIcon, group: groupIcon, body: sceneIcon, sketch: sketchIcon, plane: planeIcon };
+const icons = { scene: sceneIcon, group: groupIcon, body: sceneIcon, sketch: sketchIcon, region: sketchIcon, plane: planeIcon };
 
 export function initSceneBrowser(callbacks: Callbacks) {
   const browser = document.querySelector<HTMLElement>("#scene-browser")!;
@@ -35,6 +35,7 @@ export function initSceneBrowser(callbacks: Callbacks) {
   tree.id = "object-list";
   tree.className = "scene-tree";
   tree.setAttribute("role", "tree");
+  tree.setAttribute("aria-multiselectable", "true");
   content.replaceChildren(tree);
 
   const savedTab = readUiSetting<unknown>("browser.tab", "Bodies");
@@ -164,7 +165,7 @@ export function initSceneBrowser(callbacks: Callbacks) {
       item.dataset.nodeId = node.id;
       item.className = "scene-tree-item";
       const children = node.children ?? [];
-      const isObject = node.kind === "body" || node.kind === "sketch" || node.kind === "plane";
+      const isObject = node.kind === "body" || node.kind === "sketch" || node.kind === "region" || node.kind === "plane";
       if (isObject) item.setAttribute("aria-selected", String(!!node.selected));
       const open = state[key] !== false;
       if (children.length) item.setAttribute("aria-expanded", String(open));
@@ -212,9 +213,9 @@ export function initSceneBrowser(callbacks: Callbacks) {
       const text = document.createElement("span");
       text.textContent = node.label;
       label.append(icon, text);
-      label.onclick = () => {
+      label.onclick = (event) => {
         focusedId = node.id;
-        if (isObject) callbacks.onSelect(node.id);
+        if (isObject) callbacks.onSelect(node.id, event.shiftKey);
         else if (children.length) setExpanded(node.id, !open);
       };
       label.onfocus = () => {

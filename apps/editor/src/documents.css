@@ -7,17 +7,19 @@
   border-bottom: 1px solid var(--border);
   background: var(--panel-background);
 }
-#document-home { padding: 4px; flex-shrink: 0; }
-#document-home img { width: 18px; height: 18px; display: block; }
+#document-home { padding: 4px; min-width: 28px; flex-shrink: 0; }
+#document-home img { width: 20px; height: 20px; display: block; }
 #document-tabs { display: flex; min-width: 0; overflow-x: auto; gap: 3px; }
 .document-tab-group { position: relative; display: flex; align-items: stretch; flex-shrink: 0; border-bottom: 2px solid transparent; }
-.document-tab-group[data-active="true"] { border-bottom-color: var(--accent); background: var(--selection-background); }
+.document-tab-group[data-active="true"] { border-bottom-color: var(--accent-border); background: var(--active-background); color: var(--on-accent); }
 .document-tab-group [role="tab"] { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 10px; user-select: none; touch-action: none; }
 .dragging-tabs, .dragging-tabs button { cursor: grabbing; }
 .document-tab-group.dragging-tab { opacity: var(--disabled-opacity); }
-.document-tab-group[data-drop]::after { content: ""; position: absolute; top: 3px; bottom: 3px; width: 2px; background: var(--accent); pointer-events: none; }
+.document-tab-group[data-drop]::after { content: ""; position: absolute; top: 3px; bottom: 3px; width: 2px; background: var(--accent-border); pointer-events: none; }
 .document-tab-group[data-drop="before"]::after { left: 0; }
 .document-tab-group[data-drop="after"]::after { right: 0; }
-.close-document { padding: 2px 7px; color: var(--foreground-muted); }
+.close-document { padding: 2px 7px; min-width: 24px; color: var(--foreground-muted); }
 #empty-document { position: absolute; inset: 0; display: grid; place-content: center; gap: 12px; text-align: center; background: var(--background); z-index: 4; }
-#empty-new-scene { padding: 8px 16px; color: var(--on-accent); background: var(--accent); }
+#empty-new-scene { padding: 8px 16px; min-height: 32px; color: var(--on-accent); background: var(--accent); border-color: var(--accent-border); }
+#empty-new-scene:hover:not(:disabled) { background: var(--accent-hover); }
+#empty-new-scene:active:not(:disabled) { background: var(--accent-pressed); }

@@ -44,6 +44,7 @@ export async function testEditorTheme(browser) {
           ...lightTheme.colors,
           foreground: "#eeeeee", panelBackground: "#222222", background: "#111111",
           surface: "#995533", selection: "#ff8844", preview: "#cc4488", edge: "#eeeeee",
+          sketch: "#bb7799", sketchEdge: "#dd99bb", sketchHighlight: "#ffccdd",
           grid: "#333333", gridMajor: "#666666", axisX: "#ff0000", axisY: "#00ff00", axisZ: "#0088ff",
         },
         opacity: { ...lightTheme.opacity, preview: 0.5, disabled: 0.6, occluded: 0.15 },
@@ -55,7 +56,7 @@ export async function testEditorTheme(browser) {
     }
     assert.equal(await panel.evaluate((el) => getComputedStyle(el).backgroundColor), "rgb(34, 34, 34)");
     assert.equal(await panel.evaluate((el) => getComputedStyle(el).color), "rgb(238, 238, 238)");
-    assert.equal(await page.locator("#extrude").evaluate((el) => getComputedStyle(el).opacity), "0.6");
+    assert.equal(await page.locator("#object-list .tree-expand:disabled").first().evaluate((el) => getComputedStyle(el).opacity), "0.6");
     assert.ok(!(await page.screenshot({ clip: modelClip })).equals(model), "Recolor the existing selected body");
     assert.ok(!(await page.screenshot({ clip: gizmoClip })).equals(gizmo), "Repaint cube and axis labels");
     assert.equal(await popup.locator("#log summary").count(), commands, "Theme changes must not call the core or request proxies");
@@ -70,16 +71,17 @@ export async function testEditorTheme(browser) {
     await page.getByRole("button", { name: "Sketch 1", exact: true }).click();
     const sketchView = await page.locator("#model-canvas").screenshot();
     await setTheme(true);
+    assert.ok(!(await page.locator("#model-canvas").screenshot()).equals(sketchView), "Recolor existing sketch profiles and boundaries");
     await setTheme(false);
     assert.ok((await page.locator("#model-canvas").screenshot()).equals(sketchView), "Keep sketch selection after a theme round trip");
     await page.getByRole("button", { name: "Extrude", exact: true }).click();
     await page.waitForFunction(() => !document.querySelector("#apply").disabled);
-    const preview = await page.locator("#model-canvas").screenshot();
+    const preview = await page.screenshot({ clip: modelClip });
     const previewCommands = await page.locator("#log summary").count();
     await setTheme(true);
-    assert.ok(!(await page.locator("#model-canvas").screenshot()).equals(preview));
+    assert.ok(!(await page.screenshot({ clip: modelClip })).equals(preview));
     await setTheme(false);
-    assert.ok((await page.locator("#model-canvas").screenshot()).equals(preview), "Restore cached preview without recomputing it");
+    assert.ok((await page.screenshot({ clip: modelClip })).equals(preview), "Restore cached preview without recomputing it");
     assert.equal(await page.locator("#log summary").count(), previewCommands);
     assert.equal(await page.locator("#features li").count(), 2);
     assert.deepEqual(errors, []);

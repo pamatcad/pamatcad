@@ -41,11 +41,19 @@ export function appendOutput(text: string, error = false) {
 export function logCommand(method: string, params: unknown) {
   const row = document.createElement("details");
   const title = document.createElement("summary");
+  const name = document.createElement("span");
+  const duration = document.createElement("span");
   const data = document.createElement("pre");
-  title.textContent = method;
+  name.className = "command-name";
+  name.textContent = method;
+  duration.className = "command-duration";
+  duration.textContent = "…";
+  duration.title = "Elapsed request time, including queueing and communication";
+  title.append(name, duration);
   data.textContent = JSON.stringify(params, null, 2);
   row.append(title, data);
   log.append(row);
+  return (elapsedMs: number) => { duration.textContent = `${elapsedMs.toFixed(1)} ms`; };
 }
 
 export function updateSceneTree(groups: [string, string[]][]) {

@@ -41,6 +41,27 @@ pub struct RegionRef {
     pub id: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
+pub struct PlaneFrame {
+    pub origin: [f64; 3],
+    pub u: [f64; 3],
+    pub v: [f64; 3],
+    pub normal: [f64; 3],
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct SketchRegionProxy {
+    pub region: RegionRef,
+    pub boundary: Vec<[f64; 3]>,
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct SketchProxy {
+    pub sketch: SketchRef,
+    pub frame: PlaneFrame,
+    pub regions: Vec<SketchRegionProxy>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BodyRef {
@@ -509,6 +530,9 @@ pub struct FaceProperties {
     pub area_mm2: f64,
     pub centroid: [f64; 3],
     pub surface: SurfaceType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub frame: Option<PlaneFrame>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -733,6 +757,7 @@ api! {
     SketchComplete(SketchQuery) -> SketchData = "sketch.complete",
     RegionOnly(SketchQuery) -> RegionRef = "sketch.regions.only",
     RegionsAll(SketchQuery) -> Vec<RegionRef> = "sketch.regions.all",
+    SketchGetProxy(SketchQuery) -> SketchProxy = "sketch.getProxy",
     TimelineList(SceneQuery) -> Vec<TimelineEntry> = "scene.timeline.list",
     SolidExtrude(ModelingRequest<Extrude>) -> ExtrudeResult = "solid.extrude",
     ExtrudeFacesAll(ExtrudeFaceQuery) -> Vec<FaceRef> = "solid.extrude.faces.all",
@@ -756,6 +781,9 @@ pub fn typescript() -> String {
         SketchRef::decl(),
         LineRef::decl(),
         RegionRef::decl(),
+        PlaneFrame::decl(),
+        SketchRegionProxy::decl(),
+        SketchProxy::decl(),
         BodyRef::decl(),
         FaceRole::decl(),
         FaceOrigin::decl(),

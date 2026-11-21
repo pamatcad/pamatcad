@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <title>Perspective projection</title>
-  <path fill="#d0e9e6" d="M3 12 21 4h8l-10 8Z"/>
-  <path fill="#6a9eae" d="m19 12 10-8v8L19 28Z"/>
-  <path fill="#a9cbd2" d="M3 12h16v16H3Z"/>
-  <path fill="none" stroke="#234b58" stroke-width="2" stroke-linejoin="round"
+  <path fill="#e4e8ea" d="M3 12 21 4h8l-10 8Z"/>
+  <path fill="#aebec3" d="m19 12 10-8v8L19 28Z"/>
+  <path fill="#ced3d5" d="M3 12h16v16H3Z"/>
+  <path fill="none" stroke="#65727b" stroke-width="2" stroke-linejoin="round"
     d="M3 12 21 4h8v8L19 28H3ZM3 12h16l10-8M19 12v16"/>
 </svg>

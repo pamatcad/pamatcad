@@ -20,7 +20,7 @@
   align-items: center;
   gap: 2px;
   min-height: 28px;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 .scene-tree-row.is-selected {
   background: var(--selection-background);
@@ -32,14 +32,15 @@
 .scene-tree .tree-label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex: 1;
   min-width: 0;
   width: auto;
   margin: 0;
-  padding: 4px 3px;
+  padding: 3px;
   text-align: left;
   color: inherit;
+  font-weight: 400;
 }
 .scene-tree .tree-label span {
   overflow: hidden;
@@ -47,17 +48,17 @@
   white-space: nowrap;
 }
 .scene-tree .tree-label img {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 .scene-tree > .scene-tree-item > .scene-tree-row > .tree-label {
-  font-weight: 620;
+  font-weight: 600;
 }
 .scene-tree .tree-expand,
 .scene-tree .tree-visibility {
-  width: 18px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   padding: 2px;
   display: grid;

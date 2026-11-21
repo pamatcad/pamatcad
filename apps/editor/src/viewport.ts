@@ -1,12 +1,13 @@
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import type { BodyProxy, EdgeRef, FaceRef } from "@pamatcad/sdk";
+import type { BodyProxy, SketchProxy } from "@pamatcad/sdk";
 import type { ThemeDefinition } from "./theme";
+import { accepts, selectionKey, type SelectionItem, type SelectionFilter } from "./selection";
+import { ToolHandles, type ToolHandle } from "./tool-handles";
 
 export type Point = [number, number];
 export type Rectangle = { from: Point; to: Point };
-export type TopologyPick = { face: FaceRef } | { edge: EdgeRef };
-type Hit = { point: Point | null; sketch?: string; body?: string; plane?: string; pick?: TopologyPick };
+type Hit = { point: Point | null; item?: SelectionItem; additive: boolean };
 export type ViewState = {
   mode: "orthographic" | "perspective";
   position: [number, number, number];
@@ -33,10 +34,13 @@ function discard(group: T.Object3D) {
 
 function styleProfile(profile: T.Mesh<T.BufferGeometry, T.MeshBasicMaterial>, theme: ThemeDefinition) {
   const selected = profile.userData.selected;
-  profile.material.color.set(selected ? theme.colors.selection : theme.colors.surface);
-  profile.material.opacity = selected ? theme.opacity.selectedFill : theme.opacity.fill;
+  const construction = !!profile.userData.plane;
+  profile.material.color.set(construction ? (selected ? theme.colors.selection : theme.colors.construction) : theme.colors.sketch);
+  profile.material.opacity = selected ? theme.opacity.selectedFill : construction ? theme.opacity.construction : theme.opacity.fill;
   for (const edge of profile.children) {
-    if (edge instanceof T.Line) edge.material.color.set(theme.colors.accent);
+    if (edge instanceof T.Line) edge.material.color.set(construction
+      ? (selected ? theme.colors.highlight : theme.colors.constructionEdge)
+      : (selected ? theme.colors.sketchHighlight : theme.colors.sketchEdge));
   }
 }
 
@@ -62,7 +66,7 @@ function rectangleObject({ from: [x, y], to: [u, v] }: Rectangle, selected: bool
 }
 
 class SolidDisplay extends T.Mesh<T.BufferGeometry, T.MeshStandardMaterial[]> {
-  private pick?: TopologyPick;
+  private picks: SelectionItem[] = [];
 
   constructor(
     readonly proxy: BodyProxy,
@@ -111,8 +115,8 @@ class SolidDisplay extends T.Mesh<T.BufferGeometry, T.MeshStandardMaterial[]> {
     }
     for (const edge of this.children) {
       if (!(edge instanceof T.Line)) continue;
-      const selected = this.pick && "edge" in this.pick && this.pick.edge.edgeId === edge.userData.edge.edgeId;
-      edge.material.color.set(selected ? theme.colors.highlight : this.preview ? theme.colors.accent : theme.colors.edge);
+      const selected = this.userData.selected || this.picks.some((pick) => pick.kind === "edge" && pick.ref.edgeId === edge.userData.edge.edgeId);
+      edge.material.color.set(selected ? theme.colors.highlight : this.preview ? theme.colors.previewEdge : theme.colors.edge);
       edge.material.opacity = opacity;
       if (edge.material.transparent !== (opacity < 1)) edge.material.needsUpdate = true;
       edge.material.transparent = opacity < 1;
@@ -120,26 +124,24 @@ class SolidDisplay extends T.Mesh<T.BufferGeometry, T.MeshStandardMaterial[]> {
     }
   }
 
-  highlight(selected: boolean, pick?: TopologyPick) {
-    this.pick = pick;
-    const indices = this.proxy.triangles.length;
+  highlight(selection: SelectionItem[]) {
+    this.picks = selection.filter((item) => (item.kind === "face" || item.kind === "edge") && item.ref.bodyId === this.proxy.body.id);
+    const whole = selection.some((item) => item.kind === "body" && item.id === this.proxy.body.id);
+    this.userData.selected = whole;
+    const selected = new Set(this.picks.map(selectionKey));
     this.geometry.clearGroups();
-    const face = pick && "face" in pick ? pick.face : undefined;
-    const range =
-      face &&
-      "faceId" in face &&
-      this.proxy.faces.find((f) => "faceId" in f.face && f.face.faceId === face.faceId);
-    if (range) {
-      const start = range.firstTriangle * 3,
-        count = range.triangleCount * 3;
-      if (start) this.geometry.addGroup(0, start, 0);
-      this.geometry.addGroup(start, count, 1);
-      if (start + count < indices) this.geometry.addGroup(start + count, indices - start - count, 0);
-    } else {
-      this.geometry.addGroup(0, indices, selected && !pick ? 1 : 0);
+    if (whole || !this.proxy.faces.length) this.geometry.addGroup(0, this.proxy.triangles.length, whole ? 1 : 0);
+    else for (const range of this.proxy.faces) {
+      const key = selectionKey({ kind: "face", ref: range.face, revision: this.proxy.revision });
+      const start = range.firstTriangle * 3, count = range.triangleCount * 3;
+      const material = selected.has(key) ? 1 : 0;
+      const previous = this.geometry.groups.at(-1);
+      if (previous?.materialIndex === material && previous.start + previous.count === start) previous.count += count;
+      else this.geometry.addGroup(start, count, material);
     }
     this.setTheme(this.theme);
   }
+
 }
 
 function cubeFace(label: string, theme: ThemeDefinition, material = new T.MeshLambertMaterial({
@@ -234,6 +236,10 @@ export class Viewport {
   private span = 60;
   private down = new T.Vector2();
   private sketchMode = false;
+  private selection: SelectionItem[] = [];
+  private filter: SelectionFilter = "all";
+  private handles: ToolHandles;
+  private renderPending = false;
 
   constructor(
     private host: HTMLElement,
@@ -256,6 +262,8 @@ export class Viewport {
     this.orthographic.up.set(0, 0, 1);
     this.perspective.up.copy(this.orthographic.up);
     this.orbit = new OrbitControls(this.camera, canvas);
+    this.handles = new ToolHandles(host, canvas, () => this.camera, (enabled) => { this.orbit.enabled = enabled; }, () => this.render(), theme.colors.handle, theme.colors.handleEdge);
+    this.scene.add(this.handles.group);
     this.orbit.minZoom = 0.02;
     this.orbit.maxZoom = 200;
     this.orbit.addEventListener("change", () => this.render());
@@ -287,29 +295,32 @@ export class Viewport {
         return;
       }
       const point = this.point(e);
-      const bodies = this.bodies.children.filter((body) => body.visible);
+      const send = (item?: SelectionItem) => {
+        if (!item || accepts(this.filter, item)) onClick({ point, item, additive: e.shiftKey });
+      };
+      const bodies = this.bodies.children.filter((body) => body.visible ||
+        (this.filter !== "all" && body instanceof SolidDisplay && !this.hidden.has(body.proxy.body.id)));
       const tolerance = (4 * this.span) / (this.viewZoom * canvas.clientHeight);
       this.ray.params.Line.threshold = tolerance;
-      const hits = this.ray.intersectObjects(bodies, true);
-      const sketch = this.ray.intersectObjects(this.sketches.children.filter((node) => node.visible), false)[0];
-      if (sketch && (!hits.length || sketch.distance < hits[0].distance - 1e-6)) {
-        onClick({ point, sketch: sketch.object.userData.sketch });
+      const hits = this.ray.intersectObjects(bodies, this.filter === "all");
+      const sketch = ["all", "profiles"].includes(this.filter)
+        ? this.ray.intersectObjects(this.sketches.children.filter((node) => node.visible), false)[0] : undefined;
+      if (sketch && (!hits.length || sketch.distance <= hits[0].distance + 1e-6)) {
+        send({ kind: "region", ref: sketch.object.userData.region });
         return;
       }
       const nearest = hits[0];
-      const hit =
-        hits.find((h) => h.object instanceof T.Line && h.distance <= nearest.distance + tolerance) ?? nearest;
+      const hit = hits.find((h) => h.object instanceof T.Line && h.distance <= nearest.distance + tolerance) ?? nearest;
       if (hit?.object instanceof T.Line && hit.object.parent instanceof SolidDisplay) {
-        onClick({ point, body: hit.object.parent.proxy.body.id, pick: { edge: hit.object.userData.edge } });
+        send({ kind: "edge", ref: hit.object.userData.edge });
       } else if (hit?.object instanceof SolidDisplay && hit.faceIndex != null) {
+        if (this.filter === "bodies") { send({ kind: "body", id: hit.object.proxy.body.id }); return; }
         const triangle = hit.faceIndex;
-        const range = hit.object.proxy.faces.find(
-          (f) => triangle >= f.firstTriangle && triangle < f.firstTriangle + f.triangleCount,
-        );
-        onClick({ point, body: hit.object.proxy.body.id, pick: range && { face: range.face } });
+        const range = hit.object.proxy.faces.find((f) => triangle >= f.firstTriangle && triangle < f.firstTriangle + f.triangleCount);
+        if (range) send({ kind: "face", ref: range.face, revision: hit.object.proxy.revision });
       } else {
-        const plane = this.ray.intersectObjects(this.construction.children.filter((node) => node.visible), false)[0];
-        onClick({ point, plane: plane?.object.userData.plane });
+        const plane = this.filter === "all" ? this.ray.intersectObjects(this.construction.children.filter((node) => node.visible), false)[0] : undefined;
+        send(plane ? { kind: "plane", id: plane.object.userData.plane } : undefined);
       }
     });
     canvas.addEventListener("pointermove", (e) => onMove(this.point(e)));
@@ -317,6 +328,8 @@ export class Viewport {
 
   setTheme(theme: ThemeDefinition) {
     this.theme = theme;
+    this.handles.color = theme.colors.handle;
+    this.handles.edgeColor = theme.colors.handleEdge;
     this.hemisphere.color.set(theme.colors.light);
     this.hemisphere.groundColor.set(theme.colors.groundLight);
     for (const light of [this.light, this.cubeLight, this.ambient]) light.color.set(theme.colors.light);
@@ -352,6 +365,7 @@ export class Viewport {
 
   private point(e: PointerEvent): Point | null {
     const r = this.renderer.domElement.getBoundingClientRect();
+    this.camera.updateMatrixWorld();
     this.ray.setFromCamera(
       new T.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2),
       this.camera,
@@ -465,36 +479,73 @@ export class Viewport {
     }
     this.render();
   }
-  setConstruction(planes: { id: string; plane: "xy" | "xz" | "yz" }[], selected?: string) {
+  setConstruction(planes: { id: string; plane: "xy" | "xz" | "yz" }[]) {
     discard(this.construction);
     for (const plane of planes) {
-      const node = rectangleObject({ from: [-10, -10], to: [10, 10] }, plane.id === selected, this.theme);
+      const node = rectangleObject({ from: [-10, -10], to: [10, 10] }, this.selection.some((s) => s.kind === "plane" && s.id === plane.id), this.theme);
       if (plane.plane === "xz") node.rotation.x = Math.PI / 2;
       if (plane.plane === "yz") node.rotation.y = Math.PI / 2;
       node.userData.plane = plane.id;
+      for (const edge of node.children) if (edge instanceof T.Line) {
+        edge.material.dispose();
+        edge.material = new T.LineDashedMaterial({ dashSize: 2, gapSize: 1 });
+        edge.computeLineDistances();
+      }
+      styleProfile(node, this.theme);
       node.visible = !this.hidden.has(plane.id);
       this.construction.add(node);
     }
     this.render();
   }
-  setSketches(records: Map<string, Rectangle>, selected?: string) {
+  setSketches(records: Map<string, SketchProxy>) {
     discard(this.sketches);
-    for (const [id, rect] of records) {
-      const profile = rectangleObject(rect, id === selected, this.theme);
+    for (const [id, proxy] of records) for (const region of proxy.regions) {
+      const origin = new T.Vector3(...proxy.frame.origin), u = new T.Vector3(...proxy.frame.u), v = new T.Vector3(...proxy.frame.v);
+      const points = region.boundary.map((point) => {
+        const p = new T.Vector3(...point).sub(origin);
+        return new T.Vector2(p.dot(u), p.dot(v));
+      });
+      const geometry = new T.ShapeGeometry(new T.Shape(points));
+      const matrix = new T.Matrix4().makeBasis(u, v, new T.Vector3(...proxy.frame.normal)).setPosition(origin);
+      geometry.applyMatrix4(matrix);
+      const profile = new T.Mesh(geometry, new T.MeshBasicMaterial({ transparent: true, side: T.DoubleSide,
+        depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+      profile.add(new T.LineLoop(new T.BufferGeometry().setFromPoints(region.boundary.map((p) => new T.Vector3(...p))), new T.LineBasicMaterial()));
       profile.userData.sketch = id;
+      profile.userData.region = region.region;
       profile.visible = !this.hidden.has(id);
       this.sketches.add(profile);
     }
+    this.setSelection(this.selection);
+  }
+
+  setSelection(selection: SelectionItem[], filter: SelectionFilter = this.filter) {
+    this.selection = selection;
+    this.filter = filter;
+    for (const solid of this.bodies.children) if (solid instanceof SolidDisplay) solid.highlight(selection);
+    const keys = new Set(selection.map(selectionKey));
+    for (const profile of this.sketches.children) if (profile instanceof T.Mesh) {
+      profile.userData.selected = keys.has("sketch:" + profile.userData.sketch) ||
+        keys.has(selectionKey({ kind: "region", ref: profile.userData.region }));
+      styleProfile(profile, this.theme);
+    }
+    for (const plane of this.construction.children) if (plane instanceof T.Mesh) {
+      plane.userData.selected = keys.has("plane:" + plane.userData.plane);
+      styleProfile(plane, this.theme);
+    }
     this.render();
   }
-  setBodies(records: Map<string, BodyProxy>, selected?: string, pick?: TopologyPick) {
+
+  setHandles(handles: ToolHandle[] = []) { this.handles.set(handles); this.render(); }
+
+  setBodies(records: Map<string, BodyProxy>) {
     const present = new Set<string>();
     for (const child of [...this.bodies.children]) {
       if (!(child instanceof SolidDisplay)) continue;
       const id = child.proxy.body.id;
       if (child.proxy === records.get(id)) {
         present.add(id);
-        child.highlight(id === selected, id === selected ? pick : undefined);
+        child.highlight(this.selection);
       } else {
         child.removeFromParent();
         discard(child);
@@ -503,7 +554,7 @@ export class Viewport {
     for (const [id, proxy] of records) {
       if (present.has(id)) continue;
       const solid = new SolidDisplay(proxy, false, this.theme);
-      solid.highlight(id === selected, id === selected ? pick : undefined);
+      solid.highlight(this.selection);
       this.bodies.add(solid);
     }
     this.setVisibility(this.hidden);
@@ -521,17 +572,23 @@ export class Viewport {
   }
 
   private render() {
-    const w = this.host.clientWidth,
-      h = this.host.clientHeight;
-    if (!w || !h) return;
-    this.renderer.setViewport(0, 0, w, h);
-    this.renderer.setClearColor(this.theme.colors.background);
-    this.renderer.clear();
-    this.renderer.render(this.scene, this.camera);
-    this.gizmoCamera.quaternion.copy(this.camera.quaternion);
-    this.gizmoCamera.position.set(0, 0, 5).applyQuaternion(this.camera.quaternion);
-    this.renderer.clearDepth();
-    this.renderer.setViewport(w - gizmoSize, h - gizmoSize, gizmoSize, gizmoSize);
-    this.renderer.render(this.gizmo, this.gizmoCamera);
+    if (this.renderPending) return;
+    this.renderPending = true;
+    requestAnimationFrame(() => {
+      this.renderPending = false;
+      const w = this.host.clientWidth, h = this.host.clientHeight;
+      if (!w || !h) return;
+      this.camera.updateMatrixWorld();
+      this.handles?.update();
+      this.renderer.setViewport(0, 0, w, h);
+      this.renderer.setClearColor(this.theme.colors.background);
+      this.renderer.clear();
+      this.renderer.render(this.scene, this.camera);
+      this.gizmoCamera.quaternion.copy(this.camera.quaternion);
+      this.gizmoCamera.position.set(0, 0, 5).applyQuaternion(this.camera.quaternion);
+      this.renderer.clearDepth();
+      this.renderer.setViewport(w - gizmoSize, h - gizmoSize, gizmoSize, gizmoSize);
+      this.renderer.render(this.gizmo, this.gizmoCamera);
+    });
   }
 }

@@ -18,6 +18,17 @@ async function testOutputDock() {
     }
   };
   const check = (value, reason) => { if (!value) throw new Error(reason); };
+  const timed = (row) => /^\d+\.\d ms$/.test(row.querySelector(".command-duration")?.textContent ?? "");
+  const lastCommand = (method) => [...panel.querySelectorAll("#log details")].findLast((row) =>
+    row.querySelector(".command-name")?.textContent === method);
+  const checkTimings = () => {
+    const rows = [...panel.querySelectorAll("#log details")];
+    check(rows.length && rows.every(timed), "Completed commands should have elapsed milliseconds");
+    const title = rows.at(-1).querySelector("summary");
+    const duration = title.querySelector(".command-duration");
+    check(Math.abs(title.getBoundingClientRect().right - duration.getBoundingClientRect().right) < 1,
+      "Command times should align with the right edge of the log");
+  };
   async function stopScript(source) {
     const features = document.querySelector("#features").children.length;
     const logs = panel.querySelector("#log").children.length;
@@ -46,10 +57,15 @@ async function testOutputDock() {
   toggle.click();
 
   for (const source of ["while (true) {}", "await new Promise(() => {})"]) await stopScript(source);
+  js.value = 'await scene.evaluateFormula("1 / 0", {expectedDimension: "length"})';
+  form.requestSubmit();
+  await wait(() => !js.disabled && output.lastElementChild.textContent.includes("Division by zero"), "Log a failed command");
+  check(timed(lastCommand("scene.evaluateFormula")), "Failed commands should also have elapsed time");
   const history = output.textContent;
   js.value = "return await scene.bodies.all()";
   const logTab = panel.querySelector('[data-dock="log"]');
   logTab.click();
+  checkTimings();
   await popOut();
   await wait(() => panel.ownerDocument !== document, "Open output window");
   const popup = panel.ownerDocument.defaultView;
@@ -59,6 +75,7 @@ async function testOutputDock() {
   check(logTab.getAttribute("aria-selected") === "true" && !panel.querySelector("#log").hidden, "Keep selected tab");
   check(js.value === "return await scene.bodies.all()" && output.textContent === history, "Keep draft and history");
   check(viewportHeight() > expanded, "Detached dock should give space to the viewport");
+  checkTimings();
 
   const count = document.querySelector("#features").children.length;
   const oldLogs = panel.querySelector("#log").children.length;
@@ -89,21 +106,33 @@ async function testOutputDock() {
       const before = document.querySelector("#features").children.length;
       js.value = `const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
         await sketch.primitives.add("rectangle", {from: [30, 30], to: [32, 32]});
-        await sketch.complete(); while (true) {}`;
+        await Promise.all([sketch.complete(), scene.evaluateFormula("12 / 3", {expectedDimension: "length"})]); while (true) {}`;
       form.requestSubmit();
       await wait(() => release, "Dispatch pending model edit");
+      const held = lastCommand("sketch.complete");
+      const heldAt = performance.now();
+      check(held.querySelector(".command-duration").textContent === "…", "Keep an unfinished command pending");
+      await wait(() => {
+        const row = lastCommand("scene.evaluateFormula");
+        return row?.querySelector("pre").textContent.includes("12 / 3") && timed(row);
+      }, "Complete another request while the edit is held");
+      check(held.querySelector(".command-duration").textContent === "…", "Associate completion with its own command row");
       const logs = panel.querySelector("#log").children.length;
       runButton.click();
       await wait(() => runButton.textContent === "Run", "Terminate console worker");
       check(js.disabled && runButton.disabled && document.querySelector("#new-sketch").disabled,
         "Keep editing disabled until the pending CAD command finishes");
       check(panel.querySelector("#log").children.length === logs, "Wait before refreshing the scene");
+      await new Promise((ok) => setTimeout(ok, 100));
+      const heldFor = performance.now() - heldAt;
       release();
       release = undefined;
       await wait(() => !js.disabled, "Finish pending edit and recover");
       check(document.querySelector("#features").children.length === before + 1,
         "Keep the model edit dispatched before Stop");
       check(output.lastElementChild.textContent === "Script stopped", "Report cancellation after pending work");
+      check(timed(held) && parseFloat(held.querySelector(".command-duration").textContent) >= heldFor - 1,
+        "Elapsed command time should include queueing and dispatch delays");
     } finally {
       Worker.prototype.postMessage = post;
       release?.();
@@ -126,6 +155,8 @@ async function testOutputDock() {
   else panel.ownerDocument.defaultView.close();
   await wait(docked, "Return dock when its window closes");
   check(js.value === "unfinished input", "Preserve input on window close");
+  logTab.click();
+  checkTimings();
   panel.querySelector('[data-dock="console"]').click();
   js.value = "";
 }

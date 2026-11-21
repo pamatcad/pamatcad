@@ -119,6 +119,9 @@ impl Engine {
                 self.invalidate_previews(&data.scene_id);
                 Ok(Response::SketchCreate(data))
             }
+            Request::SketchGetProxy(query) => Ok(Response::SketchGetProxy(
+                self.sketch(&query.sketch)?.proxy()?,
+            )),
             Request::PrimitiveAdd(input) => {
                 self.sketch(&input.sketch)?.ensure_editable()?;
                 let id = match &input.primitive {

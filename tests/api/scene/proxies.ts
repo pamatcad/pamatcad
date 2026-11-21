@@ -5,6 +5,39 @@ import { startCore } from "../../support/core.js";
 import { circle, near, rectangle } from "../../support/extrude.js";
 
 const code = (expected: string) => (e: unknown) => e instanceof CoreError && e.details?.code === expected;
+
+test("sketch region proxies and planar frames are repeatable read-only geometry", async (t) => {
+  const { core, scene } = await startCore(t, "sketch-proxies");
+  for (const plane of Object.values(scene.construction.builtin.planes)) {
+    const sketch = await scene.sketches.create(plane);
+    await assert.rejects(sketch.getProxy(), code("INVALID_STATE"));
+    await sketch.primitives.add("rectangle", { from: [0, 0], to: [10, 10] });
+    await sketch.primitives.add("circle", { center: [20, 5], diameter: 4 });
+    await sketch.complete();
+    const before = await scene.timeline.list();
+    const proxy = await sketch.getProxy();
+    assert.deepEqual(proxy, await scene.sketches.getProxy(sketch.id));
+    assert.deepEqual(await scene.timeline.list(), before);
+    assert.deepEqual(proxy.regions.map((r) => r.region), await sketch.regions.all());
+    assert.equal(proxy.regions[0]!.boundary.length, 4);
+    assert.equal(proxy.regions[1]!.boundary.length, 128);
+    const { origin, u, v, normal } = proxy.frame;
+    const dot = (a: number[], b: number[]) => a.reduce((sum, n, i) => sum + n * b[i]!, 0);
+    for (const axis of [u, v, normal]) near(dot(axis, axis), 1);
+    near(dot(u, v), 0); near(dot(u, normal), 0); near(dot(v, normal), 0);
+    for (const region of proxy.regions) for (const point of region.boundary) near(dot(point.map((n, i) => n - origin[i]!), normal), 0);
+    const feature = await core.solid.extrude(proxy.regions[0]!.region, { length1: 5 });
+    const face = await feature.faces.endCap1({ profile: proxy.regions[0]!.region }).only();
+    const body = await scene.bodies.get(face.bodyId);
+    const properties = await body.faces.properties(face);
+    assert.ok(properties.frame);
+    const onFace = await scene.sketches.create(face);
+    await onFace.primitives.add("rectangle", { from: [-1, -1], to: [1, 1] });
+    await onFace.complete();
+    assert.deepEqual((await onFace.getProxy()).frame, properties.frame);
+    near((await body.properties()).volume.value, 500);
+  }
+});
 function maxZ(proxy: BodyProxy) {
   return Math.max(...proxy.positions.filter((_, index) => index % 3 === 2));
 }
@@ -33,6 +66,7 @@ test("cylinder triangles and polylines resolve to actual faces and edges", async
   const side = await feature.faces.sideFaces1({ profile }).only();
   const wall = p.faces.find((group) => JSON.stringify(group.face) === JSON.stringify(side))!;
   assert.equal((await body.faces.properties(wall.face)).surface, "cylinder");
+  assert.equal((await body.faces.properties(wall.face)).frame, undefined);
   assert.ok(wall.triangleCount > 2);
   for (const node of p.triangles.slice(
     3 * wall.firstTriangle,

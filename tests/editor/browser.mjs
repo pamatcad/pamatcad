@@ -7,6 +7,8 @@ import { testEditorTheme } from "./theme.mjs";
 import { testSceneBrowser } from "./scene-browser.mjs";
 import { testLoadingScreen } from "./loading.mjs";
 import { testDocumentTabs } from "./document-tabs.mjs";
+import { testExtrudeEditor } from "./extrude.mjs";
+import { testToolInputs } from "./tool-inputs.mjs";
 
 const root = resolve("build/web");
 const types = {
@@ -87,18 +89,20 @@ try {
   await page.waitForFunction((id) => document.querySelector('#document-tabs [aria-selected="true"]')?.getAttribute("data-document") !== id && !document.querySelector("#menu-new").disabled, drawingDocument);
   await page.locator(`#document-tabs [data-document="${drawingDocument}"]`).click();
   assert.ok(await page.getByRole("button", { name: "Finish sketch" }).isDisabled(), "Keep the draft waiting for its second corner");
-  await clickAt(0.7, 0.6);
+  const toolBounds = await page.locator("#tool-panel").boundingBox();
+  // Keep the second corner on the canvas when the tool panel's spacing changes.
+  await clickAt(Math.min(0.7, (toolBounds.x - bounds.x - 16) / bounds.width), 0.6);
   const width = Number(await page.locator("#width").inputValue());
   const height = Number(await page.locator("#height").inputValue());
   assert.ok(Math.abs(width * height) > 1);
   await page.getByRole("button", { name: "Finish sketch" }).click();
   await page.waitForFunction(() => document.querySelector("#features").children.length === 1);
   await clickAt(0.93, 0.85);
-  assert.ok(await page.getByRole("button", { name: "Extrude", exact: true }).isDisabled());
+  assert.ok(await page.getByRole("button", { name: "Extrude", exact: true }).isEnabled(), "Extrude can start before selecting a profile");
   await clickAt(0.5, 0.5);
   await page.getByRole("button", { name: "Extrude", exact: true }).click();
   await page.locator("#length").fill("25 / 2");
-  await page.getByRole("button", { name: "Create body" }).click();
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
   await page
     .locator("#js")
     .fill(
@@ -130,7 +134,7 @@ try {
     () =>
       document.querySelector("#features").children.length === 11 && !document.querySelector("#js").disabled,
   );
-  const commands = (await logs.allTextContents()).slice(start);
+  const commands = (await logs.locator(".command-name").allTextContents()).slice(start);
   assert.equal(commands.filter((method) => method === "solid.extrude").length, 10);
   assert.equal(commands.filter((method) => method === "scene.getProxyFor").length, 1);
   assert.ok(commands.indexOf("scene.getProxyFor") > commands.lastIndexOf("solid.extrude"));
@@ -198,6 +202,8 @@ try {
   await testSceneBrowser(browser, "http://127.0.0.1:" + server.address().port);
   await testLoadingScreen(browser, "http://127.0.0.1:" + server.address().port);
   await testDocumentTabs(browser, "http://127.0.0.1:" + server.address().port);
+  await testExtrudeEditor(browser, "http://127.0.0.1:" + server.address().port);
+  await testToolInputs(browser);
 } finally {
   await browser?.close();
   server.close();

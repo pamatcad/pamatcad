@@ -12,13 +12,7 @@ use std::collections::BTreeMap;
 
 pub const LINEAR_TOLERANCE: f64 = 1e-7;
 
-#[derive(Clone, Copy)]
-pub struct Frame {
-    pub origin: [f64; 3],
-    pub u: [f64; 3],
-    pub v: [f64; 3],
-    pub normal: [f64; 3],
-}
+pub use crate::protocol::PlaneFrame as Frame;
 
 impl Frame {
     pub fn builtin(plane: Plane) -> Self {
@@ -102,6 +96,46 @@ impl Sketch {
             ));
         }
         Ok(self.regions.iter().map(|r| r.reference.clone()).collect())
+    }
+
+    pub fn proxy(&self) -> Result<SketchProxy> {
+        self.all_regions()?;
+        let regions = self
+            .regions
+            .iter()
+            .map(|region| {
+                let boundary = match &region.boundary {
+                    Boundary::Lines(ids) => ids
+                        .iter()
+                        .map(|id| self.frame.point(self.lines[id].from))
+                        .collect(),
+                    Boundary::Circle(id) => {
+                        let circle = &self.circles[id];
+                        (0..128)
+                            .map(|i| {
+                                let angle = std::f64::consts::TAU * f64::from(i) / 128.;
+                                self.frame.point([
+                                    circle.center[0] + circle.diameter * angle.cos() / 2.,
+                                    circle.center[1] + circle.diameter * angle.sin() / 2.,
+                                ])
+                            })
+                            .collect()
+                    }
+                };
+                SketchRegionProxy {
+                    region: region.reference.clone(),
+                    boundary,
+                }
+            })
+            .collect();
+        Ok(SketchProxy {
+            sketch: SketchRef {
+                scene_id: self.data.scene_id.clone(),
+                id: self.data.id.clone(),
+            },
+            frame: self.frame,
+            regions,
+        })
     }
 
     pub fn only_region(&self) -> Result<RegionRef> {

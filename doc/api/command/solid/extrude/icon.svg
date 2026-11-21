@@ -2,12 +2,12 @@
      role="img" aria-labelledby="title">
   <title id="title">Extrude</title>
   <g id="solid">
-    <path id="cap" fill="#d0e9e6" d="M16 9 29 15 16 21 3 15Z"/>
-    <path id="lit-side" fill="#a9cbd2" d="M3 15 16 21v9L3 24Z"/>
-    <path id="shaded-side" fill="#6a9eae" d="M16 21 29 15v9l-13 6Z"/>
-    <path id="edges" d="M16 9 29 15v9l-13 6-13-6v-9ZM3 15l13 6 13-6M16 21v9"
-          fill="none" stroke="#234b58" stroke-opacity="1" stroke-width="1.7"
+    <path id="lit-side" fill="#ced3d5" d="M4 15 16 21v9L4 24Z"/>
+    <path id="shaded-side" fill="#aebec3" d="M16 21 28 15v9l-12 6Z"/>
+    <path id="edges" d="M4 15v9l12 6 12-6v-9M16 21v9"
+          fill="none" stroke="#65727b" stroke-opacity="1" stroke-width="1.7"
           stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="cap" fill="#c0d8cc" stroke="#487561" stroke-width="1.7" stroke-linejoin="round" d="M16 9 28 15 16 21 4 15Z"/>
   </g>
-  <path id="normal-arrow" fill="#a64a20" d="m16 1 5.5 7H18v7h-4V8h-3.5Z"/>
+  <path id="normal-arrow" fill="#dcb58c" stroke="#815a36" stroke-width="1.5" stroke-linejoin="round" d="m16 2 6 7h-3.5v8h-5V9H10Z"/>
 </svg>

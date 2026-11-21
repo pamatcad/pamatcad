@@ -33,5 +33,9 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
   async complete(): Promise<void> {
     await this.transport.request("sketch.complete", { sketch: this.reference });
   }
+
+  getProxy() {
+    return this.transport.request("sketch.getProxy", { sketch: this.reference });
+  }
 }
 
