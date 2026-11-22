@@ -68,6 +68,7 @@ typedef void (*PamatProxyFace)(void*, size_t face_id, size_t nodes, const float*
 typedef void (*PamatProxyEdge)(void*, size_t edge_id, size_t points, const float* xyz, int closed);
 int pamat_proxy(const PamatShape* shape, PamatProxyFace face_sink, PamatProxyEdge edge_sink,
                 void* context, char* error, size_t error_size);
+int pamat_vertices(const PamatShape* shape, void (*sink)(void*, size_t, const double*), void* context, char* error, size_t error_size);
 void pamat_shape_free(PamatShape* shape);
 #ifdef __cplusplus
 }

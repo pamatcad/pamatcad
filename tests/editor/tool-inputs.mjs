@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
+import { testSketchConstructors } from "./sketch-geometry.mjs";
 import { testInteractiveUpdates } from "./interactive-updates.mjs";
+import { testNavigation } from "./navigation.mjs";
 
 const require = createRequire(new URL("../../apps/editor/package.json", import.meta.url));
 const { createServer } = await import(require.resolve("vite"));
@@ -53,6 +55,8 @@ export async function testToolInputs(browser) {
     assert.ok(Math.abs(result.degrees - 5) < 1e-10);
     assert.deepEqual(result.steps, [2, 0.02, 25.4 / 8, 25.4 / 16, 25.4 * 2.5]);
     console.log("Formula fields: inch/radian evaluation, explicit-unit drag values, selection, and scale-dependent snapping passed");
+    await testSketchConstructors(page, "/@fs" + resolve("sdk/javascript/dist/index.js"));
     await testInteractiveUpdates(page, "/@fs" + resolve("sdk/javascript/dist/index.js"));
+    await testNavigation(page);
   } finally { await page.close(); await server.close(); }
 }

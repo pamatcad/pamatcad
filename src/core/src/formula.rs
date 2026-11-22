@@ -1,3 +1,4 @@
+mod expression;
 use crate::{
     error::{CoreError, ErrorCode, Result},
     protocol::{
@@ -5,6 +6,7 @@ use crate::{
         LengthUnit, SceneUnits,
     },
 };
+pub(crate) use expression::{Expression, Instruction};
 
 fn invalid(message: &str) -> CoreError {
     CoreError::new(ErrorCode::InvalidParameter, message)
@@ -23,21 +25,23 @@ impl From<AngleUnit> for FormulaUnit {
 }
 
 impl FormulaUnit {
-    fn dimension(self) -> FormulaDimension {
+    pub(crate) fn dimension(self) -> FormulaDimension {
         match self {
             Self::Length(_) => FormulaDimension::Length,
             Self::Angle(_) => FormulaDimension::Angle,
+            Self::Scalar(_) => FormulaDimension::Scalar,
         }
     }
 
     // The modeling kernel takes millimetres and the extrusion API takes degrees.
-    fn scale(self) -> f64 {
+    pub(crate) fn scale(self) -> f64 {
         match self {
             Self::Length(LengthUnit::Mm) | Self::Angle(AngleUnit::Deg) => 1.,
             Self::Length(LengthUnit::Cm) => 10.,
             Self::Length(LengthUnit::M) => 1000.,
             Self::Length(LengthUnit::In) => 25.4,
             Self::Angle(AngleUnit::Rad) => 1_f64.to_degrees(),
+            Self::Scalar(_) => 1.,
         }
     }
 }
@@ -47,15 +51,17 @@ impl SceneUnits {
         match dimension {
             FormulaDimension::Length => self.length.into(),
             FormulaDimension::Angle => self.angle.into(),
+            FormulaDimension::Scalar => FormulaUnit::Scalar(crate::protocol::ScalarUnit::Scalar),
         }
     }
 }
 
 impl FormulaDimension {
-    fn powers(self) -> [i32; 2] {
+    pub(crate) fn powers(self) -> [i32; 2] {
         match self {
             Self::Length => [1, 0],
             Self::Angle => [0, 1],
+            Self::Scalar => [0, 0],
         }
     }
 }
@@ -63,9 +69,10 @@ impl FormulaDimension {
 pub(crate) struct FormulaEvaluator;
 
 impl FormulaEvaluator {
-    pub(crate) fn evaluate<U: Copy + Into<FormulaUnit>>(
+    pub(crate) fn evaluate_with<U: Copy + Into<FormulaUnit>>(
         input: &Formula<U>,
         scene_unit: U,
+        resolve: &mut dyn FnMut(&str) -> Result<Quantity>,
     ) -> Result<EvaluatedFormula<U>> {
         let unit = scene_unit.into();
         let dimension = unit.dimension();
@@ -75,6 +82,7 @@ impl FormulaEvaluator {
                 let suffix = match dimension {
                     FormulaDimension::Length => "mm",
                     FormulaDimension::Angle => "deg",
+                    FormulaDimension::Scalar => "",
                 };
                 (format!("{value} {suffix}"), None)
             }
@@ -90,12 +98,13 @@ impl FormulaEvaluator {
                 (bound.expression.clone(), bound.implicit_unit)
             }
         };
-        let result = Parser { rest: &expression }.parse()?;
+        let result = parse(&expression, resolve)?;
+        let numeric = result.expression.evaluate(&[])?;
         let (base, implicit_unit) = if result.powers == [0, 0] {
             let implicit = saved_unit.unwrap_or(scene_unit);
-            (result.value * implicit.into().scale(), Some(implicit))
+            (numeric * implicit.into().scale(), Some(implicit))
         } else if result.powers == dimension.powers() {
-            (result.value, None)
+            (numeric, None)
         } else {
             return Err(invalid("Formula result has the wrong dimension"));
         };
@@ -111,35 +120,50 @@ impl FormulaEvaluator {
                 value,
                 unit: scene_unit,
             },
+            references: vec![],
         })
     }
 }
 
 impl<U: Copy + Into<FormulaUnit>> Formula<U> {
-    /// Bind expression inputs in place for the feature record and return the modeling value.
-    pub(crate) fn resolve(&mut self, scene_unit: U) -> Result<f64> {
+    pub(crate) fn resolve_in_scene(
+        &mut self,
+        scene: &crate::model::Scene,
+        scene_unit: U,
+    ) -> Result<f64> {
         if let Self::Number(value) = self {
             return Ok(*value);
         }
-        let evaluated = FormulaEvaluator::evaluate(self, scene_unit)?;
+        let evaluated = scene.evaluate_formula(self, scene_unit)?;
         let value = evaluated.computed.value * scene_unit.into().scale();
         *self = Self::Evaluated(evaluated);
         Ok(value)
     }
 }
 
-// Intermediate values use base units and the exponents of length and angle. Keeping
-// both exponents allows cancellation in expressions like (2 mm * 3 mm) / 1 cm.
-struct Quantity {
-    value: f64,
-    powers: [i32; 2],
+// The same expression tree feeds scalar evaluation and sketch equation solving.
+pub(crate) struct Quantity {
+    pub expression: Expression,
+    pub powers: [i32; 2],
 }
 
-struct Parser<'a> {
+pub(crate) fn parse(
+    source: &str,
+    resolve: &mut dyn FnMut(&str) -> Result<Quantity>,
+) -> Result<Quantity> {
+    Parser {
+        rest: source,
+        resolve,
+    }
+    .parse()
+}
+
+struct Parser<'a, 'b> {
     rest: &'a str,
+    resolve: &'b mut dyn FnMut(&str) -> Result<Quantity>,
 }
 
-impl Parser<'_> {
+impl Parser<'_, '_> {
     fn parse(mut self) -> Result<Quantity> {
         let result = self.expression(0, 0)?;
         if !self.rest.trim().is_empty() {
@@ -173,26 +197,20 @@ impl Parser<'_> {
                             "Addition and subtraction require matching dimensions",
                         ));
                     }
-                    left.value += if op == b'+' {
-                        right.value
+                    left.expression = if op == b'+' {
+                        left.expression.add(right.expression)
                     } else {
-                        -right.value
+                        left.expression.sub(right.expression)
                     };
                 }
                 b'*' => {
-                    left.value *= right.value;
+                    left.expression = left.expression.mul(right.expression);
                     left.powers = std::array::from_fn(|i| left.powers[i] + right.powers[i]);
                 }
                 _ => {
-                    if right.value == 0. {
-                        return Err(invalid("Division by zero"));
-                    }
-                    left.value /= right.value;
+                    left.expression = left.expression.div(right.expression);
                     left.powers = std::array::from_fn(|i| left.powers[i] - right.powers[i]);
                 }
-            }
-            if !left.value.is_finite() {
-                return Err(invalid("Formula result must be finite"));
             }
         }
         Ok(left)
@@ -217,13 +235,42 @@ impl Parser<'_> {
             }
             self.rest = &self.rest[1..];
             inside
+        } else if self
+            .peek()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+        {
+            let mut brackets = 0;
+            let mut end = 0;
+            for (index, c) in self.rest.char_indices() {
+                if c == '[' {
+                    brackets += 1;
+                }
+                if c == ']' {
+                    brackets -= 1;
+                }
+                if brackets < 0 {
+                    return Err(invalid("Unexpected closing reference bracket"));
+                }
+                if brackets == 0 && !(c.is_alphanumeric() || matches!(c, '_' | '.' | ']')) {
+                    break;
+                }
+                end = index + c.len_utf8();
+            }
+            if brackets != 0 {
+                return Err(invalid("Unclosed reference bracket"));
+            }
+            let (name, rest) = self.rest.split_at(end);
+            self.rest = rest;
+            (self.resolve)(name)?
         } else {
             Quantity {
-                value: self.number()?,
+                expression: Expression::number(self.number()?),
                 powers: [0, 0],
             }
         };
-        quantity.value *= sign;
+        if sign < 0. {
+            quantity.expression = quantity.expression.neg();
+        }
         if self.peek().is_some_and(|b| b.is_ascii_alphabetic()) {
             let end = self
                 .rest
@@ -243,10 +290,7 @@ impl Parser<'_> {
             };
             let powers = unit.dimension().powers();
             quantity.powers = std::array::from_fn(|i| quantity.powers[i] + powers[i]);
-            quantity.value *= unit.scale();
-        }
-        if !quantity.value.is_finite() {
-            return Err(invalid("Formula operand must be finite"));
+            quantity.expression = quantity.expression.scale(unit.scale());
         }
         Ok(quantity)
     }
@@ -272,5 +316,61 @@ impl Parser<'_> {
         token
             .parse()
             .map_err(|_| invalid("Expected a number in the formula"))
+    }
+}
+
+impl crate::model::Scene {
+    pub(crate) fn evaluate_formula<U: Copy + Into<FormulaUnit>>(
+        &self,
+        input: &Formula<U>,
+        unit: U,
+    ) -> Result<EvaluatedFormula<U>> {
+        let saved = match input {
+            Formula::Evaluated(e) => e.references.as_slice(),
+            _ => &[],
+        };
+        let mut references = vec![];
+        let mut result = FormulaEvaluator::evaluate_with(input, unit, &mut |symbol| {
+            let bound = saved
+                .iter()
+                .find(|r| r.symbol == symbol)
+                .map(|r| &r.dimension);
+            let found = if let Some(r) = bound {
+                self.sketches
+                    .get(&r.sketch_id)
+                    .and_then(|s| s.dimensions.get(&r.id).map(|d| (s, d)))
+            } else {
+                self.sketches.values().find_map(|s| {
+                    s.dimensions
+                        .values()
+                        .find(|d| {
+                            std::iter::once(s.data.id.as_str())
+                                .chain(s.data.name.as_deref())
+                                .any(|sketch| {
+                                    std::iter::once(d.id.as_str())
+                                        .chain(d.parameters.name.as_deref())
+                                        .any(|dimension| {
+                                            format!("sketches[{sketch}]dimension[{dimension}]")
+                                                == symbol
+                                        })
+                                })
+                                || format!("{}{}", s.data.id, d.id) == symbol
+                        })
+                        .map(|d| (s, d))
+                })
+            }
+            .ok_or_else(|| invalid(&format!("Unknown document dimension {symbol}")))?;
+            references.push(crate::protocol::FormulaReference {
+                symbol: symbol.to_owned(),
+                dimension: found.0.entity_ref(&found.1.id),
+            });
+            let quantity = &found.1.computed;
+            Ok(Quantity {
+                expression: Expression::number(quantity.value * quantity.unit.scale()),
+                powers: quantity.unit.dimension().powers(),
+            })
+        })?;
+        result.references = references;
+        Ok(result)
     }
 }

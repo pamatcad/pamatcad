@@ -234,14 +234,17 @@ export async function testExtrudeEditor(browser, url) {
     }
 
     // From-face start has its own face-only selector; profiles remain selected separately.
-    await fresh(blocks); await sketch(); await start(); await choose("extrude-mode", "newBody"); await ready();
+    await fresh(blocks);
+    const beforeStartExtrude = await run(`return (await scene.bodies.all()).map(b => b.id);`);
+    await sketch(); await start(); await choose("extrude-mode", "newBody"); await ready();
     await choose("extrude-start", "object"); await page.locator("#pick-start").click();
     await page.locator("#home").click(); view = await page.locator("#model-canvas").boundingBox();
     await page.mouse.click(view.x + view.width - 60, view.y + 38);
     await page.mouse.click(view.x + view.width / 2 + 60, view.y + view.height / 2 + 35);
     await page.waitForFunction(() => document.querySelector("#pick-start").textContent.startsWith("1 selected"));
     await page.locator("#length").fill("-4"); await apply();
-    const capBounds = await run(`const p = await scene.getProxyFor((await scene.bodies.all()).at(-1)); const z = [...p.positions].filter((_,i)=>i%3===2); return [Math.min(...z), Math.max(...z)];`);
+    const capBounds = await run(`const body = (await scene.bodies.all()).find(b => !${JSON.stringify(beforeStartExtrude)}.includes(b.id));
+      const p = await scene.getProxyFor(body); const z = [...p.positions].filter((_,i)=>i%3===2); return [Math.min(...z), Math.max(...z)];`);
     assert.deepEqual(capBounds, [6, 10]);
 
     await fresh(`const s = await scene.sketches.create(scene.construction.builtin.planes.xy);

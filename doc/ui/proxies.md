@@ -27,6 +27,7 @@ Coordinates are in world-space millimetres. Ranges count vertices, triangles, or
 - `positions` and `normals` are flat XYZ triples. `triangles` contains three vertex indices per triangle. The JavaScript SDK exposes these as `Float32Array`, `Float32Array`, and `Uint32Array` respectively.
 - Each entry of `faces` maps a contiguous range `[firstTriangle, firstTriangle + triangleCount)` to a B-rep `FaceRef`. All triangles on a cylindrical wall select that same trimmed face.
 - `edgePoints` is a separate `Float32Array` of XYZ samples. Each entry of `edges` maps `firstPoint` and `pointCount` to one solid `EdgeRef`. Join consecutive points and close the last segment when `closed` is true. Shared edges occur once. Degenerate edges with no drawable length are omitted.
+- `vertices` contains exact B-rep vertex references and world coordinates; the same list is available without a proxy through `body.vertices.all()`.
 - A pick belongs to the proxy’s revision. An edge reference includes that revision. Use model topology references for feature inputs. The model assigns selectable face IDs before publishing a body, so asking for a proxy cannot change subsequent face naming. Triangle indices, sample indices, and revision-local edge numbers are display data.
 
 ## Updating the view
@@ -39,7 +40,9 @@ Coordinates are in world-space millimetres. Ranges count vertices, triangles, or
 
 ## Sketches and planar frames
 
-`sketch.getProxy({ sketch })` returns a completed sketch's frame and each region's closed boundary in world-space millimetres (the first point is not repeated). Rectangles use their corners; circles use 128 display samples. Region references remain the exact modeling inputs. The SDK exposes this as `sketch.getProxy()` or `scene.sketches.getProxy(id)`. Incomplete sketches return `INVALID_STATE`. Queries do not change geometry or the timeline.
+`sketch.getProxy({ sketch })` returns the current sketch frame and each region's outer boundary and holes in world-space millimetres (the first point is not repeated). Display curves are sampled; region references remain exact modeling inputs. The SDK exposes this as `sketch.getProxy()` or `scene.sketches.getProxy(id)`. Working sketches can be queried during editing. `curves` maps sampled world points to sketch entities; `points` maps individual points to their entities. Both indicate construction/projected geometry. `sketch.state()` supplies constraints, dimensions and solve status separately. Queries do not change geometry or the timeline.
+
+Primitive and transform/curve-edit previews use the same commands with `preview: true`. Fetch their temporary display with `sketch.getProxy({ preview: true })`; the ordinary query still returns the working sketch. Missing/expired previews fail. `scene.discardPreview()` clears sketch previews as well as body previews.
 
 `face.properties` includes `frame` for planar faces and omits it for curved faces. Frames contain `origin`, `u`, `v`, and `normal`; vectors are orthonormal and coordinates use millimetres.
 

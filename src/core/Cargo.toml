@@ -6,10 +6,12 @@ edition.workspace = true
 [dependencies]
 base64 = "0.22.1"
 jpeg-encoder = "0.6.1"
+rustybuzz = "0.20.1"
 serde.workspace = true
 serde_json.workspace = true
 # Rust still enforces deny_unknown_fields; TypeScript has no matching runtime flag.
 ts-rs = { version = "11", features = ["no-serde-warnings"] }
+ttf-parser = "0.25.1"
 
 [build-dependencies]
 cmake = "0.1"

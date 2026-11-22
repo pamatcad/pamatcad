@@ -278,7 +278,7 @@ export class ExtrudeTool {
     const handles: ToolHandle[] = [];
     const add = (id: string, label: string, at: [number, number, number], direction: [number, number, number], factor = 1) => {
       const field = this.formulas.get(id)!;
-      handles.push({ id, label, origin: at, direction, tangent: u, kind: field.dimension, value: field.value, unit: field.unit, factor,
+      handles.push({ id, label, origin: at, direction, tangent: u, kind: field.dimension === "angle" ? "angle" : "length", value: field.value, unit: field.unit, factor,
         change: (value) => {
           this.handleInput = true;
           try { field.setFromHandle(value); }

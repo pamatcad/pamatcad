@@ -1,0 +1,44 @@
+<h2 tabindex="0">Sketch</h2>
+<div class="tool-fields sketch-fields">
+  <label>Name <input id="sketch-name" autocomplete="off" /></label>
+  <div id="sketch-support"><p>Choose an origin plane or a planar solid face.</p><div class="sketch-choices" id="sketch-planes"></div></div>
+  <div id="sketch-workspace" hidden>
+    <div class="sketch-variants" role="group" aria-label="Tool variants"></div>
+    <p id="sketch-hint" aria-live="polite"></p>
+    <label>Geometry <select id="sketch-construction"><option value="normal">Normal</option><option value="construction">Construction</option></select></label>
+    <fieldset><legend>Compute</legend><label class="check"><input id="sketch-auto" type="checkbox" checked /> Recompute automatically</label><button id="sketch-recompute" type="button">Recompute</button><output id="sketch-status" aria-live="polite"></output></fieldset>
+    <label>Highlight <select id="sketch-highlight"><option value="all">All</option><option value="constrained">Constrained</option><option value="partial">Partially constrained</option><option value="unconstrained">Unconstrained</option></select></label>
+    <div id="sketch-config">
+      <label data-tools="offset">Distance <input id="sketch-offset" value="2" /></label>
+      <label data-tools="offset" id="sketch-offset2-row">Second distance <input id="sketch-offset2" value="2" /></label>
+      <label data-tools="scale">Scale <input id="sketch-scale" value="1" /></label>
+      <label data-tools="move">Move X <input id="sketch-move-x" value="0" /></label>
+      <label data-tools="move">Move Y <input id="sketch-move-y" value="0" /></label>
+      <label data-tools="move scale" class="check"><input id="sketch-copy" type="checkbox" /> Copy</label>
+      <button data-tools="move scale" id="sketch-pivot" type="button">Pick pivot</button>
+      <label data-tools="spline" class="check"><input id="sketch-closed" type="checkbox" /> Closed</label>
+      <label data-tools="text">Text <input id="sketch-text" value="Text" /></label>
+      <label data-tools="text">Font <input id="sketch-font" type="file" accept=".ttf,.otf" /><small>Roboto, or import an OpenType/TrueType font</small></label>
+      <label data-tools="text">Font weight <input id="sketch-weight" type="number" min="100" max="900" step="100" value="400" /></label>
+      <label data-tools="text">Font size <input id="sketch-size" value="10" /></label>
+      <label data-tools="text">Horizontal alignment <select id="sketch-horizontal"><option>left</option><option>center</option><option>right</option></select></label>
+      <label data-tools="text">Vertical alignment <select id="sketch-vertical"><option>baseline</option><option>bottom</option><option>middle</option><option>top</option></select></label>
+      <label data-tools="text" class="check"><input id="sketch-guide" type="checkbox" /> Use selected curve as guideline</label>
+      <label data-tools="dimension">Value <input id="sketch-dimension-value" placeholder="Formula or measured value" /></label>
+      <label data-tools="dimension">Mode <select id="sketch-dimension-mode"><option value="driving">Driving</option><option value="driven">Driven</option></select></label>
+      <button id="sketch-action" type="button">Add geometry</button>
+    </div>
+    <div class="sketch-selection-actions"><button id="sketch-convert" type="button">Toggle construction</button></div>
+    <details><summary>References</summary><button id="sketch-repair-support" type="button">Change sketch plane</button><div id="sketch-projections"></div></details>
+    <details><summary>Display</summary><div id="sketch-display-options"></div></details>
+    <fieldset><legend>Snap</legend><label class="check"><input id="sketch-snap" type="checkbox" checked /> Geometry</label><label class="check"><input id="sketch-grid" type="checkbox" /> Grid</label></fieldset>
+  </div>
+  <p class="field-error" id="sketch-error" role="alert" hidden></p>
+</div>
+<div class="sketch-live-dimensions" hidden>
+  <label data-tools="rectangle ellipse line"><span>Width</span><input id="width" value="10" autocomplete="off" spellcheck="false" /></label>
+  <label data-tools="rectangle ellipse"><span>Height</span><input id="height" value="10" autocomplete="off" spellcheck="false" /></label>
+  <label data-tools="circle arc slot rounding"><span>Radius</span><input id="sketch-radius" value="5" autocomplete="off" spellcheck="false" /></label>
+  <label data-tools="arc move"><span>Angle</span><input id="sketch-angle" value="90" autocomplete="off" spellcheck="false" /></label>
+</div>
+<div class="actions"><button id="cancel">Cancel</button><button id="apply" disabled>Finish sketch</button></div>

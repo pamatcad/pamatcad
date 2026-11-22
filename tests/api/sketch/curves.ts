@@ -1,0 +1,92 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { startCore } from "../../support/core.js";
+import { near } from "../../support/extrude.js";
+test("a centered rotated rectangle retains its center and decomposes into four lines", async (t) => {
+  const { core, scene } = await startCore(t, "centered-rectangle");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.yz);
+  const rectangle = await sketch.primitives.add("rectangle", { from: [20, 30], to: [25, 33], centered: true, angle: 35 });
+  const state = await sketch.state();
+  const points = rectangle.points.map(r => state.entities.find(e => e.reference.id === r.id)!).map(e => { if (e.geometry.type !== "point") {
+    assert.fail("Expected endpoint");
+  } return e.geometry.position; });
+  near(points.reduce((n, p) => n + p[0], 0) / 8, 20);
+  near(points.reduce((n, p) => n + p[1], 0) / 8, 30);
+  assert.equal(rectangle.curves.length, 4);
+  await sketch.complete();
+  const result = await core.solid.extrude(await sketch.regions.only(), { length1: 2 });
+  near((await (await scene.bodies.get(result.newSolids[0]!.id)).properties()).volume.value, 120);
+});
+test("an arc and its chord form an exact semicircular profile with a formula angle", async (t) => {
+  const { core, scene } = await startCore(t, "arc-profile");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const arc = await sketch.primitives.add("arc", { center: [0, 0], radius: 10, start: 0, end: 180 });
+  await sketch.constraints.add("fix", { points: [arc.points[0]!] });
+  await sketch.dimensions.add("radius", { curve: arc.curves[0], value: 10, mode: "driving" });
+  const angle = await sketch.dimensions.add("angle", { curve: arc.curves[0], value: "360 deg / 2", mode: "driving" });
+  near(angle.computed.value, 180);
+  await sketch.primitives.add("line", { from: [-10, 0], to: [10, 0] });
+  await sketch.complete();
+  const result = await core.solid.extrude(await sketch.regions.only(), { length1: 2 });
+  near((await (await scene.bodies.get(result.newSolids[0]!.id)).properties()).volume.value, Math.PI * 100);
+});
+test("closed fit splines interpolate their fit points and create exact extrusion profiles", async (t) => {
+  const { core, scene } = await startCore(t, "fit-spline");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const spline = await sketch.primitives.add("spline", { points: [[0, 0], [10, 0], [12, 8], [0, 10]], fit: true, closed: true });
+  const proxy = await sketch.getProxy();
+  assert.equal(proxy.regions.length, 1);
+  assert.equal(proxy.curves[0]!.entity.id, spline.curves[0]!.id);
+  await sketch.complete();
+  const result = await core.solid.extrude(await sketch.regions.only(), { length1: 1 });
+  assert.ok((await (await scene.bodies.get(result.newSolids[0]!.id)).properties()).volume.value > 90);
+});
+test("closed control splines retain endpoint coincidence when dragged", async (t) => {
+  const { core, scene } = await startCore(t, "control-spline");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const spline = await sketch.primitives.add("spline", { points: [[0, 0], [10, 0], [12, 8], [0, 10]], closed: true });
+  assert.equal(spline.points.length, 5);
+  assert.equal(spline.constraints.length, 1);
+  await sketch.drag(spline.points[0]!, [-2, -2]);
+  await sketch.complete();
+  const result = await core.solid.extrude(await sketch.regions.only(), { length1: 1 });
+  assert.ok((await (await scene.bodies.get(result.newSolids[0]!.id)).properties()).volume.value > 0);
+});
+test("ellipse semiaxes accept formulas and update the profile area", async (t) => {
+  const { core, scene } = await startCore(t, "ellipse-dimensions");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const ellipse = await sketch.primitives.add("ellipse", { center: [0, 0], major: 10, minor: 5 });
+  await sketch.dimensions.add("majorRadius", { curve: ellipse.curves[0], name: "major", value: 10, mode: "driving" });
+  await sketch.dimensions.add("minorRadius", { curve: ellipse.curves[0], value: "major / 4", mode: "driving" });
+  await sketch.complete();
+  const result = await core.solid.extrude(await sketch.regions.only(), { length1: 1 });
+  near((await (await scene.bodies.get(result.newSolids[0]!.id)).properties()).volume.value, Math.PI * 25);
+});
+test("symmetry, line tangency and point-on-ellipse constraints solve perturbed input", async (t) => {
+  const { scene } = await startCore(t, "geometric-constraints");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const axis = await sketch.primitives.add("line", { from: [0, -10], to: [0, 10] });
+  await sketch.constraints.add("fix", { curves: axis.curves });
+  const a = await sketch.primitives.add("point", { position: [-5, 2] }), b = await sketch.primitives.add("point", { position: [4, 3] });
+  await sketch.constraints.add("fix", { points: a.points });
+  await sketch.constraints.add("symmetric", { points: [a.points[0]!, b.points[0]!], curves: axis.curves });
+  const circle = await sketch.primitives.add("circle", { center: [4, 4], diameter: 6 });
+  await sketch.dimensions.add("radius", { curve: circle.curves[0], mode: "driving", value: 3 });
+  await sketch.constraints.add("tangent", { curves: [axis.curves[0]!, circle.curves[0]!] });
+  const ellipse = await sketch.primitives.add("ellipse", { center: [30, 0], major: 10, minor: 5 });
+  await sketch.constraints.add("fix", { curves: ellipse.curves });
+  const p = await sketch.primitives.add("point", { position: [40.1, 0.1] });
+  await sketch.constraints.add("pointOnCurve", { points: p.points, curves: ellipse.curves });
+  const state = await sketch.state();
+  const point = (id: string) => { const e = state.entities.find(e => e.reference.id === id)!; if (e.geometry.type !== "point") {
+    assert.fail("Expected point");
+  } return e.geometry.position; };
+  near(point(b.points[0]!.id)[0], 5);
+  near(point(b.points[0]!.id)[1], 2);
+  near(Math.abs(point(circle.points[0]!.id)[0]), 3);
+  const [x, y] = point(p.points[0]!.id);
+  near(((x - 30) / 10) ** 2 + (y / 5) ** 2, 1);
+  const before = await sketch.getProxy();
+  await sketch.recompute();
+  assert.deepEqual(await sketch.getProxy(), before);
+});

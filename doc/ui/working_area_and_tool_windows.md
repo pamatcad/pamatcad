@@ -2,6 +2,14 @@
 
 This documents describes general principles that should be used while implementing any new behaviour in working area, tool windows, popup-dialogs and navigation.
 
+# Navigation
+
+Middle-button drag pans the view. Shift + middle-button drag orbits around the current view target. The wheel zooms. Left-button interactions select and edit geometry or drag tool handles; right-click remains available for context actions. These controls apply in both camera projections and while editing a sketch or feature.
+
+Navigation must preserve geometry, selection, and active tool parameters, including an unfinished sketch drawing. Left-button editing must preserve the camera. Middle/right presses on handle labels must not change their values.
+
+Verify panning, orbiting, and wheel zoom in orthographic and perspective views; left/Shift-left selection and point/handle dragging; and navigating during sketch drawing and an extrusion preview without changing the working geometry, parameters, or timeline.
+
 # The selection context
 
 If there is no active tool and user selects something in the working area (click to select, shift+click to add or remove from the current selection), the editor should keep this selection and present it to a tool should it activate. The tool then decides whether to use or discard the selection. For example, if a user selects a face and starts a fillet operation, the face becomes an input for a fillet, but if a current selection is an edge and user starts an extrude operation, the selection is discarded by the tool.

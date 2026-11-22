@@ -1,11 +1,11 @@
 pub(crate) mod modeling;
+mod sketching;
 
 use crate::{
     error::{CoreError, ErrorCode, Result},
-    formula::FormulaEvaluator,
     model::{Body, Scene},
     protocol::*,
-    sketch::{self, Frame, Sketch},
+    sketch::{Frame, Sketch},
 };
 use std::collections::BTreeMap;
 
@@ -15,6 +15,7 @@ pub struct Engine {
     next_id: u64,
     next_revision: u64,
     previews: BTreeMap<(u64, String), modeling::PreviewOverlay>,
+    sketch_previews: BTreeMap<(u64, String), Sketch>,
 }
 
 impl Engine {
@@ -56,10 +57,13 @@ impl Engine {
 
     pub fn end_session(&mut self, session: u64) {
         self.previews.retain(|(owner, _), _| *owner != session);
+        self.sketch_previews
+            .retain(|(owner, _), _| *owner != session);
     }
 
     fn invalidate_previews(&mut self, scene: &str) {
         self.previews.retain(|(_, id), _| id != scene);
+        self.sketch_previews.retain(|(_, id), _| id != scene);
     }
 
     pub fn execute_for(&mut self, session: u64, request: Request) -> Result<Response> {
@@ -83,16 +87,15 @@ impl Engine {
             }
             Request::SceneEvaluateFormula(input) => {
                 let units = self.scene(&input.scene_id)?.data.units;
-                let result = FormulaEvaluator::evaluate(
-                    &input.expression,
-                    units.unit(input.expected_dimension),
-                )?;
+                let result = self
+                    .scene(&input.scene_id)?
+                    .evaluate_formula(&input.expression, units.unit(input.expected_dimension))?;
                 Ok(Response::SceneEvaluateFormula(result))
             }
             Request::SceneClose(query) => {
-                self.scenes.remove(&query.scene_id).ok_or_else(|| {
-                    CoreError::new(ErrorCode::NotFound, "Scene does not exist")
-                })?;
+                self.scenes
+                    .remove(&query.scene_id)
+                    .ok_or_else(|| CoreError::new(ErrorCode::NotFound, "Scene does not exist"))?;
                 self.invalidate_previews(&query.scene_id);
                 Ok(Response::SceneClose(()))
             }
@@ -109,7 +112,13 @@ impl Engine {
                     }
                     SketchSupport::Face(face) => self.face_frame(face)?,
                 };
-                let sketch = Sketch::new(self.id("sketch"), input.plane, frame);
+                let mut sketch = Sketch::new(self.id("sketch"), input.plane, frame);
+                sketch.data.name = input.name;
+                self.validate_sketch_name(
+                    &sketch.data.scene_id,
+                    &sketch.data.id,
+                    sketch.data.name.as_deref(),
+                )?;
                 let data = sketch.data.clone();
                 self.scenes
                     .get_mut(&data.scene_id)
@@ -120,49 +129,84 @@ impl Engine {
                 Ok(Response::SketchCreate(data))
             }
             Request::SketchGetProxy(query) => Ok(Response::SketchGetProxy(
-                self.sketch(&query.sketch)?.proxy()?,
+                self.view_sketch(session, &query)?.proxy()?,
             )),
-            Request::PrimitiveAdd(input) => {
-                self.sketch(&input.sketch)?.ensure_editable()?;
-                let id = match &input.primitive {
-                    Primitive::Rectangle(params) => {
-                        sketch::primitives::validate(params)?;
-                        self.id("rectangle")
-                    }
-                    Primitive::Circle(_) => self.id("circle"),
-                };
-                let sketch = self
-                    .scenes
-                    .get_mut(&input.sketch.scene_id)
-                    .unwrap()
-                    .sketches
-                    .get_mut(&input.sketch.id)
-                    .unwrap();
-                let data = match input.primitive {
-                    Primitive::Rectangle(params) => PrimitiveData::Rectangle(
-                        sketch::primitives::add_rectangle(sketch, id, params),
-                    ),
-                    Primitive::Circle(params) => {
-                        PrimitiveData::Circle(sketch::primitives::add_circle(sketch, id, params)?)
-                    }
-                };
-                self.invalidate_previews(&input.sketch.scene_id);
+            Request::PrimitiveAdd(mut input) => {
+                if let Primitive::Text(p) = &mut input.primitive {
+                    let scene = self.scene(&input.sketch.scene_id)?;
+                    let evaluated = scene.evaluate_formula(&p.size, scene.data.units.length)?;
+                    p.size = Formula::Number(
+                        evaluated.computed.value
+                            * FormulaUnit::Length(evaluated.computed.unit).scale(),
+                    );
+                }
+                let data = self.update_sketch_for(
+                    session,
+                    input.preview.unwrap_or(false),
+                    &input.sketch,
+                    |sketch| sketch.add_primitive(input.primitive),
+                )?;
                 Ok(Response::PrimitiveAdd(data))
             }
             Request::SketchComplete(input) => {
-                self.sketch(&input.sketch)?;
-                let scene = self.scenes.get_mut(&input.sketch.scene_id).unwrap();
-                let data = scene
-                    .sketches
-                    .get_mut(&input.sketch.id)
-                    .unwrap()
-                    .complete()?;
-                scene.timeline.push(TimelineEntry::Sketch {
-                    id: data.id.clone(),
-                });
-                self.invalidate_previews(&input.sketch.scene_id);
-                Ok(Response::SketchComplete(data))
+                self.complete_sketch(input).map(Response::SketchComplete)
             }
+            Request::SketchFind(input) => self.find_sketch(input).map(Response::SketchFind),
+            Request::SketchState(input) => Ok(Response::SketchState(
+                self.view_sketch(session, &input)?.state(),
+            )),
+            Request::SketchEdit(input) => self.edit_sketch(input).map(Response::SketchEdit),
+            Request::SketchCancel(input) => self.cancel_sketch(input).map(Response::SketchCancel),
+            Request::SketchSettings(input) => {
+                self.sketch_settings(input).map(Response::SketchSettings)
+            }
+            Request::SketchRecompute(input) => {
+                self.sketch(&input.sketch)?.ensure_editable()?;
+                self.recompute_sketch(&input.sketch)?;
+                Ok(Response::SketchRecompute(
+                    self.sketch(&input.sketch)?.status.clone(),
+                ))
+            }
+            Request::SketchConstraintAdd(input) => self
+                .update_sketch(&input.sketch, |sketch| {
+                    sketch.add_constraint(input.kind, input.parameters)
+                })
+                .map(Response::SketchConstraintAdd),
+            Request::SketchDimensionAdd(input) => self
+                .add_sketch_dimension(input)
+                .map(Response::SketchDimensionAdd),
+            Request::SketchDimensionUpdate(input) => self
+                .update_sketch_dimension(input)
+                .map(Response::SketchDimensionUpdate),
+            Request::SketchRemove(input) => {
+                self.remove_sketch_items(input).map(Response::SketchRemove)
+            }
+            Request::SketchModifyCurves(input) => self
+                .modify_sketch_curves(session, input)
+                .map(Response::SketchModifyCurves),
+            Request::SketchTransform(input) => self
+                .transform_sketch(session, input)
+                .map(Response::SketchTransform),
+            Request::SketchConstruction(input) => {
+                self.update_sketch(&input.sketch, |s| {
+                    for id in s.selected_entities(&input.entities)? {
+                        if id != "origin" {
+                            s.entities.get_mut(&id).unwrap().construction = input.construction;
+                        }
+                    }
+                    Ok(())
+                })?;
+                Ok(Response::SketchConstruction(
+                    self.sketch(&input.sketch)?.state(),
+                ))
+            }
+            Request::SketchProject(input) => {
+                self.project_geometry(input).map(Response::SketchProject)
+            }
+            Request::SketchSupportUpdate(input) => self
+                .update_sketch_support(input)
+                .map(Response::SketchSupportUpdate),
+            Request::SketchDrag(input) => self.drag_sketch_point(input).map(Response::SketchDrag),
             Request::TimelineList(input) => Ok(Response::TimelineList(
                 self.scene(&input.scene_id)?.timeline.clone(),
             )),
@@ -258,8 +302,17 @@ impl Engine {
                 .map(Response::SceneGetProxyFor),
             Request::SceneDiscardPreview(query) => {
                 self.scene(&query.scene_id)?;
+                self.sketch_previews
+                    .remove(&(session, query.scene_id.clone()));
                 self.previews.remove(&(session, query.scene_id));
                 Ok(Response::SceneDiscardPreview(()))
+            }
+            Request::BodyVertices(input) => {
+                let body = self.body(&input.body)?;
+                Ok(Response::BodyVertices(
+                    body.shape
+                        .vertices(&body.reference, &body.revision.to_string())?,
+                ))
             }
             Request::BodyMesh(input) => Ok(Response::BodyMesh(
                 self.body(&input.body)?.shape.triangle_mesh()?,

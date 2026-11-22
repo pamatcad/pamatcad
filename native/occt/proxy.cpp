@@ -61,3 +61,15 @@ extern "C" int pamat_proxy(const PamatShape* shape, PamatProxyFace face_sink, Pa
         }
     }, error, error_size);
 }
+
+extern "C" int pamat_vertices(const PamatShape* shape, void (*sink)(void*, size_t, const double*), void* context, char* error, size_t error_size) {
+    return checked([&] {
+        TopTools_IndexedMapOfShape vertices;
+        TopExp::MapShapes(shape->value, TopAbs_VERTEX, vertices);
+        for(int i=1; i<=vertices.Extent(); ++i) {
+            const auto p=BRep_Tool::Pnt(TopoDS::Vertex(vertices.FindKey(i)));
+            const double xyz[]={p.X(),p.Y(),p.Z()};
+            sink(context,i-1,xyz);
+        }
+    },error,error_size);
+}

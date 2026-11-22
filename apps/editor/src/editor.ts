@@ -2,7 +2,7 @@ import "./style.css";
 import wordmarkUrl from "../../../doc/media/logo-letters.svg?url";
 import faviconUrl from "../../../doc/media/logo.svg?url";
 import extrudeIconUrl from "../../../doc/api/command/solid/extrude/icon.svg?url";
-import { Core, type Scene, type BodyProxy, type SketchProxy, type TimelineEntry } from "@pamatcad/sdk";
+import { Core, type Scene, type BodyProxy, type SketchProxy, type TimelineEntry, type SketchSupport } from "@pamatcad/sdk";
 import { editorTransport } from "./runtime/transport";
 import { appendOutput, initOutputDock, logCommand, setConsoleEnabled, updateSceneTree, captureOutput, restoreOutput, type OutputState } from "./dock";
 import { Viewport, type Point, type Rectangle, type ViewState } from "./viewport";
@@ -13,8 +13,10 @@ import { initMenu } from "./menu";
 import { initDocumentTabs } from "./documents";
 import { resetUiSettings } from "./ui-settings";
 import { selectionOwner, changeSelection, type SelectionItem } from "./selection";
+import { SketchTool } from "./tools/sketch";
 import { ExtrudeTool } from "./tools/extrude";
 import { initToolWindow, type ToolWindowPosition } from "./tool-window";
+import { initRibbon, type Workbench } from "./ribbon";
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const button = (id: string) => el<HTMLButtonElement>(id);
@@ -27,12 +29,14 @@ let pendingPreview = false;
 let stopConsole: (() => void) | undefined;
 
 type EditorDocument = {
+  workbench: Workbench;
   scene: Scene;
   entries: TimelineEntry[];
   sketches: Map<string, SketchProxy>;
   proxies: Map<string, BodyProxy>;
   selection: SelectionItem[];
   extrude?: ExtrudeTool;
+  sketchTool?: SketchTool;
   toolPosition?: ToolWindowPosition;
   objectTab: BrowserTab;
   hiddenObjects: Set<string>;
@@ -55,6 +59,7 @@ let documentTabs: ReturnType<typeof initDocumentTabs>;
 let browser: ReturnType<typeof initSceneBrowser>;
 let menu: ReturnType<typeof initMenu>;
 let toolWindow: ReturnType<typeof initToolWindow>;
+let ribbon: ReturnType<typeof initRibbon>;
 const status = (text: string) => {
   el("status").textContent = text;
   if (activeDocument) activeDocument.status = text;
@@ -65,6 +70,7 @@ const core = new Core(transport);
 
 function controls() {
   const doc = activeDocument;
+  ribbon?.render(doc?.workbench ?? "solid", doc?.sketchTool, busy || pendingPreview, !!doc);
   button("new-sketch").disabled = busy || pendingPreview || !doc || !!doc.tool;
   button("extrude").disabled = busy || pendingPreview || !doc || !!doc.tool;
   for (const [id, name] of [
@@ -74,16 +80,13 @@ function controls() {
     button(id).setAttribute("aria-pressed", String(doc?.tool === name));
   }
   el("progress").hidden = !busy && !pendingPreview;
+  button("sketch-view").hidden = !doc?.sketchTool?.sketch;
   setConsoleEnabled(!busy && !!doc && !doc.tool && !pendingPreview, stopConsole);
   menu?.setBusy(busy || pendingPreview);
   documentTabs?.render([...documents.values()].map(({ scene }) => ({ id: scene.id, name: scene.name ?? "Untitled" })), activeDocument?.scene.id, busy || pendingPreview);
   if (doc?.tool) {
     button("cancel").disabled = busy;
-    let valid = true;
-    if (doc.tool === "sketch") {
-      try { rectangle(); } catch { valid = false; }
-    }
-    button("apply").disabled = busy || (doc.tool === "sketch" ? doc.drawing || !valid : !doc.extrude?.ready);
+    button("apply").disabled = busy || (doc.tool === "sketch" ? !doc.sketchTool?.ready : !doc.extrude?.ready);
   }
 }
 
@@ -107,14 +110,15 @@ function currentSelection() { return activeDocument?.extrude?.selection ?? activ
 
 function drawSelection() {
   const doc = activeDocument;
-  viewport.setSelection(currentSelection(), doc?.extrude?.filter ?? (doc?.tool === "sketch" ? "none" : "all"));
+  viewport.setSelection(currentSelection(), doc?.extrude?.filter ?? doc?.sketchTool?.filter ?? "all");
   drawLists();
   controls();
 }
 
 function select(item?: SelectionItem, additive = false) {
   const doc = activeDocument;
-  if (!doc || busy || doc.tool === "sketch") return;
+  if (!doc || busy) return;
+  if (doc.sketchTool) { doc.sketchTool.click({ item, point: null, additive, picks: [], client: [0, 0] }); return; }
   if (doc.extrude) { void doc.extrude.select(item, additive); return; }
   doc.selection = changeSelection(doc.selection, item, additive);
   if (item?.kind === "plane") doc.objectTab = "Construction";
@@ -122,7 +126,7 @@ function select(item?: SelectionItem, additive = false) {
   drawSelection();
   const count = doc.selection.length;
   status(count > 1 ? `${count} items selected` : !count ? "Ready" :
-    ({ region: "Profile", sketch: "Profile", face: "Face", edge: "Edge", body: "Body", plane: "Plane" }[doc.selection[0].kind] + " selected"));
+    ({ region: "Profile", sketch: "Profile", face: "Face", edge: "Edge", vertex: "Vertex", body: "Body", plane: "Plane" }[doc.selection[0].kind] + " selected"));
 }
 
 function treeNodes(): TreeNode[] {
@@ -153,7 +157,7 @@ function treeNodes(): TreeNode[] {
 
 function drawLists() {
   const doc = activeDocument;
-  browser?.render(doc?.objectTab ?? browser.activeTab, treeNodes(), busy || doc?.tool === "sketch", doc?.scene.id);
+  browser?.render(doc?.objectTab ?? browser.activeTab, treeNodes(), busy || !!(doc?.sketchTool && !doc.sketchTool.pickingSupport), doc?.scene.id);
   if (!doc) {
     el("features").replaceChildren();
     updateSceneTree([]);
@@ -163,6 +167,7 @@ function drawLists() {
     const li = document.createElement("li");
     li.title = entry.id;
     li.textContent = entry.type === "sketch" ? "Sketch" : "Extrude";
+    if (entry.type === "sketch") { li.title = "Double-click to edit " + entry.id; li.ondblclick = () => { void beginSketch(entry.id); }; }
     return li;
   });
   el("features").replaceChildren(...features);
@@ -194,7 +199,7 @@ async function refresh() {
   doc.entries = timeline;
   doc.proxies.clear();
   nextProxies.forEach((proxy, id) => doc.proxies.set(id, proxy));
-  for (const entry of timeline) if (entry.type === "sketch" && !doc.sketches.has(entry.id)) {
+  for (const entry of timeline) if (entry.type === "sketch") {
     try { doc.sketches.set(entry.id, await doc.scene.sketches.getProxy(entry.id)); }
     catch (error) { appendOutput(message(error), true); }
   }
@@ -215,8 +220,11 @@ function closeTool(discard = true) {
   if (discard && doc.extrude) doc.selection = [...doc.extrude.profiles];
   doc.extrude?.close(discard);
   doc.extrude = undefined;
+  doc.sketchTool?.close();
+  doc.sketchTool = undefined;
   viewport.setHandles();
   const wasSketching = doc.tool === "sketch";
+  if (wasSketching) doc.workbench = "solid";
   doc.tool = undefined;
   doc.anchor = undefined;
   doc.drawing = false;
@@ -246,6 +254,7 @@ function saveDocument() {
   activeDocument.view = viewport.captureView();
   activeDocument.output = captureOutput();
   activeDocument?.extrude?.suspend();
+  activeDocument?.sketchTool?.suspend();
 }
 
 function showDocument(doc?: EditorDocument) {
@@ -278,6 +287,7 @@ function showDocument(doc?: EditorDocument) {
   controls();
   drawSelection();
   doc?.extrude?.resume();
+  doc?.sketchTool?.resume();
 }
 
 function activateDocument(id: string) {
@@ -303,10 +313,11 @@ function reorderDocument(id: string, beforeId: string | null) {
 async function newScene() {
   if (pendingPreview) return;
   activeDocument?.extrude?.suspend();
+  activeDocument?.sketchTool?.suspend();
   await work(async () => {
     const created = await core.scene.create("Untitled " + (++nextDocument));
     saveDocument();
-    const doc: EditorDocument = { scene: created, entries: [], sketches: new Map(), selection: [],
+    const doc: EditorDocument = { workbench: "solid", scene: created, entries: [], sketches: new Map(), selection: [],
       proxies: new Map(), objectTab: browser.initialTab,
       hiddenObjects: new Set(Object.values(created.construction.builtin.planes).map((plane) => plane.id)),
       drawing: false, fitFirstPreview: false, previewBodies: [], previewRemoved: [], panel: [], status: "Ready" };
@@ -327,6 +338,7 @@ async function closeDocument(id: string) {
   await work(async () => {
     await doc.scene.close();
     doc.extrude?.close(false);
+    doc.sketchTool?.suspend();
     const ids = [...documents.keys()];
     const index = ids.indexOf(id);
     documents.delete(id);
@@ -368,59 +380,67 @@ function openPanel(name: "sketch" | "extrude") {
   controls();
   drawLists();
 }
-function rectangle(): Rectangle {
-  const from: Point = activeDocument?.anchor || [0, 0];
-  const w = input("width").valueAsNumber,
-    h = input("height").valueAsNumber;
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w === 0 || h === 0)
-    throw new Error("Enter a nonzero width and height.");
-  return { from, to: [from[0] + w, from[1] + h] };
-}
-function updateDraft() {
+async function cancelTool() {
   const doc = activeDocument;
-  if (!doc) return;
-  try {
-    setDraft(rectangle());
-    button("apply").disabled = busy || doc.drawing;
-  } catch {
-    setDraft();
-    button("apply").disabled = true;
-  }
+  if (!doc || busy) return;
+  if (doc.sketchTool) await work(async () => {
+    await doc.sketchTool!.cancel();
+    closeTool();
+    // Cancelled new sketches have no timeline entry.
+    doc.sketches = new Map([...doc.sketches].filter(([id]) => doc.entries.some(e => e.id === id)));
+    await refresh();
+    status("Ready");
+  });
+  else { closeTool(); status("Ready"); }
 }
-function updateCorner(point: Point) {
-  const anchor = activeDocument?.anchor;
-  if (!anchor) return;
-  input("width").value = String(Number((point[0] - anchor[0]).toFixed(2)));
-  input("height").value = String(Number((point[1] - anchor[1]).toFixed(2)));
-  updateDraft();
-}
-function beginSketch() {
+
+async function beginSketch(editId?: string) {
   const doc = activeDocument;
-  if (!doc) return;
-  doc.tool = "sketch";
-  doc.anchor = undefined;
-  doc.drawing = false;
-  openPanel("sketch");
-  status("Sketching on XY");
-  viewport.sketching(true);
-  updateDraft();
-  for (const id of ["width", "height"])
-    input(id).oninput = () => {
-      doc.drawing = false;
-      updateDraft();
-    };
-  button("apply").onclick = () =>
-    work(async () => {
-      const rect = rectangle();
-      const sketch = await doc.scene.sketches.create(doc.scene.construction.builtin.planes.xy);
-      await sketch.primitives.add("rectangle", rect);
-      await sketch.complete();
-      doc.selection = [{ kind: "sketch", id: sketch.id }];
-      doc.objectTab = "Sketches";
-      closeTool();
-      await refresh();
-      status("Profile selected");
+  if (!doc || doc.tool || busy || pendingPreview) return;
+  await work(async () => {
+    const initial = doc.selection[0];
+    const support: SketchSupport | undefined = initial?.kind === "plane"
+      ? Object.values(doc.scene.construction.builtin.planes).find(p => p.id === initial.id)
+      : initial?.kind === "face" ? initial.ref : undefined;
+    doc.tool = "sketch";
+    doc.workbench = "sketch";
+    doc.selection = [];
+    const tool = new SketchTool(el("tool-panel"), doc.scene, viewport, {
+      changed(pending) {
+        if (activeDocument !== doc) return;
+        pendingPreview = pending;
+        drawSelection();
+      },
+      proxy(proxy) {
+        if (activeDocument !== doc) return;
+        doc.sketches.set(proxy.sketch.id, proxy);
+        viewport.setSketches(doc.sketches);
+      },
+      visibility(choosing) {
+        if (activeDocument !== doc) return;
+        const hidden = new Set(doc.hiddenObjects);
+        if (choosing) for (const plane of Object.values(doc.scene.construction.builtin.planes)) hidden.delete(plane.id);
+        if (doc.sketchTool?.sketch) hidden.delete(doc.sketchTool.sketch.id);
+        viewport.setVisibility(hidden);
+        drawSelection();
+      },
+      status(text) { if (activeDocument === doc) status(text); },
     });
+    doc.sketchTool = tool;
+    el("tool-panel").hidden = false;
+    toolWindow.restore(doc.toolPosition);
+    button("cancel").onclick = () => { void cancelTool(); };
+    button("apply").onclick = () => work(async () => {
+      const id = await tool.finish();
+      doc.hiddenObjects.delete(id);
+      doc.selection = [{kind:"sketch",id}];
+      doc.objectTab = "Sketches";
+      closeTool(false);
+      await refresh();
+      status("Sketch complete");
+    });
+    await tool.start(editId ? await doc.scene.sketches.get(editId) : undefined, support);
+  });
 }
 
 async function beginExtrude() {
@@ -531,31 +551,22 @@ export async function startEditor() {
     (hit) => {
       const doc = activeDocument;
       if (!doc || busy) return;
-      if (doc.tool === "sketch" && hit.point) {
-        if (doc.drawing) {
-          updateCorner(hit.point);
-          doc.drawing = false;
-          controls();
-          status("Rectangle ready");
-        } else {
-          doc.anchor = hit.point;
-          doc.drawing = true;
-          setDraft();
-          button("apply").disabled = true;
-          status("Pick the opposite corner");
-        }
-      } else select(hit.item, hit.additive);
+      if (doc.sketchTool) doc.sketchTool.click(hit);
+      else select(hit.item, hit.additive);
     },
-    (point) => {
-      const doc = activeDocument;
-      if (doc?.tool === "sketch" && doc.drawing && point && !busy) updateCorner(point);
-    },
+    (point) => { activeDocument?.sketchTool?.move(point); },
     editorTheme.definition,
   );
   toolWindow = initToolWindow(el("tool-panel"), (position) => { if (activeDocument) activeDocument.toolPosition = position; });
   editorTheme.subscribe((theme) => viewport.setTheme(theme));
-  button("new-sketch").onclick = beginSketch;
+  button("new-sketch").onclick = () => { void beginSketch(); };
+  button("sketch-view").onclick = () => viewport.alignSketch();
   button("extrude").onclick = beginExtrude;
+  ribbon = initRibbon(document.querySelector<HTMLElement>(".ribbon")!, value => {
+    if (!activeDocument) return;
+    activeDocument.workbench = value;
+    controls();
+  }, () => activeDocument?.sketchTool);
   button("home").onclick = () => viewport.home();
   const cameraButton = button("camera-mode");
   const cameraModes = el("camera-modes");
@@ -582,7 +593,7 @@ export async function startEditor() {
   browser = initSceneBrowser({
     onTab(tab) {
       if (activeDocument) activeDocument.objectTab = tab;
-      browser.render(tab, treeNodes(), busy || activeDocument?.tool === "sketch", activeDocument?.scene.id);
+      browser.render(tab, treeNodes(), busy || !!(activeDocument?.sketchTool && !activeDocument.sketchTool.pickingSupport), activeDocument?.scene.id);
     },
     onSelect(id, additive) {
       const doc = activeDocument;
@@ -595,6 +606,7 @@ export async function startEditor() {
         else if (Object.values(doc.scene.construction.builtin.planes).some((plane) => plane.id === id)) select({ kind: "plane", id }, additive);
       }
     },
+    onActivate(id) { if (activeDocument?.sketches.has(id)) void beginSketch(id); },
     onVisibility: changeVisibility,
   });
   documentTabs = initDocumentTabs({ activate: activateDocument, close: (id) => { void closeDocument(id); }, create: () => { void newScene(); }, reorder: reorderDocument });
@@ -608,7 +620,7 @@ export async function startEditor() {
   } });
   document.addEventListener("keydown", (e) => {
     const doc = activeDocument;
-    if (e.target instanceof Element && e.target.closest("dialog")) return;
+    if (e.defaultPrevented || e.target instanceof Element && e.target.closest("dialog")) return;
     if (!cameraModes.hidden) {
       if (e.key === "Escape") {
         setCameraMenuOpen(false);
@@ -619,11 +631,13 @@ export async function startEditor() {
       }
       return;
     }
-    if (e.key === "Escape" && doc?.tool && !busy) {
-      closeTool();
-      status("Ready");
+    if (e.key === "Escape" && doc?.tool) {
+      if (doc.sketchTool) {
+        e.preventDefault();
+        doc.sketchTool.escape();
+      } else if (!busy) void cancelTool();
     }
-    if (e.key === "Enter" && doc?.tool && e.target instanceof HTMLInputElement) button("apply").click();
+    if (e.key === "Enter" && doc?.tool === "extrude" && e.target instanceof HTMLInputElement) button("apply").click();
   });
   await newScene();
   if (!activeDocument) throw new Error(el("status").textContent || "Could not create the initial scene");

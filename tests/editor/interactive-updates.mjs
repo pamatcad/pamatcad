@@ -331,6 +331,7 @@ export async function testInteractiveUpdates(page, sdk) {
   assert.deepEqual(result.evaluatedLengths.slice(1, 4), ["15 mm", "23", "21"]);
   assert.ok(Math.abs(result.volume - 2100) < 1e-7);
   console.log("Interactive updates: response-driven previews, latest input, cancellation, one render per frame, persistent handles, and merged face groups passed", result);
+  await page.addScriptTag({ path: "tests/editor/rectangle.js" });
   await page.evaluate(async () => {
     const { Viewport } = await import("/src/viewport.ts");
     const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -342,18 +343,32 @@ export async function testInteractiveUpdates(page, sdk) {
       }
     };
     let editor;
-    const home = Viewport.prototype.home;
-    Viewport.prototype.home = function (...args) { editor = this; return home.apply(this, args); };
+    const capture = Viewport.prototype.captureView;
+    Viewport.prototype.captureView = function (...args) { editor = this; return capture.apply(this, args); };
     try {
       await until(() => !document.querySelector("#new-sketch").disabled);
       document.querySelector("#new-sketch").click();
-      await until(() => editor && !document.querySelector("#apply").disabled);
-    } finally { Viewport.prototype.home = home; }
-    editor.restoreView({ mode: "orthographic", position: [3, 2, 60], target: [3, 2, 0], span: 60, zoom: 1.7 });
+      await until(() => editor && document.querySelector("#sketch-planes"));
+    } finally { Viewport.prototype.captureView = capture; }
     let view = JSON.stringify(editor.captureView());
+    const restoredView = () => {
+      const before = JSON.parse(view), after = editor.captureView();
+      const values = v => [...v.position, ...v.target, ...v.up, v.span, v.zoom];
+      return before.mode === after.mode && values(before).every((n, i) => Math.abs(n - values(after)[i]) < 1e-9);
+    };
+    [...document.querySelectorAll("#sketch-planes button")].find(b => b.textContent === "XY").click();
+    await until(() => !document.querySelector("#apply").disabled);
+    beginRectangleDraft();
+    for (const id of ["width", "height"]) {
+      const input = document.getElementById(id);
+      input.value = "10";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    await until(() => !document.querySelector("#apply").disabled);
+    editor.restoreView({ mode: "orthographic", position: [3, 2, 60], target: [3, 2, 0], span: 60, zoom: 1.7 });
     document.querySelector("#apply").click();
     await until(() => !document.querySelector("#extrude").disabled);
-    check(JSON.stringify(editor.captureView()) === view, "Finish sketch must preserve the camera");
+    check(restoredView(), "Finish sketch must restore the pre-sketch camera");
     for (const mode of ["orthographic", "perspective"]) {
       document.querySelector("#sketches-tab").click();
       // The sketch row is exposed through its accessible text rather than a private selector.
@@ -368,12 +383,15 @@ export async function testInteractiveUpdates(page, sdk) {
       check(JSON.stringify(editor.captureView()) === view, `${mode}: Apply must preserve the camera`);
       check(editor.filter === "all", "Apply must restore general selection including edges");
     }
-    document.querySelector("#new-sketch").click();
-    editor.restoreView({ mode: "orthographic", position: [2, 3, 50], target: [2, 3, 0], span: 30, zoom: 2 });
     view = JSON.stringify(editor.captureView());
+    document.querySelector("#new-sketch").click();
+    [...document.querySelectorAll("#sketch-planes button")].find(b => b.textContent === "YZ").click();
+    await until(() => !document.querySelector("#apply").disabled);
+    editor.restoreView({ mode: "orthographic", position: [2, 3, 50], target: [2, 3, 0], span: 30, zoom: 2 });
     document.querySelector("#cancel").click();
-    check(JSON.stringify(editor.captureView()) === view, "Cancel sketch must preserve the camera");
+    await until(() => !document.querySelector("#new-sketch").disabled);
+    check(restoredView(), "Cancel sketch must restore the pre-sketch camera");
   });
-  console.log("Camera preserved through Finish, Cancel and Apply in both projections; general edge selection restored");
+  console.log("Pre-sketch camera restored through Finish and Cancel; Apply preserves both projections and restores general edge selection");
 
 }

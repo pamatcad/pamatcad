@@ -10,7 +10,7 @@ test("sketch region proxies and planar frames are repeatable read-only geometry"
   const { core, scene } = await startCore(t, "sketch-proxies");
   for (const plane of Object.values(scene.construction.builtin.planes)) {
     const sketch = await scene.sketches.create(plane);
-    await assert.rejects(sketch.getProxy(), code("INVALID_STATE"));
+    assert.deepEqual((await sketch.getProxy()).regions, []);
     await sketch.primitives.add("rectangle", { from: [0, 0], to: [10, 10] });
     await sketch.primitives.add("circle", { center: [20, 5], diameter: 4 });
     await sketch.complete();
@@ -19,15 +19,17 @@ test("sketch region proxies and planar frames are repeatable read-only geometry"
     assert.deepEqual(proxy, await scene.sketches.getProxy(sketch.id));
     assert.deepEqual(await scene.timeline.list(), before);
     assert.deepEqual(proxy.regions.map((r) => r.region), await sketch.regions.all());
-    assert.equal(proxy.regions[0]!.boundary.length, 4);
-    assert.equal(proxy.regions[1]!.boundary.length, 128);
+    const rectangleRegion = proxy.regions.find(r => r.boundary.length === 4)!;
+    assert.ok(rectangleRegion);
+    const circleRegion = proxy.regions.find(r => r !== rectangleRegion)!;
+    assert.ok(circleRegion.boundary.length >= 16);
     const { origin, u, v, normal } = proxy.frame;
     const dot = (a: number[], b: number[]) => a.reduce((sum, n, i) => sum + n * b[i]!, 0);
     for (const axis of [u, v, normal]) near(dot(axis, axis), 1);
     near(dot(u, v), 0); near(dot(u, normal), 0); near(dot(v, normal), 0);
     for (const region of proxy.regions) for (const point of region.boundary) near(dot(point.map((n, i) => n - origin[i]!), normal), 0);
-    const feature = await core.solid.extrude(proxy.regions[0]!.region, { length1: 5 });
-    const face = await feature.faces.endCap1({ profile: proxy.regions[0]!.region }).only();
+    const feature = await core.solid.extrude(rectangleRegion.region, { length1: 5 });
+    const face = await feature.faces.endCap1({ profile: rectangleRegion.region }).only();
     const body = await scene.bodies.get(face.bodyId);
     const properties = await body.faces.properties(face);
     assert.ok(properties.frame);

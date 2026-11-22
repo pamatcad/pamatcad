@@ -35,7 +35,9 @@ impl ExtrudeParameters {
         let units = scene.data.units;
         let offset = match &mut self.start {
             None | Some(ExtrudeStart::ProfilePlane) => 0.,
-            Some(ExtrudeStart::Offset { offset }) => offset.resolve(units.length)?,
+            Some(ExtrudeStart::Offset { offset }) => {
+                offset.resolve_in_scene(scene, units.length)?
+            }
             Some(ExtrudeStart::Object { face }) => {
                 let (body, slot) = scene.resolve_face(face)?;
                 let [min, max] = body.shape.axial_bounds(Some(slot), frame)?;
@@ -63,13 +65,13 @@ impl ExtrudeParameters {
         let first_length = self
             .length1
             .as_mut()
-            .map(|formula| formula.resolve(units.length))
+            .map(|formula| formula.resolve_in_scene(scene, units.length))
             .transpose()?;
         let first_extent = self.extent1.as_ref().unwrap_or(&ExtrudeExtent::Length);
         let first_taper = self
             .taper_angle1
             .as_mut()
-            .map(|formula| formula.resolve(units.angle))
+            .map(|formula| formula.resolve_in_scene(scene, units.angle))
             .transpose()?
             .unwrap_or(0.);
         let make_side = |extent: &ExtrudeExtent,
@@ -136,12 +138,12 @@ impl ExtrudeParameters {
                     self.extent2.as_ref().unwrap_or(&ExtrudeExtent::Length),
                     self.length2
                         .as_mut()
-                        .map(|formula| formula.resolve(units.length))
+                        .map(|formula| formula.resolve_in_scene(scene, units.length))
                         .transpose()?,
                     -sign,
                     self.taper_angle2
                         .as_mut()
-                        .map(|formula| formula.resolve(units.angle))
+                        .map(|formula| formula.resolve_in_scene(scene, units.angle))
                         .transpose()?
                         .unwrap_or(0.),
                 )?,

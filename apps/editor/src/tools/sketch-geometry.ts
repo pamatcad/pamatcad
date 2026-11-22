@@ -1,0 +1,226 @@
+import type { Primitive, SketchEntity, SketchState } from "@pamatcad/sdk";
+import type { Point } from "../viewport";
+export const variants = {
+  select: ["Select"], point: ["Point"], line: ["Two points"],
+  rectangle: ["Two corners", "Three points", "Centered"],
+  circle: ["Center and radius", "Two points and radius", "Three points", "Two tangents and radius", "Three tangents"],
+  arc: ["Center, point and angle", "Three points"],
+  ellipse: ["Center, width and height", "Rectangle"],
+  slot: ["Three points", "Center and line", "Center to center"],
+  spline: ["Fit points", "Control points"], text: ["Text"],
+  dimension: ["Length", "Distance", "Horizontal distance", "Vertical distance", "Radius", "Diameter", "Major radius", "Minor radius", "Angle"],
+  project: ["Project"], offset: ["One sided", "Symmetric", "Independent"], rounding: ["Rounding"],
+  scale: ["Scale"], move: ["Move and rotate"], split: ["Split"],
+} as const;
+export type SketchToolName = keyof typeof variants;
+export type DrawingFields = {
+  width: number;
+  height: number;
+  radius: number;
+  angle: number;
+  text: string;
+  size: number;
+  weight: number;
+  fontBase64?: string;
+  horizontal: "left" | "center" | "right";
+  vertical: "baseline" | "bottom" | "middle" | "top";
+  closed: boolean;
+};
+export const distance = (a: Point, b: Point) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+export const bearing = (a: Point, b: Point) => Math.atan2(b[1] - a[1], b[0] - a[0]);
+const degrees = (n: number) => n * 180 / Math.PI;
+function circumcircle(a: Point, b: Point, c: Point) {
+  const x = b[0] - a[0], y = b[1] - a[1], u = c[0] - a[0], v = c[1] - a[1];
+  const d = 2 * (x * v - y * u);
+  if (Math.abs(d) < 1e-9) {
+    throw new Error("Choose three non-collinear points.");
+  }
+  const center: Point = [a[0] + (v * (x * x + y * y) - y * (u * u + v * v)) / d, a[1] + (x * (u * u + v * v) - u * (x * x + y * y)) / d];
+  return { center, radius: distance(a, center) };
+}
+export function pointOf(state: SketchState, id: string): Point {
+  const e = state.entities.find(e => e.reference.id === id);
+  if (e?.geometry.type !== "point") {
+    throw new Error("Select a point.");
+  }
+  return e.geometry.position;
+}
+/** Constructors produce ordinary core primitives. Persistent relations are added by the tool. */
+export function drawing(tool: SketchToolName, variant: number, points: Point[], f: DrawingFields, construction: boolean, selected: SketchEntity[], state: SketchState): Primitive {
+  const a = points[0] ?? [0, 0], b = points[1] ?? [a[0] + f.width, a[1] + f.height], c = points[2];
+  switch (tool) {
+    case "point": return { type: "point", parameters: { position: a, construction } };
+    case "line": return { type: "line", parameters: { from: a, to: b, construction } };
+    case "rectangle": {
+      let to = b, angle = 0;
+      if (variant === 1) {
+        angle = bearing(a, b);
+        const height = c ? -(c[0] - b[0]) * Math.sin(angle) + (c[1] - b[1]) * Math.cos(angle) : f.height;
+        to = [a[0] + distance(a, b), a[1] + height];
+      }
+      return { type: "rectangle", parameters: { from: a, to, centered: variant === 2, angle: degrees(angle), construction } };
+    }
+    case "circle": {
+      let center = a, radius = points[1] ? distance(a, b) : f.radius;
+      if (variant === 1) {
+        radius = f.radius;
+        const d = distance(a, b);
+        if (!d || d > 2 * radius) {
+          throw new Error("Radius must be at least half the distance between the points.");
+        }
+        const h = Math.sqrt(radius * radius - d * d / 4);
+        const side = c && (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0 ? -1 : 1;
+        center = [(a[0] + b[0]) / 2 - side * (b[1] - a[1]) * h / d, (a[1] + b[1]) / 2 + side * (b[0] - a[0]) * h / d];
+      }
+      else if (variant === 2) {
+        if (!c) {
+          throw new Error("Pick three points.");
+        }
+        ({ center, radius } = circumcircle(a, b, c));
+      }
+      else if (variant >= 3) {
+        ({ center, radius } = tangentCircle(selected, state, a, f.radius, variant === 3));
+      }
+      return { type: "circle", parameters: { center, diameter: 2 * radius, construction } };
+    }
+    case "arc": {
+      let center = a, radius = points[1] ? distance(a, b) : f.radius;
+      let start = degrees(bearing(a, b)), end = start + f.angle;
+      if (variant === 1) {
+        if (!c) {
+          throw new Error("Pick three points.");
+        }
+        ({ center, radius } = circumcircle(a, b, c));
+        start = degrees(bearing(center, a));
+        end = degrees(bearing(center, c));
+        const middle = (degrees(bearing(center, b)) - start + 360) % 360;
+        let sweep = (end - start + 360) % 360;
+        if (middle > sweep) {
+          sweep -= 360;
+        }
+        // OCCT's arc domain is counterclockwise; reverse the endpoint order for clockwise input.
+        if (sweep < 0) {
+          const old = start;
+          start = end;
+          end = old;
+        }
+        else {
+          end = start + sweep;
+        }
+      }
+      if (variant === 1) {
+        while (end <= start) {
+          end += 360;
+        }
+      }
+      return { type: "arc", parameters: { center, radius, start, end, construction } };
+    }
+    case "ellipse": {
+      let center = a, width = f.width, height = f.height;
+      if (points[1]) {
+        width = Math.abs(b[0] - a[0]) * (variant === 0 ? 2 : 1);
+        height = Math.abs(b[1] - a[1]) * (variant === 0 ? 2 : 1);
+        if (variant === 1) {
+          center = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        }
+      }
+      return { type: "ellipse", parameters: { center, major: Math.max(width, height) / 2, minor: Math.min(width, height) / 2, angle: width >= height ? 0 : 90, construction } };
+    }
+    case "slot": {
+      let from = a, to = b;
+      if (variant === 1) {
+        from = [2 * a[0] - b[0], 2 * a[1] - b[1]];
+      }
+      const radius = variant === 0 && c ? distance(b, c) : f.radius;
+      return { type: "slot", parameters: { from, to, radius, construction } };
+    }
+    case "spline": {
+      const all = [...points];
+      if (f.closed && all.length > 2 && distance(all[0], all.at(-1)!) > 1e-8) {
+        all.push(all[0]);
+      }
+      return { type: "spline", parameters: { points: all, fit: variant === 0, closed: f.closed, construction } };
+    }
+    case "text": return { type: "text", parameters: { text: f.text, origin: a, size: f.size, weight: f.weight, fontBase64: f.fontBase64, horizontal: f.horizontal, vertical: f.vertical, guide: selected.find(e => e.geometry.type !== "point")?.reference, construction } };
+    default: throw new Error("Choose a drawing tool.");
+  }
+}
+/** Solve the signed tangency branches nearest the cursor; the core validates the resulting constraints. */
+function tangentCircle(curves: SketchEntity[], state: SketchState, seed: Point, radius: number, fixedRadius: boolean) {
+  const count = fixedRadius ? 2 : 3;
+  if (curves.length !== count) {
+    throw new Error(`Select ${count} lines or circles, then pick a center near the wanted solution.`);
+  }
+  const signedDistance = curves.map(({ geometry: g }) => {
+    if (g.type === "line") {
+      const a = pointOf(state, g.from), b = pointOf(state, g.to), d = distance(a, b);
+      return (x: number, y: number) => ((x - a[0]) * (b[1] - a[1]) - (y - a[1]) * (b[0] - a[0])) / d;
+    }
+    if (g.type === "circle" || g.type === "arc") {
+      const a = pointOf(state, g.center);
+      return (x: number, y: number) => Math.hypot(x - a[0], y - a[1]) - g.radius;
+    }
+    throw new Error("Tangent-circle construction accepts lines, circles and arcs.");
+  });
+  let best: {
+    center: Point;
+    radius: number;
+    score: number;
+  } | undefined;
+  for (let branch = 0; branch < 1 << count; branch++) {
+    let values = [seed[0], seed[1], radius];
+    const residual = (v: number[]) => signedDistance.map((d, i) => d(v[0], v[1]) - (branch & 1 << i ? 1 : -1) * v[2]);
+    for (let iteration = 0; iteration < 50; iteration++) {
+      const r = residual(values), n = fixedRadius ? 2 : 3;
+      if (Math.max(...r.map(Math.abs)) < 1e-7) {
+        break;
+      }
+      const rows = r.map((value, i) => [...Array(n)].map((_, j) => {
+        const next = [...values];
+        next[j] += 1e-5;
+        return (residual(next)[i] - value) / 1e-5;
+      }).concat(-value));
+      let singular = false;
+      for (let k = 0; k < n; k++) {
+        let pivot = k;
+        for (let i = k + 1; i < n; i++) {
+          if (Math.abs(rows[i][k]) > Math.abs(rows[pivot][k])) {
+            pivot = i;
+          }
+        }
+        [rows[k], rows[pivot]] = [rows[pivot], rows[k]];
+        const divisor = rows[k][k];
+        if (Math.abs(divisor) < 1e-10) {
+          singular = true;
+          break;
+        }
+        for (let j = k; j <= n; j++) {
+          rows[k][j] /= divisor;
+        }
+        for (let i = 0; i < n; i++) {
+          if (i !== k) {
+            const factor = rows[i][k];
+            for (let j = k; j <= n; j++) {
+              rows[i][j] -= factor * rows[k][j];
+            }
+          }
+        }
+      }
+      if (singular) {
+        break;
+      }
+      values = values.map((v, i) => i < n ? v + rows[i][n] : v);
+    }
+    const [x, y, r] = values;
+    if (r > 1e-7 && values.every(Number.isFinite) && Math.max(...residual(values).map(Math.abs)) < 1e-6) {
+      const score = Math.hypot(x - seed[0], y - seed[1]);
+      if (!best || score < best.score) {
+        best = { center: [x, y], radius: r, score };
+      }
+    }
+  }
+  if (!best) {
+    throw new Error("No tangent circle near this point. Choose another position or radius.");
+  }
+  return best;
+}

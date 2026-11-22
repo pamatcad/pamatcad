@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <title>Arc</title>
+  <path d="M5 24a13 13 0 0 1 22 0" stroke="#6588a3"/><g fill="#c5ddf0" stroke="#6588a3"><circle cx="5" cy="24" r="2"/><circle cx="27" cy="24" r="2"/></g><circle cx="16" cy="24" r="1.5" fill="#81909b" stroke="none"/>
+</svg>

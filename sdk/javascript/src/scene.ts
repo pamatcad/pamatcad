@@ -34,10 +34,12 @@ export class Scene {
     this.units = Object.freeze({ ...data.units });
     this.timeline = { list: () => transport.request("scene.timeline.list", { sceneId: this.id }) };
     this.sketches = {
+      findByName: async (name: string) => new Sketch(transport, await transport.request("sketch.find", { sceneId: this.id, name })),
+      get: async (id: string) => new Sketch(transport, await transport.request("sketch.find", { sceneId: this.id, id })),
       getProxy: (id: string) => transport.request("sketch.getProxy", { sketch: { sceneId: this.id, id } }),
-      create: async <P extends SketchSupport>(plane: P): Promise<Sketch<P>> => {
+      create: async <P extends SketchSupport>(plane: P, options: { name?: string } = {}): Promise<Sketch<P>> => {
         if (plane.sceneId !== this.id) throw new Error("Sketch support belongs to another scene");
-        const data = await transport.request("sketch.create", { plane });
+        const data = await transport.request("sketch.create", { plane, ...options });
         return new Sketch(transport, { ...data, plane: { ...plane } });
       },
     };

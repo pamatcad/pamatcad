@@ -10,3 +10,9 @@ export type { PlaneFrame, SketchProxy, SketchRegionProxy, Profiles } from "./gen
 export type { AngleUnit, EvaluatedFormula, Formula, FormulaDimension, FormulaQuantity, FormulaUnit, LengthUnit, SceneUnits } from "./generated/protocol.js";
 export type { TriangleMesh, ProxyFace, ProxyEdge, EdgeRef, BodyRef, CircleParameters, FaceOrigin, FaceRef, FaceProperties, ExtrudeType, ExtrudeStart, ExtrudeExtent, ObjectExtent, SymmetricLength, ExtrudeDirection, ExtrudeMode, ExtrudePreview, TimelineEntry, ExtrudeParameters, LineRef, PlaneRef, ProfileRef, RectangleParameters, RegionRef } from "./generated/protocol.js";
 
+
+export type { SketchEntityRef, SketchEntity, SketchGeometry, SketchDimension, SketchConstraint, SketchState, SketchSolveStatus, ConstraintKind, ConstraintParameters, DimensionKind, DimensionMode, DimensionParameters, PointParameters, LineParameters, ArcParameters, EllipseParameters, SlotParameters, SplineParameters } from "./generated/protocol.js";
+export type { ProjectionSource, SketchProjection, VertexRef } from "./generated/protocol.js";
+
+export type { Primitive, GeometryData, RectangleData, CircleData, SketchSupport, TextParameters, SketchCurveEdit, TransformSketchGeometry, ScalarUnit } from "./generated/protocol.js";
+export type { BodyVertex, SketchEntityFreedom } from "./generated/protocol.js";

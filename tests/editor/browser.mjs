@@ -3,6 +3,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
+import { testSketchEditor } from "./sketch.mjs";
 import { testEditorTheme } from "./theme.mjs";
 import { testSceneBrowser } from "./scene-browser.mjs";
 import { testLoadingScreen } from "./loading.mjs";
@@ -38,6 +39,9 @@ try {
     executablePath: process.env.CHROME_BIN,
     args: ["--enable-unsafe-swiftshader"],
   });
+  if (process.env.PAMATCAD_EDITOR_TEST === "sketch") {
+    await testSketchEditor(browser, "http://127.0.0.1:" + server.address().port);
+  } else {
   const page = await browser.newPage({ viewport: { width: 1280, height: 840 } });
   page.on("pageerror", (error) => console.error(error));
   await page.goto("http://127.0.0.1:" + server.address().port);
@@ -56,6 +60,8 @@ try {
   await page.getByRole("button", { name: "New scene" }).click();
   await page.waitForFunction(() => document.querySelector("#features").children.length === 0);
   await page.getByRole("button", { name: "New sketch" }).click();
+  await page.locator("#sketch-planes").getByRole("button", {name:"XY",exact:true}).click();
+  await page.waitForFunction(() => !document.querySelector("#apply").disabled);
   const canvas = page.locator("#model-canvas");
   const bounds = await canvas.boundingBox();
   const cameraButton = page.getByRole("button", { name: "Camera mode" });
@@ -82,6 +88,7 @@ try {
   });
   const topView = await cubeCenter(bounds); // XY sketching looks straight down on the cube.
   const clickAt = (x, y) => page.mouse.click(bounds.x + x * bounds.width, bounds.y + y * bounds.height);
+  await page.locator('#sketch-ribbon [data-tool="rectangle"]').click();
   await clickAt(0.55, 0.35);
   const drawingDocument = await page.locator('#document-tabs [aria-selected="true"]').getAttribute("data-document");
   await page.getByText("File", { exact: true }).click();
@@ -92,16 +99,18 @@ try {
   const toolBounds = await page.locator("#tool-panel").boundingBox();
   // Keep the second corner on the canvas when the tool panel's spacing changes.
   const secondX = Math.min(0.7, (toolBounds.x - bounds.x - 16) / bounds.width);
-  await clickAt(secondX, 0.6);
+  await page.mouse.move(bounds.x + secondX * bounds.width, bounds.y + 0.6 * bounds.height);
   const width = Number(await page.locator("#width").inputValue());
   const height = Number(await page.locator("#height").inputValue());
+  await clickAt(secondX, 0.6);
   assert.ok(Math.abs(width * height) > 1);
   await page.getByRole("button", { name: "Finish sketch" }).click();
   await page.waitForFunction(() => document.querySelector("#features").children.length === 1);
   await clickAt(0.93, 0.85);
   assert.ok(await page.getByRole("button", { name: "Extrude", exact: true }).isEnabled(), "Extrude can start before selecting a profile");
-  // Finishing the sketch retains the drawing camera, so select its drawn center.
-  await clickAt((0.55 + secondX) / 2, (0.35 + 0.6) / 2);
+  // Finish restores the pre-sketch camera; select the sketch through its stable tree entry.
+  await page.locator("#sketches-tab").click();
+  await page.locator("#object-list .tree-label").filter({hasText:"Sketch 1"}).click();
   await page.getByRole("button", { name: "Extrude", exact: true }).click();
   await page.locator("#length").fill("25 / 2");
   await page.getByRole("button", { name: "Apply", exact: true }).click();
@@ -115,7 +124,7 @@ try {
     Number.isFinite(Number(document.querySelector("#console-output").lastElementChild?.textContent)),
   );
   const volume = Number(await page.locator("#console-output > :last-child").textContent());
-  assert.ok(Math.abs(volume - Math.abs(width * height) * 12.5) < 1e-7);
+  assert.ok(Math.abs(volume - Math.abs(width * height) * 12.5) < 1e-7, JSON.stringify({volume,width,height,expected:Math.abs(width*height)*12.5}));
   console.log("Pointer-drawn rectangle", { width, height, volume });
 
   await chooseProjection("Orthographic");
@@ -190,9 +199,9 @@ try {
   // A round trip from a panned and zoomed view must reproduce the same rendering.
   await page.mouse.move(centerX, centerY);
   await page.mouse.wheel(0, -120);
-  await page.mouse.down({ button: "right" });
+  await page.mouse.down({ button: "middle" });
   await page.mouse.move(centerX - 30, centerY + 20, { steps: 5 });
-  await page.mouse.up({ button: "right" });
+  await page.mouse.up({ button: "middle" });
   const modelClip = { x: centerX - 140, y: centerY - 110, width: 280, height: 220 };
   const framed = await page.screenshot({ clip: modelClip });
   await chooseProjection("Perspective");
@@ -206,6 +215,8 @@ try {
   await testDocumentTabs(browser, "http://127.0.0.1:" + server.address().port);
   await testExtrudeEditor(browser, "http://127.0.0.1:" + server.address().port);
   await testToolInputs(browser);
+  await testSketchEditor(browser, "http://127.0.0.1:" + server.address().port);
+  }
 } finally {
   await browser?.close();
   server.close();

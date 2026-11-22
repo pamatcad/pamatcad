@@ -1,6 +1,6 @@
 import type { FormulaDimension, FormulaUnit, Scene } from "@pamatcad/sdk";
 
-export const unitScale: Record<FormulaUnit, number> = { mm: 1, cm: 10, m: 1000, in: 25.4, deg: 1, rad: 180 / Math.PI };
+export const unitScale: Record<FormulaUnit, number> = { mm: 1, cm: 10, m: 1000, in: 25.4, deg: 1, rad: 180 / Math.PI, scalar: 1 };
 
 /** Values exchanged with viewport handles use millimetres and degrees. */
 export class FormulaInput {
@@ -20,7 +20,7 @@ export class FormulaInput {
     input.oninput = () => { this.version++; this.setError(""); changed(); };
   }
 
-  get unit() { return this.scene.units[this.dimension]; }
+  get unit() { return this.dimension === "scalar" ? "scalar" : this.scene.units[this.dimension]; }
 
   async evaluate(): Promise<number> {
     const version = ++this.version;
@@ -38,7 +38,7 @@ export class FormulaInput {
 
   setFromHandle(value: number) {
     this.value = value;
-    this.input.value = `${Number((value / unitScale[this.unit]).toPrecision(12))} ${this.unit}`;
+    this.input.value = `${Number((value / unitScale[this.unit]).toPrecision(12))}${this.unit === "scalar" ? "" : " " + this.unit}`;
     this.input.dispatchEvent(new Event("input", { bubbles: true }));
     this.input.focus({ preventScroll: true });
     this.input.select();

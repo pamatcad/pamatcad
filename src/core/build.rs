@@ -3,6 +3,10 @@ use std::{env, path::PathBuf};
 fn main() {
     let source = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../native/occt");
     println!("cargo:rerun-if-changed={}", source.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        source.join("../sketch").display()
+    );
     // Cargo assigns different OUT_DIR hashes to build/check. Share native artifacts
     // within the target/profile so static checks do not rebuild the CAD kernel.
     let cargo_output = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -25,6 +29,12 @@ fn main() {
     for (env_name, setting) in [
         ("PAMATCAD_OCCT_SOURCE", "FETCHCONTENT_SOURCE_DIR_OCCT"),
         ("PAMATCAD_BUILD_JOBS", "PAMATCAD_BUILD_JOBS"),
+        (
+            "PAMATCAD_PLANEGCS_SOURCE",
+            "FETCHCONTENT_SOURCE_DIR_PLANEGCS",
+        ),
+        ("PAMATCAD_EIGEN_SOURCE", "FETCHCONTENT_SOURCE_DIR_EIGEN"),
+        ("PAMATCAD_BOOST_SOURCE", "FETCHCONTENT_SOURCE_DIR_BOOST"),
     ] {
         println!("cargo:rerun-if-env-changed={env_name}");
         if let Ok(value) = env::var(env_name) {
@@ -39,6 +49,7 @@ fn main() {
     println!("cargo:rustc-link-search=native={}/lib", install.display());
     for library in [
         "pamatcad_occt",
+        "pamatcad_sketch",
         "TKDESTEP",
         "TKDE",
         "TKXCAF",

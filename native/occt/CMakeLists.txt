@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 project(PamatCADGeometry LANGUAGES CXX)
 include(ExternalProject)
 include(dependencies.cmake)
+add_subdirectory(../sketch sketch)
 
 set(occt_install "${CMAKE_BINARY_DIR}/occt-${PAMATCAD_OCCT_VERSION}-install")
 set(occt_options
@@ -32,7 +33,7 @@ ExternalProject_Add(occt_build
   INSTALL_COMMAND "${CMAKE_COMMAND}" --install <BINARY_DIR> --config Release
   LOG_CONFIGURE TRUE LOG_BUILD TRUE LOG_INSTALL TRUE LOG_OUTPUT_ON_FAILURE TRUE)
 
-add_library(pamatcad_occt STATIC bridge.cpp extrusion.cpp boolean.cpp scene_io.cpp proxy.cpp)
+add_library(pamatcad_occt STATIC bridge.cpp extrusion.cpp boolean.cpp scene_io.cpp proxy.cpp sketch.cpp)
 target_compile_features(pamatcad_occt PRIVATE cxx_std_17)
 target_include_directories(pamatcad_occt SYSTEM PRIVATE "${occt_install}/include/opencascade")
 add_dependencies(pamatcad_occt occt_build)

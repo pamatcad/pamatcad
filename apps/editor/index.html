@@ -24,22 +24,26 @@
       <button id="document-home" type="button" aria-label="Home" title="Home"><img src="./src/icons/home.svg" alt="" /></button>
       <div id="document-tabs" role="tablist" aria-label="Open documents"></div>
     </section>
-    <section class="ribbon" aria-label="Modelling tools">
+    <section class="ribbon" aria-label="Solid workbench">
       <div class="workbench">
         <label for="workbench">Workbench</label
         ><select id="workbench">
-          <option>Modelling</option>
+          <option value="solid">Solid</option>
+          <option value="sketch">Sketch</option>
         </select>
       </div>
-      <div class="tool-group">
-        <div class="tools">
-          <button id="new-sketch" disabled><img src="./src/icons/sketch.svg" alt="" />New sketch</button>
-          <button id="extrude" disabled>
-            <img alt="" />Extrude
-          </button>
+      <div id="solid-ribbon" class="workbench-tools">
+        <div class="tool-group">
+          <div class="tools">
+            <button id="new-sketch" disabled><img src="./src/icons/sketch.svg" alt="" />New sketch</button>
+            <button id="extrude" disabled>
+              <img alt="" />Extrude
+            </button>
+          </div>
+          <span>Solid</span>
         </div>
-        <span>Solid</span>
       </div>
+      <div id="sketch-ribbon" class="workbench-tools" hidden></div>
     </section>
     <main>
       <aside class="browser" id="scene-browser" aria-label="Scene browser">
@@ -74,6 +78,7 @@
       <section id="viewport" role="tabpanel" aria-label="3D viewport">
         <div id="empty-document" hidden><p>No open documents</p><button id="empty-new-scene" type="button">New scene</button></div>
         <div class="view-top">
+          <button id="sketch-view" title="Look at sketch" aria-label="Look at sketch" hidden><img src="./src/icons/sketch.svg" alt="" /></button>
           <button id="home" title="Fit isometric view" aria-label="Fit isometric view">
             <img src="./src/icons/home.svg" alt="" />
           </button>
@@ -139,13 +144,6 @@
         </button>
       </div>
     </footer>
-    <template id="sketch-fields">
-      <h2>Rectangle</h2>
-      <p>XY plane · Pick two corners or enter dimensions in mm.</p>
-      <label>Width <input id="width" type="number" step="any" value="10" /></label>
-      <label>Height <input id="height" type="number" step="any" value="10" /></label>
-      <div class="actions"><button id="cancel">Cancel</button><button id="apply">Finish sketch</button></div>
-    </template>
     <template id="extrude-fields">
       <h2 tabindex="0">
         Extrude
@@ -432,8 +430,8 @@ Apply
         select its profile and choose Extrude.
       </p>
       <p>
-        Drag to orbit, right-drag to pan and scroll to zoom. Click a cube face for a standard view, or Home to
-        fit the model. Escape cancels the current tool.
+        Middle-drag to pan, Shift + middle-drag to orbit and scroll to zoom. Left-drag edits geometry and handles. Click a cube face for a standard view, or Home to
+        fit the model. In a sketch, Escape returns to selection and Delete or Backspace removes the selection. Elsewhere, Escape cancels the current tool.
       </p>
       <form method="dialog"><button>Close</button></form>
     </dialog>

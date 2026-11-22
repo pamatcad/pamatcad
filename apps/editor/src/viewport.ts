@@ -3,20 +3,22 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
-import type { BodyProxy, SketchProxy } from "@pamatcad/sdk";
+import { SketchDisplay, type SketchDisplayOptions, type SketchPick } from "./sketch-display";
+import type { BodyProxy, SketchProxy, SketchState, PlaneFrame } from "@pamatcad/sdk";
 import type { ThemeDefinition } from "./theme";
 import { accepts, selectionKey, selectionOwner, type SelectionItem, type SelectionFilter } from "./selection";
 import { ToolHandles, type ToolHandle } from "./tool-handles";
 
 export type Point = [number, number];
 export type Rectangle = { from: Point; to: Point };
-type Hit = { point: Point | null; item?: SelectionItem; additive: boolean };
+export type Hit = { point: Point | null; item?: SelectionItem; additive: boolean; picks: SketchPick[]; client: Point };
 export type ViewState = {
   mode: "orthographic" | "perspective";
   position: [number, number, number];
   target: [number, number, number];
   span: number;
   zoom: number;
+  up?: [number, number, number];
 };
 
 const iso = new T.Vector3(1, -1, 1);
@@ -302,6 +304,10 @@ export class Viewport {
   private span = 60;
   private down = new T.Vector2();
   private sketchMode = false;
+  pickVertices = false;
+  private sketchFrame?: PlaneFrame;
+  private sketchDisplay = new SketchDisplay();
+  private sketchDisplayState?: [SketchState, SketchProxy, Set<string>, SketchDisplayOptions, string?];
   private selection: SelectionItem[] = [];
   private hover?: SelectionItem;
   private hoverPointer?: PointerEvent;
@@ -330,6 +336,7 @@ export class Viewport {
     this.orthographic.up.set(0, 0, 1);
     this.perspective.up.copy(this.orthographic.up);
     this.orbit = new OrbitControls(this.camera, canvas);
+    this.orbit.mouseButtons = { LEFT: null, MIDDLE: T.MOUSE.PAN, RIGHT: null };
     this.handles = new ToolHandles(host, canvas, () => this.camera, (enabled) => { this.orbit.enabled = enabled; }, () => this.render(), theme.colors.handle, theme.colors.handleEdge);
     this.scene.add(this.handles.group);
     this.orbit.minZoom = 0.02;
@@ -337,7 +344,7 @@ export class Viewport {
     this.orbit.addEventListener("change", () => this.render());
     this.grid.rotation.x = Math.PI / 2;
     this.grid.position.z = -0.02;
-    this.scene.add(this.grid, this.axes, this.bodies, this.sketches, this.construction, this.draft, this.preview);
+    this.scene.add(this.grid, this.axes, this.bodies, this.sketches, this.construction, this.draft, this.preview, this.sketchDisplay);
     this.light.position.set(-3, -5, 8);
     this.scene.add(this.hemisphere, this.light);
     this.cubeLight.position.set(-3, 4, 6);
@@ -353,13 +360,15 @@ export class Viewport {
     canvas.addEventListener("pointerleave", clearHover);
     canvas.addEventListener("pointercancel", clearHover);
     this.orbit.addEventListener("start", clearHover);
-    canvas.addEventListener("pointerdown", (e) => this.down.set(e.clientX, e.clientY));
+    canvas.addEventListener("pointerdown", (e) => {
+      if (e.button === 0) this.down.set(e.clientX, e.clientY);
+    });
     canvas.addEventListener("pointerup", (e) => {
       if (e.button !== 0 || this.down.distanceTo(new T.Vector2(e.clientX, e.clientY)) > 4) return;
       const { right, top } = canvas.getBoundingClientRect();
       const x = e.clientX - (right - gizmoSize);
       const y = e.clientY - top;
-      if (!this.sketchMode && x >= 0 && x < gizmoSize && y >= 0 && y < gizmoSize) {
+      if (x >= 0 && x < gizmoSize && y >= 0 && y < gizmoSize) {
         this.ray.setFromCamera(
           new T.Vector2((x / gizmoSize) * 2 - 1, 1 - (y / gizmoSize) * 2),
           this.gizmoCamera,
@@ -370,9 +379,11 @@ export class Viewport {
       }
       const point = this.point(e);
       const item = this.pick(e);
-      if (!item || accepts(this.filter, item)) onClick({ point, item, additive: e.shiftKey });
+      if (this.sketchMode || !item || accepts(this.filter, item)) onClick({ point, item, additive: e.shiftKey, picks: this.sketchPicks(e), client: [e.clientX, e.clientY] });
     });
     canvas.addEventListener("pointermove", (e) => {
+      // Navigation must not update a sketch's in-progress drawing parameters.
+      if (e.buttons & ~1) { clearHover(); return; }
       onMove(this.point(e));
       if (e.buttons || !this.orbit.enabled) { clearHover(); return; }
       this.hoverPointer = e;
@@ -383,7 +394,7 @@ export class Viewport {
   private pick(e: PointerEvent): SelectionItem | undefined {
     const canvas = this.renderer.domElement;
     const { right, top } = canvas.getBoundingClientRect();
-    if (!this.sketchMode && e.clientX >= right - gizmoSize && e.clientY < top + gizmoSize) return;
+    if (e.clientX >= right - gizmoSize && e.clientY < top + gizmoSize) return;
     this.point(e);
     this.handles.group.updateMatrixWorld(true);
     if (this.ray.intersectObjects(this.handles.group.children, true).length) return;
@@ -392,6 +403,14 @@ export class Viewport {
     const tolerance = (4 * this.span) / (this.viewZoom * canvas.clientHeight);
     this.ray.params.Line.threshold = tolerance;
     const hits = this.ray.intersectObjects(bodies, this.filter === "all");
+    if (this.pickVertices) {
+      const nearestDistance = hits[0]?.distance ?? Infinity;
+      for (const body of bodies) if (body instanceof SolidDisplay) for (const vertex of body.proxy.vertices) {
+        const position=new T.Vector3(...vertex.position);
+        if (this.ray.ray.distanceToPoint(position)<=tolerance && position.distanceTo(this.ray.ray.origin)<=nearestDistance+tolerance*2)
+          return {kind:"vertex",ref:vertex.vertex};
+      }
+    }
     const sketch = ["all", "profiles"].includes(this.filter)
       ? this.ray.intersectObjects(this.sketches.children.filter((node) => node.visible), false)[0] : undefined;
     const nearest = hits[0];
@@ -428,6 +447,7 @@ export class Viewport {
 
   setTheme(theme: ThemeDefinition) {
     this.theme = theme;
+    if (this.sketchDisplayState) { const [state, proxy, selected, options, hover] = this.sketchDisplayState; this.sketchDisplay.set(state, proxy, selected, options, theme, hover); }
     this.handles.color = theme.colors.handle;
     this.handles.edgeColor = theme.colors.handleEdge;
     this.hemisphere.color.set(theme.colors.light);
@@ -463,15 +483,29 @@ export class Viewport {
     this.render();
   }
 
-  private point(e: PointerEvent): Point | null {
+  sketchPicks(e: {clientX: number; clientY: number}): SketchPick[] {
+    this.point(e);
+    this.ray.params.Line.threshold = this.ray.params.Points.threshold = this.pixelLength * 6;
+    this.sketchDisplay.updateMatrixWorld(true);
+    return this.sketchDisplay.picks(this.ray);
+  }
+
+  get pixelLength() { return this.span / this.viewZoom / Math.max(1, this.host.clientHeight); }
+
+  point(e: {clientX: number; clientY: number}): Point | null {
     const r = this.renderer.domElement.getBoundingClientRect();
     this.camera.updateMatrixWorld();
     this.ray.setFromCamera(
       new T.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2),
       this.camera,
     );
-    const p = this.ray.ray.intersectPlane(xy, new T.Vector3());
-    return p ? [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] : null;
+    const frame = this.sketchMode && this.sketchFrame;
+    const plane = frame ? new T.Plane().setFromNormalAndCoplanarPoint(new T.Vector3(...frame.normal), new T.Vector3(...frame.origin)) : xy;
+    const p = this.ray.ray.intersectPlane(plane, new T.Vector3());
+    if (!p) return null;
+    if (!frame) return [p.x, p.y];
+    p.sub(new T.Vector3(...frame.origin));
+    return [p.dot(new T.Vector3(...frame.u)), p.dot(new T.Vector3(...frame.v))];
   }
 
   private resize() {
@@ -505,6 +539,7 @@ export class Viewport {
     if (this.camera === next) return;
     const direction = this.camera.position.clone().sub(this.orbit.target);
     const zoom = this.viewZoom;
+    next.up.copy(this.camera.up);
     this.camera = next;
     this.orbit.object = next;
     this.orient(direction, zoom);
@@ -546,19 +581,37 @@ export class Viewport {
 
   sketching(enabled: boolean) {
     this.sketchMode = enabled;
-    this.orbit.enableRotate = !enabled;
-    if (enabled) this.home();
+    this.orbit.enableRotate = true;
+    if (!enabled) { this.sketchFrame = undefined; this.sketchDisplay.clearDisplay(); this.sketchDisplayState = undefined; }
     this.renderer.domElement.style.cursor = enabled ? "crosshair" : "";
+  }
+  setSketchFrame(frame: PlaneFrame) { this.sketchFrame = frame; }
+  setSketchInputs(inputs: SketchDisplay["inputs"] = []) {
+    this.sketchDisplay.inputs = inputs;
+    this.render();
+  }
+  alignSketch() {
+    if (!this.sketchFrame) return;
+    this.camera.up.fromArray(this.sketchFrame.v);
+    this.orbit.target.fromArray(this.sketchFrame.origin);
+    this.orient(new T.Vector3(...this.sketchFrame.normal));
+  }
+  showSketch(state: SketchState, proxy: SketchProxy, selected: Set<string>, options: SketchDisplayOptions, hover?: string) {
+    this.sketchDisplayState = [state, proxy, selected, options, hover];
+    this.sketchDisplay.set(state, proxy, selected, options, this.theme, hover);
+    this.setSketchFrame(proxy.frame);
+    this.render();
   }
   captureView(): ViewState {
     return { mode: this.camera === this.orthographic ? "orthographic" : "perspective",
       position: this.camera.position.toArray(), target: this.orbit.target.toArray(),
-      span: this.span, zoom: this.camera.zoom };
+      span: this.span, zoom: this.camera.zoom, up: this.camera.up.toArray() };
   }
   restoreView(view: ViewState) {
     this.camera = view.mode === "orthographic" ? this.orthographic : this.perspective;
     this.orbit.object = this.camera;
     this.span = view.span;
+    this.camera.up.fromArray(view.up ?? [0, 0, 1]);
     this.camera.position.fromArray(view.position);
     this.camera.zoom = view.zoom;
     this.orbit.target.fromArray(view.target);
@@ -605,12 +658,18 @@ export class Viewport {
         const p = new T.Vector3(...point).sub(origin);
         return new T.Vector2(p.dot(u), p.dot(v));
       });
-      const geometry = new T.ShapeGeometry(new T.Shape(points));
+      const shape = new T.Shape(points);
+      shape.holes = region.holes.map(loop => new T.Path(loop.map(point => {
+        const p = new T.Vector3(...point).sub(origin);
+        return new T.Vector2(p.dot(u), p.dot(v));
+      })));
+      const geometry = new T.ShapeGeometry(shape);
       const matrix = new T.Matrix4().makeBasis(u, v, new T.Vector3(...proxy.frame.normal)).setPosition(origin);
       geometry.applyMatrix4(matrix);
       const profile = new T.Mesh(geometry, new T.MeshBasicMaterial({ transparent: true, side: T.DoubleSide,
         depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
       profile.add(new T.LineLoop(new T.BufferGeometry().setFromPoints(region.boundary.map((p) => new T.Vector3(...p))), new T.LineBasicMaterial()));
+      for (const hole of region.holes) profile.add(new T.LineLoop(new T.BufferGeometry().setFromPoints(hole.map(p => new T.Vector3(...p))), new T.LineBasicMaterial()));
       profile.userData.sketch = id;
       profile.userData.region = region.region;
       profile.visible = !this.hidden.has(id);
@@ -687,6 +746,7 @@ export class Viewport {
       if (!w || !h) return;
       this.camera.updateMatrixWorld();
       this.handles?.update();
+      this.sketchDisplay.updateScale(this.pixelLength,this.camera,w,h);
       if (this.hoverPointer) this.setHover(this.pick(this.hoverPointer));
       this.renderer.setViewport(0, 0, w, h);
       this.renderer.setClearColor(this.theme.colors.background);

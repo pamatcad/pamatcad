@@ -1,0 +1,715 @@
+use super::*;
+use crate::formula::{self, Expression as E, Instruction, Quantity};
+use std::{ffi::c_char, ops::Range};
+
+#[repr(C)]
+struct Equation {
+    start: usize,
+    count: usize,
+    tag: i32,
+}
+#[repr(C)]
+struct VariableGroup {
+    start: usize,
+    count: usize,
+}
+extern "C" {
+    fn pamat_sketch_solve(
+        values: *mut f64,
+        count: usize,
+        fixed: *const u8,
+        code: *const Instruction,
+        equations: *const Equation,
+        equation_count: usize,
+        dof: *mut i32,
+        movable: *mut u8,
+        group_indices: *const usize,
+        groups: *const VariableGroup,
+        group_count: usize,
+        group_dof: *mut i32,
+        diagnostics: *mut i32,
+        diagnostic_count: *mut usize,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+}
+
+fn invalid(message: impl Into<String>) -> CoreError {
+    CoreError::new(ErrorCode::InvalidParameter, message)
+}
+fn constant(value: f64) -> E {
+    E::number(value)
+}
+fn sub(a: [E; 2], b: [E; 2]) -> [E; 2] {
+    [
+        a[0].clone().sub(b[0].clone()),
+        a[1].clone().sub(b[1].clone()),
+    ]
+}
+fn dot(a: [E; 2], b: [E; 2]) -> E {
+    a[0].clone()
+        .mul(b[0].clone())
+        .add(a[1].clone().mul(b[1].clone()))
+}
+fn cross(a: [E; 2], b: [E; 2]) -> E {
+    a[0].clone()
+        .mul(b[1].clone())
+        .sub(a[1].clone().mul(b[0].clone()))
+}
+fn length(v: [E; 2]) -> E {
+    dot(v.clone(), v).sqrt()
+}
+
+struct System<'a> {
+    sketch: &'a Sketch,
+    ranges: BTreeMap<String, Range<usize>>,
+    values: Vec<f64>,
+}
+impl<'a> System<'a> {
+    fn new(sketch: &'a Sketch) -> Self {
+        let mut system = Self {
+            sketch,
+            ranges: BTreeMap::new(),
+            values: vec![],
+        };
+        for (id, entity) in &sketch.entities {
+            let start = system.values.len();
+            match &entity.geometry {
+                SketchGeometry::Point { position } => system.values.extend(position),
+                SketchGeometry::Circle { radius, .. } => system.values.push(*radius),
+                SketchGeometry::Arc {
+                    radius, start, end, ..
+                } => system.values.extend([*radius, *start, *end]),
+                SketchGeometry::Ellipse {
+                    major,
+                    minor,
+                    angle,
+                    ..
+                } => system.values.extend([*major, *minor, *angle]),
+                _ => (),
+            }
+            system.ranges.insert(id.clone(), start..system.values.len());
+        }
+        system
+    }
+    fn variables(&self, id: &str) -> Result<Vec<E>> {
+        Ok(self
+            .ranges
+            .get(id)
+            .ok_or_else(|| invalid("Sketch entity does not exist"))?
+            .clone()
+            .map(E::variable)
+            .collect())
+    }
+    fn geometry(&self, id: &str) -> Result<&SketchGeometry> {
+        self.sketch
+            .entities
+            .get(id)
+            .map(|e| &e.geometry)
+            .ok_or_else(|| invalid("Sketch entity does not exist"))
+    }
+    fn point(&self, id: &str) -> Result<[E; 2]> {
+        if !matches!(self.geometry(id)?, SketchGeometry::Point { .. }) {
+            return Err(invalid("Select a sketch point"));
+        }
+        let p = self.variables(id)?;
+        Ok([p[0].clone(), p[1].clone()])
+    }
+    fn line(&self, id: &str) -> Result<([E; 2], [E; 2])> {
+        if let SketchGeometry::Line { from, to } = self.geometry(id)? {
+            Ok((self.point(from)?, self.point(to)?))
+        } else {
+            Err(invalid("Select a sketch line"))
+        }
+    }
+    fn center(&self, id: &str) -> Result<[E; 2]> {
+        match self.geometry(id)? {
+            SketchGeometry::Circle { center, .. }
+            | SketchGeometry::Arc { center, .. }
+            | SketchGeometry::Ellipse { center, .. } => self.point(center),
+            _ => Err(invalid("Select a curve with a center")),
+        }
+    }
+    fn radius(&self, id: &str) -> Result<E> {
+        if !matches!(
+            self.geometry(id)?,
+            SketchGeometry::Circle { .. } | SketchGeometry::Arc { .. }
+        ) {
+            return Err(invalid("Select a circle or arc"));
+        }
+        Ok(self.variables(id)?[0].clone())
+    }
+    fn distance(&self, a: &str, b: &str) -> Result<E> {
+        Ok(length(sub(self.point(a)?, self.point(b)?)))
+    }
+    fn line_length(&self, id: &str) -> Result<E> {
+        let (a, b) = self.line(id)?;
+        Ok(length(sub(b, a)))
+    }
+    fn point_on_curve(&self, point: &str, curve: &str) -> Result<E> {
+        let p = self.point(point)?;
+        match self.geometry(curve)? {
+            SketchGeometry::Line { .. } => {
+                let (a, b) = self.line(curve)?;
+                let direction = sub(b, a.clone());
+                Ok(cross(sub(p, a), direction.clone()).div(length(direction)))
+            }
+            SketchGeometry::Circle { .. } | SketchGeometry::Arc { .. } => {
+                Ok(length(sub(p, self.center(curve)?)).sub(self.radius(curve)?))
+            }
+            SketchGeometry::Ellipse { .. } => {
+                let delta = sub(p, self.center(curve)?);
+                let vars = self.variables(curve)?;
+                let c = vars[2].clone().cos();
+                let s = vars[2].clone().sin();
+                let x = delta[0]
+                    .clone()
+                    .mul(c.clone())
+                    .add(delta[1].clone().mul(s.clone()));
+                let y = delta[1].clone().mul(c).sub(delta[0].clone().mul(s));
+                Ok(x.div(vars[0].clone())
+                    .square()
+                    .add(y.div(vars[1].clone()).square())
+                    .sub(constant(1.)))
+            }
+            _ => Err(invalid("Point-on-curve requires a line or conic")),
+        }
+    }
+    fn measurement(&self, dim: &SketchDimension) -> Result<E> {
+        let p = &dim.parameters;
+        let curve = p
+            .line
+            .as_ref()
+            .or(p.curve.as_ref())
+            .or(p.curves.first())
+            .map(|r| r.id.as_str());
+        let points = || -> Result<(&str, &str)> {
+            if p.points.len() != 2 {
+                Err(invalid("Dimension requires two points"))
+            } else {
+                Ok((&p.points[0].id, &p.points[1].id))
+            }
+        };
+        match dim.kind {
+            DimensionKind::Length => {
+                self.line_length(curve.ok_or_else(|| invalid("Length requires a line"))?)
+            }
+            DimensionKind::Distance => {
+                let (a, b) = points()?;
+                self.distance(a, b)
+            }
+            DimensionKind::HorizontalDistance | DimensionKind::VerticalDistance => {
+                let (a, b) = points()?;
+                let index = usize::from(dim.kind == DimensionKind::VerticalDistance);
+                Ok(self.point(b)?[index]
+                    .clone()
+                    .sub(self.point(a)?[index].clone()))
+            }
+            DimensionKind::Radius | DimensionKind::Diameter => Ok(self
+                .radius(curve.ok_or_else(|| invalid("Radius requires a curve"))?)?
+                .scale(if dim.kind == DimensionKind::Diameter {
+                    2.
+                } else {
+                    1.
+                })),
+            DimensionKind::MajorRadius | DimensionKind::MinorRadius => {
+                let id = curve.ok_or_else(|| invalid("Ellipse dimension requires a curve"))?;
+                if !matches!(self.geometry(id)?, SketchGeometry::Ellipse { .. }) {
+                    return Err(invalid("Select an ellipse"));
+                }
+                Ok(
+                    self.variables(id)?[usize::from(dim.kind == DimensionKind::MinorRadius)]
+                        .clone(),
+                )
+            }
+            DimensionKind::Angle => {
+                if let Some(id) = curve.filter(|_| p.curves.len() < 2) {
+                    let radians = match self.geometry(id)? {
+                        SketchGeometry::Arc { .. } => {
+                            let v = self.variables(id)?;
+                            v[2].clone().sub(v[1].clone())
+                        }
+                        SketchGeometry::Ellipse { .. } => self.variables(id)?[2].clone(),
+                        SketchGeometry::Line { .. } => {
+                            let (a, b) = self.line(id)?;
+                            let v = sub(b, a);
+                            v[1].clone().atan2(v[0].clone())
+                        }
+                        _ => {
+                            return Err(invalid("Angle requires a line, arc, ellipse or two lines"))
+                        }
+                    };
+                    return Ok(radians.scale(180. / std::f64::consts::PI));
+                }
+                if p.curves.len() != 2 {
+                    return Err(invalid("Angle requires two lines"));
+                }
+                let (a, b) = self.line(&p.curves[0].id)?;
+                let (c, d) = self.line(&p.curves[1].id)?;
+                let u = sub(b, a);
+                let v = sub(d, c);
+                Ok(cross(u.clone(), v.clone())
+                    .atan2(dot(u, v))
+                    .scale(180. / std::f64::consts::PI))
+            }
+        }
+    }
+    fn constraint(&self, c: &SketchConstraint) -> Result<Vec<E>> {
+        let p = &c.parameters;
+        let points = |n| {
+            if p.points.len() == n {
+                Ok(())
+            } else {
+                Err(invalid(format!("Constraint requires {n} points")))
+            }
+        };
+        let curves = |n| {
+            if p.curves.len() == n {
+                Ok(())
+            } else {
+                Err(invalid(format!("Constraint requires {n} curves")))
+            }
+        };
+        use ConstraintKind::*;
+        Ok(match c.kind {
+            Coincident => {
+                points(2)?;
+                sub(self.point(&p.points[0].id)?, self.point(&p.points[1].id)?).to_vec()
+            }
+            PointOnCurve => {
+                points(1)?;
+                curves(1)?;
+                vec![self.point_on_curve(&p.points[0].id, &p.curves[0].id)?]
+            }
+            Fix => {
+                let fixed = self
+                    .sketch
+                    .fixed
+                    .get(&c.id)
+                    .ok_or_else(|| invalid("Missing fixed geometry"))?;
+                let mut equations = vec![];
+                for (id, values) in fixed {
+                    for (e, v) in self.variables(id)?.into_iter().zip(values) {
+                        equations.push(e.sub(constant(*v)));
+                    }
+                }
+                equations
+            }
+            Horizontal | Vertical => {
+                let (a, b) = if p.curves.len() == 1 {
+                    self.line(&p.curves[0].id)?
+                } else {
+                    points(2)?;
+                    (self.point(&p.points[0].id)?, self.point(&p.points[1].id)?)
+                };
+                vec![sub(b, a)[usize::from(c.kind == Horizontal)].clone()]
+            }
+            Parallel | Perpendicular | Collinear => {
+                curves(2)?;
+                let (a, b) = self.line(&p.curves[0].id)?;
+                let (c0, d) = self.line(&p.curves[1].id)?;
+                let u = sub(b, a.clone());
+                let v = sub(d, c0.clone());
+                let normalizer = length(u.clone()).mul(length(v.clone()));
+                let mut equations = vec![if c.kind == Perpendicular {
+                    dot(u.clone(), v).div(normalizer)
+                } else {
+                    cross(u.clone(), v).div(normalizer)
+                }];
+                if c.kind == Collinear {
+                    equations.push(cross(sub(c0, a), u.clone()).div(length(u)));
+                }
+                equations
+            }
+            Concentric => {
+                curves(2)?;
+                sub(self.center(&p.curves[0].id)?, self.center(&p.curves[1].id)?).to_vec()
+            }
+            Equal => {
+                curves(2)?;
+                let a = &p.curves[0].id;
+                let b = &p.curves[1].id;
+                if matches!(self.geometry(a)?, SketchGeometry::Line { .. }) {
+                    vec![self.line_length(a)?.sub(self.line_length(b)?)]
+                } else {
+                    vec![self.radius(a)?.sub(self.radius(b)?)]
+                }
+            }
+            Midpoint => {
+                points(1)?;
+                curves(1)?;
+                let (a, b) = self.line(&p.curves[0].id)?;
+                let p = self.point(&p.points[0].id)?;
+                (0..2)
+                    .map(|i| p[i].clone().sub(a[i].clone().add(b[i].clone()).scale(0.5)))
+                    .collect()
+            }
+            Symmetric => {
+                points(2)?;
+                curves(1)?;
+                let a = self.point(&p.points[0].id)?;
+                let b = self.point(&p.points[1].id)?;
+                let (c, d) = self.line(&p.curves[0].id)?;
+                let u = sub(d, c.clone());
+                let middle = [
+                    a[0].clone().add(b[0].clone()).scale(0.5),
+                    a[1].clone().add(b[1].clone()).scale(0.5),
+                ];
+                vec![
+                    cross(sub(middle, c), u.clone()).div(length(u.clone())),
+                    dot(sub(b, a), u.clone()).div(length(u)),
+                ]
+            }
+            Tangent => {
+                curves(2)?;
+                let mut a = &p.curves[0].id;
+                let mut b = &p.curves[1].id;
+                if matches!(self.geometry(b)?, SketchGeometry::Line { .. }) {
+                    std::mem::swap(&mut a, &mut b);
+                }
+                if let SketchGeometry::Line { .. } = self.geometry(a)? {
+                    let (from, to) = self.line(a)?;
+                    let direction = sub(to, from.clone());
+                    let offset =
+                        cross(sub(self.center(b)?, from), direction.clone()).div(length(direction));
+                    let sign = if offset.evaluate(&self.values)? < 0. {
+                        -1.
+                    } else {
+                        1.
+                    };
+                    vec![offset.sub(self.radius(b)?.scale(sign))]
+                } else {
+                    let distance = length(sub(self.center(a)?, self.center(b)?));
+                    let r1 = self.radius(a)?;
+                    let r2 = self.radius(b)?;
+                    let d = distance.evaluate(&self.values)?;
+                    let ra = r1.evaluate(&self.values)?;
+                    let rb = r2.evaluate(&self.values)?;
+                    let radius = if (d - (ra - rb).abs()).abs() < (d - ra - rb).abs() {
+                        r1.sub(r2).scale(if ra >= rb { 1. } else { -1. })
+                    } else {
+                        r1.add(r2)
+                    };
+                    vec![distance.sub(radius)]
+                }
+            }
+        })
+    }
+}
+
+pub(super) fn solve(
+    sketch: &mut Sketch,
+    units: SceneUnits,
+    external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
+) -> Result<()> {
+    let mut system = System::new(sketch);
+    let mut fixed = vec![0u8; system.values.len()];
+    for values in sketch
+        .fixed
+        .iter()
+        .filter(|(id, _)| sketch.constraints.contains_key(*id))
+        .map(|(_, v)| v)
+    {
+        for (id, values) in values {
+            if let Some(range) = system.ranges.get(id) {
+                for (index, value) in range.clone().zip(values) {
+                    system.values[index] = *value;
+                    fixed[index] = 1;
+                }
+            }
+        }
+    }
+    let mut residuals: Vec<(i32, E)> = vec![];
+    for (id, entity) in &sketch.entities {
+        if let SketchGeometry::Arc {
+            center, from, to, ..
+        } = &entity.geometry
+        {
+            let c = system.point(center)?;
+            let vars = system.variables(id)?;
+            for (point, angle) in [(from, vars[1].clone()), (to, vars[2].clone())] {
+                let p = system.point(point)?;
+                residuals.push((
+                    1,
+                    p[0].clone()
+                        .sub(c[0].clone().add(vars[0].clone().mul(angle.clone().cos()))),
+                ));
+                residuals.push((
+                    1,
+                    p[1].clone()
+                        .sub(c[1].clone().add(vars[0].clone().mul(angle.sin()))),
+                ));
+            }
+        }
+    }
+    for (index, constraint) in sketch.constraints.values().enumerate() {
+        if constraint.kind == ConstraintKind::Fix {
+            continue;
+        }
+        residuals.extend(
+            system
+                .constraint(constraint)?
+                .into_iter()
+                .map(|e| (index as i32 + 1, e)),
+        );
+    }
+    let mut bound = sketch.bindings.clone();
+    let mut dependencies = BTreeMap::new();
+    for (index, dim) in sketch.dimensions.values().enumerate() {
+        let dimension = if dim.kind == DimensionKind::Angle {
+            FormulaDimension::Angle
+        } else {
+            FormulaDimension::Length
+        };
+        let mut refs = vec![];
+        if dim.parameters.mode == DimensionMode::Driving {
+            let value = dim
+                .parameters
+                .value
+                .as_ref()
+                .ok_or_else(|| invalid("Driving dimension requires a formula"))?;
+            let expression = match value {
+                Formula::Number(n) => constant(*n),
+                Formula::Expression(source)
+                | Formula::Evaluated(EvaluatedFormula {
+                    expression: source, ..
+                }) => {
+                    let bindings = bound.entry(dim.id.clone()).or_default();
+                    let quantity = formula::parse(source, &mut |token| {
+                        let reference = bindings
+                            .get(token)
+                            .cloned()
+                            .or_else(|| {
+                                sketch
+                                    .dimensions
+                                    .values()
+                                    .find(|d| {
+                                        d.id == token
+                                            || format!(
+                                                "dimension[{}]",
+                                                d.parameters.name.as_deref().unwrap_or("")
+                                            ) == token
+                                            || d.parameters.name.as_deref() == Some(token)
+                                    })
+                                    .map(|d| sketch.entity_ref(&d.id))
+                            })
+                            .or_else(|| external.get(token).map(|v| v.0.clone()))
+                            .ok_or_else(|| invalid(format!("Unknown dimension {token}")))?;
+                        bindings.insert(token.to_owned(), reference.clone());
+                        refs.push(reference.clone());
+                        if reference.sketch_id == sketch.data.id {
+                            let referenced = sketch
+                                .dimensions
+                                .get(&reference.id)
+                                .ok_or_else(|| invalid("Referenced dimension was removed"))?;
+                            Ok(Quantity {
+                                expression: system.measurement(referenced)?,
+                                powers: if referenced.kind == DimensionKind::Angle {
+                                    [0, 1]
+                                } else {
+                                    [1, 0]
+                                },
+                            })
+                        } else {
+                            let (_, quantity) = external
+                                .values()
+                                .find(|(r, _)| r == &reference)
+                                .ok_or_else(|| {
+                                    invalid("Referenced sketch dimension is unavailable")
+                                })?;
+                            Ok(Quantity {
+                                expression: constant(quantity.value * quantity.unit.scale()),
+                                powers: quantity.unit.dimension().powers(),
+                            })
+                        }
+                    })?;
+                    if quantity.powers == [0, 0] {
+                        quantity.expression.scale(units.unit(dimension).scale())
+                    } else if quantity.powers == dimension.powers() {
+                        quantity.expression
+                    } else {
+                        return Err(invalid("Dimension formula has incompatible units"));
+                    }
+                }
+            };
+            residuals.push((
+                (sketch.constraints.len() + index + 1) as i32,
+                system.measurement(dim)?.sub(expression),
+            ));
+        }
+        dependencies.insert(dim.id.clone(), refs);
+    }
+    let mut instructions = vec![];
+    let mut equations = vec![];
+    for (tag, e) in &residuals {
+        let start = instructions.len();
+        e.instructions(&mut instructions);
+        equations.push(Equation {
+            start,
+            count: instructions.len() - start,
+            tag: *tag,
+        });
+    }
+    let mut values = system.values.clone();
+    let mut movable = vec![0; values.len()];
+    let mut dof = 0;
+    let mut diagnostics = vec![0; equations.len()];
+    let mut diagnostic_count = diagnostics.len();
+    let mut error = [0u8; 1024];
+    let mut group_indices = vec![];
+    let mut groups = vec![];
+    let mut freedom = vec![];
+    for entity in sketch.entities.values() {
+        let ids = sketch.selected_entities(std::slice::from_ref(&entity.reference))?;
+        let start = group_indices.len();
+        for id in ids {
+            group_indices.extend(system.ranges[&id].clone());
+        }
+        groups.push(VariableGroup {
+            start,
+            count: group_indices.len() - start,
+        });
+        let maximum = match &entity.geometry {
+            SketchGeometry::Point { .. } => 2,
+            SketchGeometry::Line { .. } => 4,
+            SketchGeometry::Circle { .. } => 3,
+            SketchGeometry::Arc { .. } | SketchGeometry::Ellipse { .. } => 5,
+            SketchGeometry::Spline { points, .. } => points.len() * 2,
+        };
+        freedom.push(SketchEntityFreedom {
+            entity: entity.reference.clone(),
+            degrees_of_freedom: 0,
+            unconstrained_degrees_of_freedom: maximum,
+        });
+    }
+    let mut group_dof = vec![0i32; groups.len()];
+    let result = unsafe {
+        pamat_sketch_solve(
+            values.as_mut_ptr(),
+            values.len(),
+            fixed.as_ptr(),
+            instructions.as_ptr(),
+            equations.as_ptr(),
+            equations.len(),
+            &mut dof,
+            movable.as_mut_ptr(),
+            group_indices.as_ptr(),
+            groups.as_ptr(),
+            groups.len(),
+            group_dof.as_mut_ptr(),
+            diagnostics.as_mut_ptr(),
+            &mut diagnostic_count,
+            error.as_mut_ptr().cast(),
+            error.len(),
+        )
+    };
+    if result != 0 {
+        return Err(CoreError::new(
+            ErrorCode::InvalidParameter,
+            String::from_utf8_lossy(
+                &error[..error.iter().position(|b| *b == 0).unwrap_or(error.len())],
+            )
+            .to_string(),
+        ));
+    }
+    let computed = sketch
+        .dimensions
+        .values()
+        .map(|d| Ok((d.id.clone(), system.measurement(d)?.evaluate(&values)?)))
+        .collect::<Result<Vec<_>>>()?;
+    let ranges = system.ranges;
+    let mut movable_entities = vec![];
+    for (item, dof) in freedom.iter_mut().zip(group_dof) {
+        item.degrees_of_freedom = dof.max(0) as usize;
+        if dof > 0 {
+            movable_entities.push(item.entity.clone());
+        }
+    }
+    for (id, entity) in &mut sketch.entities {
+        let range = ranges[id].clone();
+        let v = &values[range.clone()];
+        match &mut entity.geometry {
+            SketchGeometry::Point { position } => *position = [v[0], v[1]],
+            SketchGeometry::Circle { radius, .. } => *radius = v[0],
+            SketchGeometry::Arc {
+                radius, start, end, ..
+            } => {
+                *radius = v[0];
+                *start = v[1];
+                *end = v[2];
+            }
+            SketchGeometry::Ellipse {
+                major,
+                minor,
+                angle,
+                ..
+            } => {
+                *major = v[0];
+                *minor = v[1];
+                *angle = v[2];
+            }
+            _ => (),
+        }
+    }
+    for (id, value) in computed {
+        let dim = sketch.dimensions.get_mut(&id).unwrap();
+        let unit = units.unit(if dim.kind == DimensionKind::Angle {
+            FormulaDimension::Angle
+        } else {
+            FormulaDimension::Length
+        });
+        dim.computed = FormulaQuantity {
+            value: value / unit.scale(),
+            unit,
+        };
+        dim.dependencies = dependencies.remove(&id).unwrap_or_default();
+    }
+    sketch.bindings = bound;
+    sketch.status = SketchSolveStatus {
+        state: if dof == 0 {
+            SketchSolveState::Constrained
+        } else {
+            SketchSolveState::Underconstrained
+        },
+        degrees_of_freedom: dof.max(0) as usize,
+        movable_entities,
+        entities: freedom,
+        warnings: sketch.status.warnings.clone(),
+    };
+    sketch.validate_geometry()?;
+    Ok(())
+}
+
+pub(super) fn fixed_values(
+    sketch: &Sketch,
+    refs: &[SketchEntityRef],
+) -> Result<BTreeMap<String, Vec<f64>>> {
+    let system = System::new(sketch);
+    let mut ids = std::collections::BTreeSet::new();
+    for r in refs {
+        sketch.check_reference(r)?;
+        ids.insert(r.id.clone());
+        match system.geometry(&r.id)? {
+            SketchGeometry::Line { from, to } => {
+                ids.insert(from.clone());
+                ids.insert(to.clone());
+            }
+            SketchGeometry::Circle { center, .. }
+            | SketchGeometry::Arc { center, .. }
+            | SketchGeometry::Ellipse { center, .. } => {
+                ids.insert(center.clone());
+            }
+            SketchGeometry::Spline { points, .. } => {
+                ids.extend(points.iter().cloned());
+            }
+            _ => (),
+        }
+    }
+    Ok(ids
+        .into_iter()
+        .map(|id| {
+            let values = system.values[system.ranges[&id].clone()].to_vec();
+            (id, values)
+        })
+        .collect())
+}

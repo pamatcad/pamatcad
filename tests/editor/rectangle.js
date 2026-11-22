@@ -1,4 +1,17 @@
 // Runs unchanged in Chromium and the desktop app's WKWebView.
+function beginRectangleDraft() {
+  document.querySelector('#sketch-ribbon [data-tool="rectangle"]').click();
+  const canvas = document.getElementById("model-canvas"), r = canvas.getBoundingClientRect();
+  const pointer = { clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 0, pointerId: 1, pointerType: "mouse", bubbles: true };
+  // Synthetic DOM events have no native pointer to capture in WKWebView.
+  const capture = canvas.setPointerCapture;
+  canvas.setPointerCapture = () => {};
+  try {
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, buttons: 1 }));
+    canvas.dispatchEvent(new PointerEvent("pointerup", pointer));
+  } finally { canvas.setPointerCapture = capture; }
+}
+
 async function testRectangleEditor() {
   const find = (id) => document.getElementById(id);
   const wait = async (condition, step) => {
@@ -19,10 +32,17 @@ async function testRectangleEditor() {
     await document.querySelector(selector).decode();
   }
   click("new-sketch");
+  await wait(() => find("sketch-planes"), "Show sketch planes");
+  if (find("workbench").value !== "sketch" || find("sketch-ribbon").hidden) throw new Error("Expected the Sketch ribbon");
+  find("sketch-planes").querySelector("button").click();
+  await wait(() => !find("apply").disabled, "Choose sketch plane");
+  beginRectangleDraft();
   change("width", "10");
   change("height", "10");
+  await wait(() => !find("apply").disabled, "Validate rectangle dimensions");
   click("apply");
   await wait(() => !find("extrude").disabled, "Finish sketch");
+  if (find("workbench").value !== "solid" || find("solid-ribbon").hidden) throw new Error("Expected the Solid ribbon");
   click("extrude");
   change("length", "6 + 4");
   await wait(() => !find("apply").disabled, "Preview formula");

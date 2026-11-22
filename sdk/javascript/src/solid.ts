@@ -5,10 +5,12 @@ export class Body {
   readonly id;
   readonly sceneId;
   readonly faces;
+  readonly vertices;
 
   constructor(private readonly transport: Transport, private readonly reference: BodyRef) {
     this.id = reference.id;
     this.sceneId = reference.sceneId;
+    this.vertices={all:()=>transport.request("body.vertices.all",{body:reference})};
     function query(filter: { origin: FaceOrigin }): { only(): Promise<Extract<FaceRef, { origin: FaceOrigin }>> };
     function query(filter: { normal: [number, number, number] }): { only(): Promise<Extract<FaceRef, { faceId: number }>> };
     function query(filter: { origin: FaceOrigin } | { normal: [number, number, number] }) {

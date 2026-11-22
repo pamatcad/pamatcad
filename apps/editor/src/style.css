@@ -104,6 +104,7 @@ button:active:not(:disabled) {
   gap: 16px;
 }
 .workbench {
+  flex-shrink: 0;
   display: grid;
   align-content: center;
   gap: 8px;
@@ -125,6 +126,7 @@ button:active:not(:disabled) {
   font-weight: 400;
 }
 .tool-group {
+  flex-shrink: 0;
   display: grid;
   align-content: space-between;
   border-right: 1px solid var(--border);
@@ -161,6 +163,15 @@ button:active:not(:disabled) {
 .tool-group > span {
   padding-left: 8px;
 }
+.workbench-tools {
+  display: flex;
+  gap: 16px;
+  min-width: 0;
+  overflow-x: auto;
+}
+#sketch-ribbon .tool-group { min-width: 0; }
+.sketch-ribbon-tools { grid-auto-flow: column; grid-auto-columns: 36px; }
+.sketch-ribbon-tools button { justify-content: center; padding: 4px; }
 main {
   display: grid;
   grid-template-columns: clamp(220px, var(--browser-width, 220px), 55%) minmax(0, 1fr);
@@ -654,3 +665,17 @@ dialog::backdrop {
   background: color-mix(in srgb, var(--shadow) calc(var(--backdrop-opacity) * 100%), transparent);
 }
 
+
+.sketch-variants, .sketch-choices, .sketch-selection-actions { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.sketch-variants button, .sketch-choices button { padding: 3px 6px; font-size: 12px; }
+.sketch-variants button[aria-pressed="true"] { background: var(--active-background); color: var(--on-accent); border-color: var(--accent-border); }
+#tool-panel .sketch-fields .check { display: flex; justify-content: flex-start; gap: 6px; }
+#tool-panel .sketch-fields output { display: block; font-size: 12px; margin: 6px 0; overflow-wrap: anywhere; }
+.sketch-reference { display: flex; flex-wrap: wrap; gap: 4px; margin-block: 8px; }
+.sketch-reference span { flex-basis: 100%; font-size: 12px; overflow-wrap: anywhere; }
+.sketch-popup { position: fixed; z-index: 50; display: grid; gap: 4px; max-width: 280px; max-height: 60vh; overflow: auto; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-background); color: var(--foreground); box-shadow: 0 3px 12px var(--shadow); }
+.sketch-popup form { display: grid; gap: 6px; }
+.sketch-popup input, .sketch-popup select { min-width: 0; padding: 4px 6px; }
+.sketch-live-dimensions { position: absolute; inset: 0; pointer-events: none; }
+.sketch-live-dimensions > label { position: absolute; z-index: 2; display: flex; align-items: center; gap: 4px; transform: translate(-50%, -50%); padding: 3px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-background); color: var(--foreground); font-size: 12px; pointer-events: auto; }
+.sketch-live-dimensions input[id] { width: 90px; min-width: 0; min-height: 24px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 2px; font-size: 12px; }

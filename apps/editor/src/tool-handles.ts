@@ -17,6 +17,7 @@ export type ToolHandle = {
   /** World travel per input unit (one half for symmetric total length). */
   factor?: number;
   min?: number;
+  max?: number;
   change(value: number): void;
 };
 
@@ -74,6 +75,7 @@ export class ToolHandles {
   }
 
   private start(event: PointerEvent, handle: ToolHandle) {
+    if (event.button !== 0) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     const origin = new T.Vector3(...handle.origin);
@@ -115,8 +117,9 @@ export class ToolHandles {
       delta = T.MathUtils.radToDeg(Math.atan2(Math.sin(angle), Math.cos(angle)));
     }
     let value = Math.round((drag.value + delta) / drag.step) * drag.step;
-    if (drag.handle.kind === "angle") value = Math.max(-85, Math.min(85, value));
+    if (drag.handle.kind === "angle") value = Math.max(drag.handle.min ?? -85, Math.min(drag.handle.max ?? 85, value));
     if (drag.handle.min !== undefined) value = Math.max(drag.handle.min, value);
+    if (drag.handle.max !== undefined) value = Math.min(drag.handle.max, value);
     if (value === drag.handle.value) return;
     drag.handle.value = value;
     const current = this.items.find((item) => item.id === drag.handle.id);
@@ -242,7 +245,7 @@ export class ToolHandles {
         this.labels.set(item.id, label);
         this.host.append(label);
       }
-      const text = `${Number((item.value / unitScale[item.unit]).toPrecision(6))} ${item.unit}`;
+      const text = `${Number((item.value / unitScale[item.unit]).toPrecision(6))}${item.unit === "scalar" ? "×" : " " + item.unit}`;
       if (label.textContent !== text) label.textContent = text;
       label.title = item.label;
       label.dataset.kind = item.kind;

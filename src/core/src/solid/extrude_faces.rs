@@ -48,7 +48,7 @@ impl Scene {
             ExtrudeFaceSelector::StartCap | ExtrudeFaceSelector::EndCap2 => Some(1),
             _ => None,
         };
-        let edge_index = match &query.selector {
+        let edge_indices = match &query.selector {
             ExtrudeFaceSelector::SideFaces1 { edge: Some(edge) }
             | ExtrudeFaceSelector::SideFaces2 { edge: Some(edge) } => {
                 let slot = match &query.profile {
@@ -57,8 +57,15 @@ impl Scene {
                             && region.sketch_id == edge.sketch_id =>
                     {
                         match self.sketches[&region.sketch_id].profile(region)? {
-                            Boundary::Lines(lines) => lines.iter().position(|id| id == &edge.id),
-                            Boundary::Circle(id) => (id == &edge.id).then_some(0),
+                            Boundary::Profile(profile) => Some(
+                                profile
+                                    .edges
+                                    .iter()
+                                    .enumerate()
+                                    .filter_map(|(i, id)| (id == &edge.id).then_some(i))
+                                    .collect::<Vec<_>>(),
+                            )
+                            .filter(|indices| !indices.is_empty()),
                         }
                     }
                     _ => None,
@@ -82,18 +89,20 @@ impl Scene {
             let base = group.start;
             let edges = (group.len() - 2) / if double { 2 } else { 1 };
             let side_start = base + 2 + if second { edges } else { 0 };
-            let slots = match (cap_slot, edge_index) {
-                (Some(n), _) => base + n..base + n + 1,
-                (_, Some(n)) => side_start + n..side_start + n + 1,
-                _ => side_start..side_start + edges,
+            let slots: Vec<usize> = match (cap_slot, &edge_indices) {
+                (Some(n), _) => vec![base + n],
+                (_, Some(indices)) => indices.iter().map(|n| side_start + n).collect(),
+                _ => (side_start..side_start + edges).collect(),
             };
-            for (body, face_id) in self.face_descendants(body_id, slots)? {
-                if seen.insert((&body.reference.id, face_id)) {
-                    result.push(FaceRef::Selected {
-                        scene_id: self.data.id.clone(),
-                        body_id: body.reference.id.clone(),
-                        face_id,
-                    });
+            for slot in slots {
+                for (body, face_id) in self.face_descendants(body_id, slot..slot + 1)? {
+                    if seen.insert((&body.reference.id, face_id)) {
+                        result.push(FaceRef::Selected {
+                            scene_id: self.data.id.clone(),
+                            body_id: body.reference.id.clone(),
+                            face_id,
+                        });
+                    }
                 }
             }
         }

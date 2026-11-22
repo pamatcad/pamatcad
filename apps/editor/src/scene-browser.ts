@@ -19,6 +19,7 @@ export type TreeNode = {
 type Callbacks = {
   onTab(tab: BrowserTab): void;
   onSelect(id: string, additive: boolean): void;
+  onActivate?(id: string): void;
   onVisibility(id: string, visible: boolean): void;
 };
 const tabNames: BrowserTab[] = ["Components", "Construction", "Bodies", "Sketches"];
@@ -213,6 +214,7 @@ export function initSceneBrowser(callbacks: Callbacks) {
       const text = document.createElement("span");
       text.textContent = node.label;
       label.append(icon, text);
+      label.ondblclick = () => callbacks.onActivate?.(node.id);
       label.onclick = (event) => {
         focusedId = node.id;
         if (isObject) callbacks.onSelect(node.id, event.shiftKey);

@@ -47,15 +47,17 @@ Currently the sections, starting from ribbon configurations, are:
     - Fix
     - Concentric
     - Midpoint
+    - Parallel
     - Perpendicular
     - Tangent
     - Horizontal
     - Vertical
     - Symmetric
     - Collinear
-  - Edit
+    - Point on curve
+  - Tools
+    - Dimension
     - Offset
-    - Delete
     - Split
     - Rounding
     - Scale

@@ -1,9 +1,10 @@
-import type { EdgeRef, FaceRef, RegionRef } from "@pamatcad/sdk";
+import type { EdgeRef, FaceRef, RegionRef, VertexRef } from "@pamatcad/sdk";
 
 export type SelectionItem =
   | { kind: "region"; ref: RegionRef }
   | { kind: "face"; ref: FaceRef; revision: string }
   | { kind: "edge"; ref: EdgeRef }
+  | { kind: "vertex"; ref: VertexRef }
   | { kind: "body"; id: string }
   | { kind: "sketch"; id: string }
   | { kind: "plane"; id: string };
@@ -12,6 +13,7 @@ export type SelectionFilter = "all" | "profiles" | "faces" | "bodies" | "none";
 export function selectionKey(item: SelectionItem): string {
   if ("id" in item) return item.kind + ":" + item.id;
   if (item.kind === "region") return "region:" + item.ref.sketchId + ":" + item.ref.id;
+  if (item.kind === "vertex") return "vertex:" + item.ref.bodyId + ":" + item.ref.vertexId;
   if (item.kind === "edge") return "edge:" + item.ref.bodyId + ":" + item.ref.edgeId;
   return "face:" + item.ref.bodyId + ":" + ("faceId" in item.ref ? item.ref.faceId : JSON.stringify(item.ref.origin));
 }

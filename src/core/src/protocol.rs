@@ -1,4 +1,5 @@
 use crate::error::{CoreError, ErrorCode};
+pub use crate::sketch::types::*;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -53,6 +54,7 @@ pub struct PlaneFrame {
 pub struct SketchRegionProxy {
     pub region: RegionRef,
     pub boundary: Vec<[f64; 3]>,
+    pub holes: Vec<Vec<[f64; 3]>>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -60,6 +62,23 @@ pub struct SketchProxy {
     pub sketch: SketchRef,
     pub frame: PlaneFrame,
     pub regions: Vec<SketchRegionProxy>,
+    pub curves: Vec<SketchCurveProxy>,
+    pub points: Vec<SketchPointProxy>,
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct SketchCurveProxy {
+    pub entity: SketchEntityRef,
+    pub points: Vec<[f64; 3]>,
+    pub construction: bool,
+    pub projected: bool,
+}
+#[derive(Debug, Serialize, TS)]
+pub struct SketchPointProxy {
+    pub entity: SketchEntityRef,
+    pub position: [f64; 3],
+    pub construction: bool,
+    pub projected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -152,6 +171,13 @@ pub struct SceneData {
 pub enum FormulaDimension {
     Length,
     Angle,
+    Scalar,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ScalarUnit {
+    Scalar,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]
@@ -177,6 +203,7 @@ pub enum AngleUnit {
 pub enum FormulaUnit {
     Length(LengthUnit),
     Angle(AngleUnit),
+    Scalar(ScalarUnit),
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]
@@ -202,6 +229,15 @@ pub struct EvaluatedFormula<U> {
     #[ts(optional)]
     pub implicit_unit: Option<U>,
     pub computed: FormulaQuantity<U>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<_>")]
+    pub references: Vec<FormulaReference>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct FormulaReference {
+    pub symbol: String,
+    pub dimension: SketchEntityRef,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -227,12 +263,16 @@ pub struct SketchData {
     pub scene_id: String,
     pub plane: SketchSupport,
     pub completed: bool,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct RectangleData {
     pub id: String,
     pub lines: Vec<LineRef>,
+    pub points: Vec<SketchEntityRef>,
+    pub curves: Vec<SketchEntityRef>,
+    pub constraints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -240,6 +280,15 @@ pub struct RectangleData {
 pub struct RectangleParameters {
     pub from: [f64; 2],
     pub to: [f64; 2],
+    #[serde(default)]
+    #[ts(optional, as = "Option<_>")]
+    pub construction: bool,
+    #[serde(default)]
+    #[ts(optional, as = "Option<_>")]
+    pub centered: bool,
+    #[serde(default)]
+    #[ts(optional, as = "Option<_>")]
+    pub angle: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -247,11 +296,17 @@ pub struct RectangleParameters {
 pub struct CircleParameters {
     pub center: [f64; 2],
     pub diameter: f64,
+    #[serde(default)]
+    #[ts(optional, as = "Option<_>")]
+    pub construction: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CircleData {
     pub id: String,
+    pub points: Vec<SketchEntityRef>,
+    pub curves: Vec<SketchEntityRef>,
+    pub constraints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -259,6 +314,15 @@ pub struct CircleData {
 pub enum PrimitiveData {
     Rectangle(RectangleData),
     Circle(CircleData),
+    Geometry(GeometryData),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct GeometryData {
+    pub id: String,
+    pub points: Vec<SketchEntityRef>,
+    pub curves: Vec<SketchEntityRef>,
+    pub constraints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -271,6 +335,13 @@ pub enum PrimitiveData {
 pub enum Primitive {
     Rectangle(RectangleParameters),
     Circle(CircleParameters),
+    Point(PointParameters),
+    Line(LineParameters),
+    Arc(ArcParameters),
+    Ellipse(EllipseParameters),
+    Slot(SlotParameters),
+    Spline(SplineParameters),
+    Text(TextParameters),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -561,6 +632,8 @@ pub struct CreateScene {
 #[serde(deny_unknown_fields)]
 pub struct CreateSketch {
     pub plane: SketchSupport,
+    #[ts(optional)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -568,6 +641,16 @@ pub struct CreateSketch {
 pub struct AddPrimitive {
     pub sketch: SketchRef,
     pub primitive: Primitive,
+    #[ts(optional)]
+    pub preview: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SketchViewQuery {
+    pub sketch: SketchRef,
+    #[ts(optional)]
+    pub preview: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -584,7 +667,7 @@ pub struct ModelingRequest<T> {
     pub command: T,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EdgeRef {
     pub scene_id: String,
@@ -617,6 +700,12 @@ pub struct BodyRevision {
 }
 
 #[derive(Debug, Serialize, TS)]
+pub struct BodyVertex {
+    pub vertex: VertexRef,
+    pub position: [f64; 3],
+}
+
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct BodyProxy {
     pub body: BodyRef,
@@ -627,6 +716,7 @@ pub struct BodyProxy {
     pub faces: Vec<ProxyFace>,
     pub edge_points: Vec<f32>,
     pub edges: Vec<ProxyEdge>,
+    pub vertices: Vec<BodyVertex>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -760,9 +850,25 @@ api! {
     SketchCreate(CreateSketch) -> SketchData = "sketch.create",
     PrimitiveAdd(AddPrimitive) -> PrimitiveData = "sketch.primitives.add",
     SketchComplete(SketchQuery) -> SketchData = "sketch.complete",
+    SketchFind(SketchFind) -> SketchData = "sketch.find",
+    SketchState(SketchViewQuery) -> SketchState = "sketch.state",
+    SketchEdit(SketchQuery) -> SketchData = "sketch.edit",
+    SketchCancel(SketchQuery) -> () = "sketch.cancel",
+    SketchSettings(SketchSettings) -> SketchState = "sketch.settings",
+    SketchRecompute(SketchQuery) -> SketchSolveStatus = "sketch.recompute",
+    SketchConstraintAdd(AddConstraint) -> SketchConstraint = "sketch.constraints.add",
+    SketchDimensionAdd(AddDimension) -> SketchDimension = "sketch.dimensions.add",
+    SketchDimensionUpdate(UpdateDimension) -> SketchDimension = "sketch.dimensions.update",
+    SketchRemove(RemoveSketchItems) -> SketchState = "sketch.remove",
+    SketchDrag(DragSketchPoint) -> SketchState = "sketch.drag",
+    SketchProject(ProjectGeometry) -> SketchProjection = "sketch.project",
+    SketchSupportUpdate(UpdateSketchSupport) -> SketchState = "sketch.support.update",
+    SketchTransform(TransformSketchGeometry) -> Vec<SketchEntityRef> = "sketch.transform",
+    SketchConstruction(SetConstruction) -> SketchState = "sketch.construction",
+    SketchModifyCurves(ModifySketchCurves) -> SketchEditResult = "sketch.curves.modify",
     RegionOnly(SketchQuery) -> RegionRef = "sketch.regions.only",
     RegionsAll(SketchQuery) -> Vec<RegionRef> = "sketch.regions.all",
-    SketchGetProxy(SketchQuery) -> SketchProxy = "sketch.getProxy",
+    SketchGetProxy(SketchViewQuery) -> SketchProxy = "sketch.getProxy",
     TimelineList(SceneQuery) -> Vec<TimelineEntry> = "scene.timeline.list",
     SolidExtrude(ModelingRequest<Extrude>) -> ExtrudeResult = "solid.extrude",
     ExtrudeFacesAll(ExtrudeFaceQuery) -> Vec<FaceRef> = "solid.extrude.faces.all",
@@ -775,6 +881,7 @@ api! {
     BodyRevisions(SceneQuery) -> Vec<BodyRevision> = "scene.bodies.revisions",
     SceneGetProxyFor(ProxyQuery) -> BodyProxy = "scene.getProxyFor",
     SceneDiscardPreview(SceneQuery) -> () = "scene.discardPreview",
+    BodyVertices(BodyQuery) -> Vec<BodyVertex> = "body.vertices.all",
     BodyMesh(BodyQuery) -> TriangleMesh = "body.mesh",
     BodyProperties(BodyQuery) -> BodyProperties = "body.properties",
 }
@@ -789,6 +896,8 @@ pub fn typescript() -> String {
         PlaneFrame::decl(),
         SketchRegionProxy::decl(),
         SketchProxy::decl(),
+        SketchCurveProxy::decl(),
+        SketchPointProxy::decl(),
         BodyRef::decl(),
         FaceRole::decl(),
         FaceOrigin::decl(),
@@ -799,12 +908,14 @@ pub fn typescript() -> String {
         BuiltinConstruction::decl(),
         Construction::decl(),
         FormulaDimension::decl(),
+        ScalarUnit::decl(),
         LengthUnit::decl(),
         AngleUnit::decl(),
         FormulaUnit::decl(),
         SceneUnits::decl(),
         FormulaQuantity::<FormulaUnit>::decl(),
         EvaluatedFormula::<FormulaUnit>::decl(),
+        FormulaReference::decl(),
         Formula::<FormulaUnit>::decl(),
         EvaluateFormula::decl(),
         SceneData::decl(),
@@ -814,6 +925,7 @@ pub fn typescript() -> String {
         CircleParameters::decl(),
         CircleData::decl(),
         PrimitiveData::decl(),
+        GeometryData::decl(),
         Primitive::decl(),
         ExtrudeMode::decl(),
         ExtrudeType::decl(),
@@ -852,12 +964,14 @@ pub fn typescript() -> String {
         CreateSketch::decl(),
         AddPrimitive::decl(),
         SketchQuery::decl(),
+        SketchViewQuery::decl(),
         Extrude::decl(),
         ModelingRequest::<Extrude>::decl(),
         EdgeRef::decl(),
         ProxyFace::decl(),
         ProxyEdge::decl(),
         BodyProxy::decl(),
+        BodyVertex::decl(),
         BodyRevision::decl(),
         ProxyQuery::decl(),
         BodyQuery::decl(),
@@ -867,7 +981,10 @@ pub fn typescript() -> String {
         CoreError::decl(),
     ];
     let mut output = String::from("// Generated by pamatcad bindings. Do not edit.\n\n");
-    for declaration in declarations {
+    for declaration in declarations
+        .into_iter()
+        .chain(crate::sketch::types::declarations())
+    {
         output.push_str("export ");
         output.push_str(&declaration);
         output.push('\n');

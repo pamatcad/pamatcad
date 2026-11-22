@@ -72,6 +72,10 @@ async function testDocumentEditor() {
     const firstHistory = find("console-output").textContent;
     find("js").value = "unfinished first-document input";
     find("new-sketch").click();
+    await wait(() => find("sketch-planes"), "Show sketch planes");
+    find("sketch-planes").querySelector("button").click();
+    await wait(() => !find("apply").disabled, "Choose sketch plane");
+    beginRectangleDraft();
     change("width", "12");
     change("height", "8");
 
@@ -83,8 +87,13 @@ async function testDocumentEditor() {
     await run('return "second-document-history"', "second-document-history");
     find("js").value = "unfinished second-document input";
     find("new-sketch").click();
+    await wait(() => find("sketch-planes"), "Show sketch planes");
+    find("sketch-planes").querySelector("button").click();
+    await wait(() => !find("apply").disabled, "Choose sketch plane");
+    beginRectangleDraft();
     change("width", "5");
     change("height", "7");
+    await wait(() => !find("apply").disabled, "Validate second sketch dimensions");
     find("apply").click();
     await wait(() => find("features").children.length === 1 && !find("extrude").disabled,
       "Commit second document's sketch");
@@ -109,6 +118,7 @@ async function testDocumentEditor() {
     check(find("width").value === "0" && find("apply").disabled,
       "Returning to an invalid sketch draft must keep Finish disabled");
     change("width", "12");
+    await wait(() => !find("apply").disabled, "Validate first sketch dimensions");
     find("apply").click();
     await wait(() => !find("extrude").disabled, "Commit first document's sketch");
     find("extrude").click();

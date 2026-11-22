@@ -270,18 +270,7 @@ fn extrude_regions<'a>(
 }
 
 fn evaluate_profile(sketch: &Sketch, profile: &RegionRef, options: &PrismOptions) -> Result<Shape> {
-    let frame = sketch.frame;
     match sketch.profile(profile)? {
-        Boundary::Lines(ids) => {
-            let points = ids
-                .iter()
-                .map(|id| frame.point(sketch.lines[id].from))
-                .collect::<Vec<_>>();
-            Shape::extrude(&points, options)
-        }
-        Boundary::Circle(id) => {
-            let circle = &sketch.circles[id];
-            Shape::extrude_circle(frame.point(circle.center), circle.diameter / 2., options)
-        }
+        Boundary::Profile(profile) => profile.shape.extrude_face(0, options),
     }
 }

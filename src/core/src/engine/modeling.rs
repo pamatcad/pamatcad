@@ -135,24 +135,43 @@ impl Engine {
 
     // Evaluation has validated every proposed body before IDs are assigned or the scene is updated.
     fn commit_changes(&mut self, scene_id: String, changes: ProposedChanges) -> Feature {
+        self.commit_recomputed(scene_id, changes, None)
+    }
+
+    pub(super) fn commit_recomputed(
+        &mut self,
+        scene_id: String,
+        changes: ProposedChanges,
+        previous: Option<&Feature>,
+    ) -> Feature {
         let affected_solids = changes.affected_solids();
         let mut bodies = Vec::new();
         let mut new_solids = Vec::with_capacity(changes.created.len());
-        for shape in changes.created {
+        for (index, shape) in changes.created.into_iter().enumerate() {
             let reference = BodyRef {
                 scene_id: scene_id.clone(),
-                id: self.id("body"),
+                id: previous
+                    .and_then(|f| f.new_solids.get(index))
+                    .map(|b| b.id.clone())
+                    .unwrap_or_else(|| self.id("body")),
             };
             new_solids.push(reference.clone());
             bodies.push(Body {
-                reference,
+                reference: reference.clone(),
                 shape,
-                created_at: self.next_id,
+                created_at: reference
+                    .id
+                    .rsplit('-')
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .unwrap_or(self.next_id),
                 revision: self.next_revision,
             });
         }
         let feature = Feature {
-            id: self.id("feature"),
+            id: previous
+                .map(|f| f.id.clone())
+                .unwrap_or_else(|| self.id("feature")),
             operation: changes.operation,
             new_solids,
             affected_solids,
