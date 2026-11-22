@@ -26,10 +26,41 @@ There are multiple ribbon configurations that can we switched with a selector on
 
 Currently the sections, starting from ribbon configurations, are:
 
-- Modelling
+- Solid
   - Solid
     - New sketch
     - Extrude
+- Sketch - see [Sketches and sketch workbench](sketches.md)
+  - Geometry
+    - Point
+    - Line
+    - Rectangle
+    - Circle
+    - Arc
+    - Ellipse
+    - Slot
+    - Spline
+    - Text
+  - Constraints
+    - Equal
+    - Coincident
+    - Fix
+    - Concentric
+    - Midpoint
+    - Perpendicular
+    - Tangent
+    - Horizontal
+    - Vertical
+    - Symmetric
+    - Collinear
+  - Edit
+    - Offset
+    - Delete
+    - Split
+    - Rounding
+    - Scale
+    - Move
+    - Project
 
 ### Working area
 

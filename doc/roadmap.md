@@ -39,18 +39,14 @@ Goal: establish branching timelines early
 - branching timeline, switching between branches
 - timeline recalculation, timeline dependencies, cached geometry and error state
 
-## M2 - UI
-
-Goal: it is live and interactable
-
-- desktop UI
-- browser UI
-
-## M1 - it works!!!
-
-Goal: just make it work
-
-- headless code, geometry and sketch kernel abstraction, basic editing and test suite
-- STEP export and scene capture
-- basic timeline operations & parameters
-- unconstrained sketches, extrusions, revolve, and boolean operations
+- 3d sketches
+- popovers and tooltips
+- icons where needed
+- mcp
+- settings
+- keyboard shortcuts
+- sketch: lost geometry
+- editable timeline, sketches
+- timeline
+- saving
+- sketches

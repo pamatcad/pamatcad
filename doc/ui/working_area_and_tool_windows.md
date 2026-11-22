@@ -28,7 +28,7 @@ Any dragging updates text input in a tool configuration window. Any text input c
 
 Preview updates are made in a best-effort manner - the first preview starts immediately with move and the second preview does not start unless the first is finished. 
 
-Formula and selection edits invalidate Apply immediately. Preview evaluation starts immediately when idle. While evaluation or mesh retrieval is pending, retain only the newest input and start it as soon as that sequence finishes, without a timer delay. During continued handle changes, completed intermediate previews may update the view; typed edits, geometry or option changes, suspension, and cancellation invalidate pending display results. Only the latest validated input enables Apply. Apply sends the validated request and preserves camera position, target, projection and zoom. Finishing or cancelling a sketch also preserves the current view. Cancel discards the overlay. Handles remain usable after a modeling validation error so the value can be corrected.
+Formula and selection edits invalidate Apply immediately. Preview evaluation starts immediately when idle. While evaluation or mesh retrieval is pending, retain only the newest input and start it as soon as that sequence finishes, without a timer delay. During continued handle changes, completed intermediate previews may update the view; typed edits, geometry or option changes, suspension, and cancellation invalidate pending display results. Only the latest validated input enables Apply. Apply sends the validated request and preserves camera position, target, projection and zoom. Handles remain usable after a modeling validation error so the value can be corrected.
 
 # Tool configuration windows
 
