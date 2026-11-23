@@ -20,6 +20,12 @@ Sketch elements are selected by clicking on them. In case when there are two geo
 
 With no active command, the sketch is in selection mode. Completing geometry, applying a tool, or toggling the active ribbon button returns to selection. Escape discards the unfinished drawing or active tool without closing the sketch; in selection mode it clears the selection. Delete or Backspace removes selected geometry, constraints, or dimensions, except while editing text.
 
+Dragging excludes the moving point and its coincident partners from snap targets. While a drag update is pending, retain the newest pointer position and always apply the release position. A click without movement only selects.
+
+Dragging a line moves both endpoints together according to their constraints. Endpoint targets use the line and pointer positions at drag start; the endpoints and their coincident partners are excluded from snapping. Projected lines remain read-only.
+
+Drawing previews and dragging start immediately, with one update in flight and only the newest input waiting. Display completed previews during continued movement; enable Apply only for the current valid input. Completion uses the final input. Escape, tool changes, and document suspension invalidate pending previews.
+
 Points are visible small circles. Constrained, unconstrained and projected geometry have different colors; additionally, construction geometry is presented as dotted lines. 
 
 When a tool, constraint, or a geometry is selected, a part of tool window changes accordingly.

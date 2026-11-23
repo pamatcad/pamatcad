@@ -107,7 +107,10 @@ export async function testNavigation(page) {
     // Navigate while waiting for the second rectangle corner.
     await page.locator('#sketch-ribbon [data-tool="rectangle"]').click();
     await page.mouse.click(...await screenPoint([-15, -8]));
-    await page.mouse.move(...await screenPoint([-10, -3]));
+    // Keep the pointer clear of the live dimension inputs beside the first corner.
+    const draftCorner = await screenPoint([-5, -3]);
+    assert.equal(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.id, draftCorner), "model-canvas");
+    await page.mouse.move(...draftCorner);
     await page.waitForFunction(() => window.navigationCheck.tool.draftValid && !window.navigationCheck.tool.pending);
     before = await read();
     await page.mouse.down({ button: "middle" }); await page.mouse.move(point[0] + 40, point[1] + 40, { steps: 6 }); await page.mouse.up({ button: "middle" });

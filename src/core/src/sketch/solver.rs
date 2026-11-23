@@ -13,6 +13,12 @@ struct VariableGroup {
     start: usize,
     count: usize,
 }
+#[repr(C)]
+struct DragTarget {
+    x: usize,
+    y: usize,
+    position: [f64; 2],
+}
 extern "C" {
     fn pamat_sketch_solve(
         values: *mut f64,
@@ -21,6 +27,8 @@ extern "C" {
         code: *const Instruction,
         equations: *const Equation,
         equation_count: usize,
+        drag: *const DragTarget,
+        drag_count: usize,
         dof: *mut i32,
         movable: *mut u8,
         group_indices: *const usize,
@@ -401,8 +409,49 @@ pub(super) fn solve(
     sketch: &mut Sketch,
     units: SceneUnits,
     external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
+    drag: &[(String, [f64; 2])],
 ) -> Result<()> {
     let mut system = System::new(sketch);
+    let mut targets = BTreeMap::new();
+    for (id, position) in drag {
+        // A corner may have multiple coincident endpoints. Use the same target variables
+        // regardless of which endpoint the picker or API caller supplies.
+        let mut coincident = std::collections::BTreeSet::from([id.to_owned()]);
+        loop {
+            let before = coincident.len();
+            for constraint in sketch
+                .constraints
+                .values()
+                .filter(|c| c.kind == ConstraintKind::Coincident)
+            {
+                if constraint
+                    .parameters
+                    .points
+                    .iter()
+                    .any(|p| coincident.contains(&p.id))
+                {
+                    coincident.extend(constraint.parameters.points.iter().map(|p| p.id.clone()));
+                }
+            }
+            if before == coincident.len() {
+                break;
+            }
+        }
+        let x = system.ranges[coincident.first().unwrap()].start;
+        if let Some(previous) = targets.insert(x, *position) {
+            if previous != *position {
+                return Err(invalid("Coincident drag targets must agree"));
+            }
+        }
+    }
+    let drag: Vec<_> = targets
+        .into_iter()
+        .map(|(x, position)| DragTarget {
+            x,
+            y: x + 1,
+            position,
+        })
+        .collect();
     let mut fixed = vec![0u8; system.values.len()];
     for values in sketch
         .fixed
@@ -591,6 +640,8 @@ pub(super) fn solve(
             instructions.as_ptr(),
             equations.as_ptr(),
             equations.len(),
+            drag.as_ptr(),
+            drag.len(),
             &mut dof,
             movable.as_mut_ptr(),
             group_indices.as_ptr(),

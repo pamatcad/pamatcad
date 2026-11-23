@@ -69,6 +69,7 @@ public:
 
 extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* fixed,
     const PamatInstruction* instructions, const PamatEquation* equations, size_t equation_count,
+    const PamatDragTarget* drag, size_t drag_count,
     int32_t* dof, uint8_t* movable, const size_t* group_indices, const PamatVariableGroup* groups, size_t group_count, int32_t* group_dof, int32_t* diagnostic_tags, size_t* diagnostic_count,
     char* error, size_t error_size) {
     try {
@@ -85,8 +86,68 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* f
         GCS::VEC_pD parameters;
         std::vector<size_t> active;
         for (size_t i=0; i<count; ++i) if(!fixed[i]) { parameters.push_back(values+i); active.push_back(i); }
-        const int status = equation_count && !active.empty() ? system.solve(parameters) : 0;
-        if (equation_count && !active.empty()) system.applySolution();
+        int status = GCS::Success;
+        if (drag_count) {
+            // The permanent equations below also supply the final residual/DOF checks.
+            // Drag targets and position preferences exist only in these temporary systems.
+            std::vector<double> original(values, values + count);
+            std::vector<double> seed = original;
+            std::vector<size_t> indices;
+            std::vector<double> target;
+            std::vector<bool> targeted(count, false);
+            for (size_t i = 0; i < drag_count; ++i) {
+                if (drag[i].x >= count || drag[i].y >= count) throw std::runtime_error("Invalid drag point");
+                indices.push_back(drag[i].x); indices.push_back(drag[i].y);
+                target.push_back(drag[i].position[0]); target.push_back(drag[i].position[1]);
+                targeted[drag[i].x] = targeted[drag[i].y] = true;
+            }
+            const auto attempt = [&](bool pin, bool preserve) {
+                std::copy(seed.begin(), seed.end(), values);
+                for (size_t axis = 0; axis < indices.size(); ++axis) if (pin) {
+                    const size_t i = indices[axis];
+                    if (fixed[i] && std::abs(values[i] - target[axis]) > 1e-9) return false;
+                    if (!fixed[i]) values[i] = target[axis];
+                }
+                GCS::System move;
+                move.debugMode = GCS::NoDebug;
+                move.maxIter = 200;
+                for (size_t i = 0; i < equation_count; ++i) {
+                    const auto& e = equations[i];
+                    move.addConstraint(new Expression(values, count, instructions + e.start, e.count, e.tag));
+                }
+                GCS::VEC_pD unknowns;
+                for (size_t i = 0; i < count; ++i) {
+                    if (fixed[i] || (pin && targeted[i])) continue;
+                    unknowns.push_back(values + i);
+                    if (preserve) move.addConstraintEqual(values + i, original.data() + i, GCS::DefaultTemporaryConstraint);
+                }
+                if (!pin) for (size_t axis = 0; axis < indices.size(); ++axis) {
+                    move.addConstraintEqual(values + indices[axis], target.data() + axis, GCS::DefaultTemporaryConstraint);
+                }
+                const int result = unknowns.empty() ? GCS::Success : move.solve(unknowns);
+                if (!unknowns.empty()) move.applySolution();
+                if (result != GCS::Success && result != GCS::Converged) return false;
+                for (auto* constraint : constraints) {
+                    const double error = constraint->error();
+                    if (!std::isfinite(error) || std::abs(error) > 1e-7) return false;
+                }
+                return std::all_of(values, values + count, [](double v) { return std::isfinite(v); });
+            };
+            // First try the exact cursor with minimum movement elsewhere. If permanent
+            // constraints prevent that, find an attainable cursor position, then retain it
+            // while minimizing the remaining movement. Preferences never weaken geometry.
+            if (!attempt(true, true)) {
+                if (!attempt(false, false)) throw std::runtime_error("Could not solve sketch drag");
+                for (size_t axis = 0; axis < indices.size(); ++axis) target[axis] = values[indices[axis]];
+                // Diagnose the pinned system at the feasible solution, while retaining
+                // original positions as the minimum-movement preferences.
+                seed.assign(values, values + count);
+                if (!attempt(true, true)) throw std::runtime_error("Could not preserve sketch drag target");
+            }
+        } else {
+            status = equation_count && !active.empty() ? system.solve(parameters) : GCS::Success;
+            if (equation_count && !active.empty()) system.applySolution();
+        }
         GCS::VEC_I conflicts;
         system.getConflicting(conflicts);
         size_t capacity = *diagnostic_count;

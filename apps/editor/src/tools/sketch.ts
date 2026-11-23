@@ -31,8 +31,10 @@ export class SketchTool {
   private queue: Promise<unknown> = Promise.resolve();
   private pendingCount = 0;
   private handleVersion = 0;
-  private timer?: ReturnType<typeof setTimeout>;
+  private previewQueued = false;
+  private updateRunning = false;
   private version = 0;
+  private interaction = 0;
   private active = true;
   private lifetime?: AbortController;
   private popup?: HTMLElement;
@@ -44,8 +46,13 @@ export class SketchTool {
   private repairingProjection?: string;
   private changingSupport = false;
   private snapRefs = new Map<string, SketchEntityRef>();
-  private dragPoint?: SketchEntityRef;
+  private dragEntity?: SketchEntityRef;
   private dragStart?: Point;
+  private dragLine?: { cursor: Point; from: Point; to: Point };
+  private dragExcluded = new Set<string>();
+  private dragPosition?: Point;
+  private dragMoved = false;
+  private dragQueued?: { entity: SketchEntityRef; position: Parameters<Sketch["drag"]>[1] };
   private liveDimensions: HTMLElement;
   private creating = false;
   constructor(private panel: HTMLElement, private scene: Scene, private viewport: Viewport, private hooks: Hooks) {
@@ -198,6 +205,7 @@ export class SketchTool {
       if (this.active) {
         this.hooks.changed(this.pending);
       }
+      this.flushUpdates();
     });
     this.queue = next;
     return next;
@@ -273,6 +281,9 @@ export class SketchTool {
     }
   }
   choose(tool: SketchToolName, variant = 0) {
+    this.dragEntity = undefined;
+    this.dragLine = undefined;
+    this.dragQueued = undefined;
     this.tool = tool;
     this.variant = variant;
     this.viewport.pickVertices = tool === "project";
@@ -283,7 +294,8 @@ export class SketchTool {
     this.draftValid = false;
     this.pickingPivot = false;
     this.version++;
-    clearTimeout(this.timer);
+    this.interaction++;
+    this.previewQueued = false;
     this.popup?.remove();
     const group = this.find(".sketch-variants");
     group.replaceChildren();
@@ -311,7 +323,7 @@ export class SketchTool {
     this.get("sketch-action").hidden = ["select", "project", "point"].includes(tool);
     this.get("sketch-action").toggleAttribute("disabled", !editing.has(tool));
     this.get("sketch-action").textContent = editing.has(tool) ? "Apply " + tool : tool === "spline" ? "Finish spline" : "Add " + tool;
-    this.get("sketch-hint").textContent = tool === "select" ? "Click to select. Shift-click adds to the selection. Double-click overlapping geometry to choose. Drag a point to reshape." :
+    this.get("sketch-hint").textContent = tool === "select" ? "Click to select. Shift-click adds to the selection. Double-click overlapping geometry to choose. Drag a point or line to reshape." :
       tool === "project" ? "Pick a solid face, edge or vertex to project." :
         editing.has(tool) ? "Select geometry, then apply this tool. Escape returns to selection." : tool === "spline" ? "Pick points, then Finish spline. Escape discards the unfinished spline." :
           tool === "circle" && variant >= 3 ? "Select the tangent curves first, then pick near the wanted center." : "Pick points to draw. Tab edits dimensions beside the geometry; Enter completes it. Escape returns to selection.";
@@ -376,20 +388,43 @@ export class SketchTool {
       return { element, position: frame.origin.map((v, i) => v + frame.u[i] * p[0] + frame.v[i] * (p[1] + offset)) as [number, number, number] };
     }));
   }
-  private snapped(point: Point): Point {
+  private snapped(point: Point, excluded = new Set<string>()): Point {
     let result: Point = [...point];
     if (this.input("sketch-grid").checked) {
       result = result.map(v => Math.round(v)) as Point;
     }
     if (this.input("sketch-snap").checked && this.state) {
       const limit = this.viewport.pixelLength * 8;
-      const nearest = this.state.entities.filter(e => e.geometry.type === "point").map(e => ({ e, p: pointOf(this.state!, e.reference.id) })).filter(({ p }) => distance(p, point) < limit).sort((a, b) => distance(a.p, point) - distance(b.p, point))[0];
+      const nearest = this.state.entities.filter(e => e.geometry.type === "point" && !excluded.has(e.reference.id)).map(e => ({ e, p: pointOf(this.state!, e.reference.id) })).filter(({ p }) => distance(p, point) < limit).sort((a, b) => distance(a.p, point) - distance(b.p, point))[0];
       if (nearest) {
         result = nearest.p;
         this.snapRefs.set(result.join(","), nearest.e.reference);
       }
     }
     return result;
+  }
+  private queueDrag(position: Point) {
+    if (!this.dragEntity) return;
+    const target = this.snapped(position, this.dragExcluded);
+    if (this.dragPosition && distance(this.dragPosition, target) < 1e-12) return;
+    this.dragPosition = target;
+    const line = this.dragLine;
+    const translated = (point: Point): Point => [point[0] + target[0] - line!.cursor[0], point[1] + target[1] - line!.cursor[1]];
+    this.dragQueued = { entity: this.dragEntity, position: line ? { from: translated(line.from), to: translated(line.to) } : target };
+    this.flushUpdates();
+  }
+  private flushUpdates() {
+    if (this.updateRunning || this.pending || !this.active || this.creating) return;
+    if (!this.dragQueued && !this.previewQueued) return;
+    const request = this.dragQueued;
+    this.dragQueued = undefined;
+    this.previewQueued = false;
+    this.updateRunning = true;
+    const update = request ? this.run(() => this.sketch!.drag(request.entity, request.position)) : this.preview();
+    void update.finally(() => {
+      this.updateRunning = false;
+      this.flushUpdates();
+    });
   }
   click(hit: Hit) {
     if (this.creating) return;
@@ -511,40 +546,44 @@ export class SketchTool {
   private async fields(): Promise<DrawingFields> {
     const active = (id: string) => !this.input(id).closest<HTMLElement>("[data-tools]")!.hidden;
     const field = async (id: string, fallback: number, dimension: "length" | "angle" | "scalar" = "length") => active(id) ? this.number(id, dimension) : fallback;
+    const text = this.input("sketch-text").value, weight = this.input("sketch-weight").valueAsNumber, fontBase64 = this.fontBase64;
+    const horizontal = this.selectValue("sketch-horizontal") as DrawingFields["horizontal"], vertical = this.selectValue("sketch-vertical") as DrawingFields["vertical"], closed = this.input("sketch-closed").checked;
     const [width, height, radius, angle, size] = await Promise.all([field("width", 10), field("height", 10), field("sketch-radius", 5), field("sketch-angle", 90, "angle"), field("sketch-size", 10)]);
-    return { width, height, radius, angle, size, text: this.input("sketch-text").value, weight: this.input("sketch-weight").valueAsNumber, fontBase64: this.fontBase64, horizontal: this.selectValue("sketch-horizontal") as DrawingFields["horizontal"], vertical: this.selectValue("sketch-vertical") as DrawingFields["vertical"], closed: this.input("sketch-closed").checked };
+    return { width, height, radius, angle, size, text, weight, fontBase64, horizontal, vertical, closed };
   }
   private async primitive(preview = false): Promise<Primitive> {
-    const f = await this.fields();
+    const tool = this.tool, variant = this.variant, dirty = new Set(this.dirty);
+    const entities = tool === "text" && !this.input("sketch-guide").checked ? [] : this.geometry();
+    const construction = this.selectValue("sketch-construction") === "construction", state = this.state!;
     let points = [...this.points];
     if (!points.length) throw new Error("Pick a starting point in the sketch.");
-    if (this.cursor && (preview || this.tool !== "spline" && points.length === 1)) {
+    if (this.cursor && (preview || tool !== "spline" && points.length === 1)) {
       points.push(this.cursor);
     }
-    if (this.tool === "line" && this.dirty.has("width")) {
+    const f = await this.fields();
+    if (tool === "line" && dirty.has("width")) {
       const a = points[0], b = points[1] ?? [a[0] + 1, a[1]], angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
       points = [a, [a[0] + f.width * Math.cos(angle), a[1] + f.width * Math.sin(angle)]];
     }
-    if ((this.tool === "rectangle" && this.variant !== 1 || this.tool === "ellipse") && (this.dirty.has("width") || this.dirty.has("height"))) {
+    if ((tool === "rectangle" && variant !== 1 || tool === "ellipse") && (dirty.has("width") || dirty.has("height"))) {
       const a = points[0], b = points[1] ?? [a[0] + f.width, a[1] + f.height];
-      const factor = this.tool === "rectangle" && this.variant === 2 || this.tool === "ellipse" && this.variant === 0 ? 2 : 1;
-      points = [a, [this.dirty.has("width") ? a[0] + (Math.sign(b[0] - a[0]) || 1) * f.width / factor : b[0], this.dirty.has("height") ? a[1] + (Math.sign(b[1] - a[1]) || 1) * f.height / factor : b[1]]];
+      const factor = tool === "rectangle" && variant === 2 || tool === "ellipse" && variant === 0 ? 2 : 1;
+      points = [a, [dirty.has("width") ? a[0] + (Math.sign(b[0] - a[0]) || 1) * f.width / factor : b[0], dirty.has("height") ? a[1] + (Math.sign(b[1] - a[1]) || 1) * f.height / factor : b[1]]];
     }
-    if (this.tool === "rectangle" && this.variant === 1 && points[1]) {
+    if (tool === "rectangle" && variant === 1 && points[1]) {
       const a = points[0], b = points[1], angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
-      if (this.dirty.has("width")) points[1] = [a[0] + f.width * Math.cos(angle), a[1] + f.width * Math.sin(angle)];
-      if (this.dirty.has("height")) {
+      if (dirty.has("width")) points[1] = [a[0] + f.width * Math.cos(angle), a[1] + f.width * Math.sin(angle)];
+      if (dirty.has("height")) {
         const c = points[2], side = c ? Math.sign(-(c[0] - b[0]) * Math.sin(angle) + (c[1] - b[1]) * Math.cos(angle)) || 1 : 1;
         points[2] = [points[1][0] - side * f.height * Math.sin(angle), points[1][1] + side * f.height * Math.cos(angle)];
       }
     }
-    if (this.tool === "circle" && this.variant === 0 && this.dirty.has("sketch-radius")) {
+    if (tool === "circle" && variant === 0 && dirty.has("sketch-radius")) {
       points = points.slice(0, 1);
     }
-    const entities = this.tool === "text" && !this.input("sketch-guide").checked ? [] : this.geometry();
-    const primitive = drawing(this.tool, this.variant, points, f, this.selectValue("sketch-construction") === "construction", entities, this.state!);
-    if (primitive.type === "arc" && this.variant === 0 && this.dirty.has("sketch-radius")) primitive.parameters.radius = f.radius;
-    if (primitive.type === "slot" && this.dirty.has("sketch-radius")) {
+    const primitive = drawing(tool, variant, points, f, construction, entities, state);
+    if (primitive.type === "arc" && variant === 0 && dirty.has("sketch-radius")) primitive.parameters.radius = f.radius;
+    if (primitive.type === "slot" && dirty.has("sketch-radius")) {
       primitive.parameters.radius = f.radius;
     }
     return primitive;
@@ -557,8 +596,8 @@ export class SketchTool {
     return add(primitive.type, primitive.parameters, { preview });
   }
   private schedulePreview() {
-    clearTimeout(this.timer);
-    const version = ++this.version;
+    this.version++;
+    this.previewQueued = false;
     this.draftValid = false;
     if (!editing.has(this.tool)) this.get("sketch-action").setAttribute("disabled", "");
     this.hooks.changed(this.pending);
@@ -566,72 +605,78 @@ export class SketchTool {
       return;
     }
     if (!editing.has(this.tool) && this.points.length === 1 && !this.cursor && !this.dirty.size) return;
-    this.timer = setTimeout(() => {
-      if (version !== this.version || this.pending) {
-        if (version === this.version) {
-          this.schedulePreview();
-        }
+    this.previewQueued = true;
+    this.flushUpdates();
+  }
+  private preview() {
+    const version = this.version, interaction = this.interaction, tool = this.tool;
+    this.pendingCount++;
+    this.hooks.changed(true);
+    this.queue = this.queue.then(async () => {
+      if (interaction !== this.interaction || !this.active || this.creating) {
         return;
       }
-      this.pendingCount++;
-      this.hooks.changed(true);
-      this.queue = this.queue.then(async () => {
-        if (version !== this.version || !this.active) {
-          return;
-        }
-        if (editing.has(this.tool)) {
-          await this.action(true);
-        }
-        else {
-          const primitive = await this.primitive(true);
-          await this.add(primitive, true);
-          if (version === this.version && this.active) this.updateDimensions(primitive);
-        }
-        const [state, proxy] = await Promise.all([this.sketch!.state({ preview: true }), this.sketch!.getProxy({ preview: true })]);
-        if (!editing.has(this.tool) && this.tool !== "text" && this.tool !== "spline") {
-          const oldIds = new Set(this.state?.entities.map(e => e.reference.id));
-          const created = state.entities.filter(e => !oldIds.has(e.reference.id));
-          const measurements: {
-            kind: DimensionKind;
-            curve?: SketchEntityRef;
-            line?: SketchEntityRef;
-            value: number;
-          }[] = [];
-          for (const entity of created) {
-            const g = entity.geometry;
-            if (g.type === "line" && !entity.construction && this.tool !== "line" && this.tool !== "rectangle") {
-              measurements.push({ kind: "length", line: entity.reference, value: distance(pointOf(state, g.from), pointOf(state, g.to)) });
-            }
-            if ((g.type === "circle" || g.type === "arc") && this.input("sketch-radius").closest<HTMLElement>("label")!.hidden) {
-              measurements.push({ kind: "radius", curve: entity.reference, value: g.radius });
-            }
+      if (editing.has(tool)) {
+        await this.action(true);
+      }
+      else {
+        const primitive = await this.primitive(true);
+        if (interaction !== this.interaction || !this.active || this.creating) return;
+        await this.add(primitive, true);
+        if (interaction === this.interaction && version === this.version && this.active && !this.creating) this.updateDimensions(primitive);
+      }
+      if (interaction !== this.interaction || !this.active || this.creating) return;
+      // Both reads must settle before another update can replace the preview cache.
+      const results = await Promise.allSettled([this.sketch!.state({ preview: true }), this.sketch!.getProxy({ preview: true })]);
+      if (results[0].status === "rejected") throw results[0].reason;
+      if (results[1].status === "rejected") throw results[1].reason;
+      const state = results[0].value, proxy = results[1].value;
+      if (!editing.has(tool) && tool !== "text" && tool !== "spline") {
+        const oldIds = new Set(this.state?.entities.map(e => e.reference.id));
+        const created = state.entities.filter(e => !oldIds.has(e.reference.id));
+        const measurements: {
+          kind: DimensionKind;
+          curve?: SketchEntityRef;
+          line?: SketchEntityRef;
+          value: number;
+        }[] = [];
+        for (const entity of created) {
+          const g = entity.geometry;
+          if (g.type === "line" && !entity.construction && tool !== "line" && tool !== "rectangle") {
+            measurements.push({ kind: "length", line: entity.reference, value: distance(pointOf(state, g.from), pointOf(state, g.to)) });
           }
-          for (const [i, m] of measurements.entries()) {
-            state.dimensions.push({ id: `preview-dimension-${i}`, kind: m.kind, parameters: { curve: m.curve, line: m.line, mode: "driven" }, computed: { value: m.value / unitScale[this.scene.units.length], unit: this.scene.units.length }, dependencies: [] });
+          if ((g.type === "circle" || g.type === "arc") && this.input("sketch-radius").closest<HTMLElement>("label")!.hidden) {
+            measurements.push({ kind: "radius", curve: entity.reference, value: g.radius });
           }
         }
-        if (version === this.version && this.active) {
-          this.hooks.proxy(proxy);
-          this.display(state, proxy);
-          this.draftValid = true;
-          this.get("sketch-action").removeAttribute("disabled");
-          this.showError("");
+        for (const [i, m] of measurements.entries()) {
+          state.dimensions.push({ id: `preview-dimension-${i}`, kind: m.kind, parameters: { curve: m.curve, line: m.line, mode: "driven" }, computed: { value: m.value / unitScale[this.scene.units.length], unit: this.scene.units.length }, dependencies: [] });
         }
-      }).catch(e => {
-        if (version === this.version && this.points.length > 1) {
-          this.showError(errorText(e));
-        }
-      }).finally(() => {
-        this.pendingCount--;
-        if (this.active) {
-          this.hooks.changed(this.pending);
-        }
-      });
-    }, 100);
+      }
+      if (interaction === this.interaction && this.active && !this.creating) {
+        this.hooks.proxy(proxy);
+        this.display(state, proxy);
+        this.draftValid = version === this.version;
+        this.get("sketch-action").toggleAttribute("disabled", !this.draftValid);
+        if (this.draftValid) this.showError("");
+      }
+    }).catch(e => {
+      if (interaction === this.interaction && version === this.version && this.active && !this.creating) {
+        this.draftValid = false;
+        this.showError(errorText(e));
+      }
+    }).finally(() => {
+      this.pendingCount--;
+      if (this.active) {
+        this.hooks.changed(this.pending);
+      }
+    });
+    return this.queue;
   }
   private async create() {
     const version = ++this.version, tool = this.tool;
-    clearTimeout(this.timer);
+    this.interaction++;
+    this.previewQueued = false;
     const primitive = await this.primitive();
     if (version !== this.version) return;
     const result = await this.add(primitive);
@@ -811,9 +856,13 @@ export class SketchTool {
   suspend() {
     this.viewport.pickVertices = false;
     this.active = false;
+    this.dragEntity = undefined;
+    this.dragLine = undefined;
+    this.dragQueued = undefined;
     this.handleVersion++;
     this.version++;
-    clearTimeout(this.timer);
+    this.interaction++;
+    this.previewQueued = false;
     this.lifetime?.abort();
     this.popup?.remove();
     this.liveDimensions.remove();
@@ -906,55 +955,85 @@ export class SketchTool {
         return;
       }
       const pick = this.viewport.sketchPicks(e)[0];
-      if (!pick || pick.kind !== "geometry" || !this.state?.entities.some(entity => entity.reference.id === pick.id && entity.geometry.type === "point" && !entity.projected)) {
+      const entity = pick?.kind === "geometry" ? this.state?.entities.find(entity => entity.reference.id === pick.id) : undefined;
+      if (!entity || entity.projected || (entity.geometry.type !== "point" && entity.geometry.type !== "line")) {
         return;
       }
+      const cursor = this.viewport.point(e);
+      if (!cursor) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      this.dragPoint = this.state!.entities.find(entity => entity.reference.id === pick.id)!.reference;
+      this.dragEntity = entity.reference;
       this.dragStart = [e.clientX, e.clientY];
+      this.dragMoved = false;
+      const geometry = entity.geometry;
+      this.dragLine = geometry.type === "line" ? { cursor, from: [...pointOf(this.state!, geometry.from)], to: [...pointOf(this.state!, geometry.to)] } : undefined;
+      this.dragPosition = geometry.type === "point" ? geometry.position : cursor;
+      this.dragExcluded = new Set(geometry.type === "line" ? [geometry.from, geometry.to] : [entity.reference.id]);
+      // Ignore the moving endpoints and their coincident partners, keeping other snap targets.
+      let previousSize = 0;
+      while (previousSize !== this.dragExcluded.size) {
+        previousSize = this.dragExcluded.size;
+        for (const constraint of this.state!.constraints) {
+          const points = constraint.parameters.points ?? [];
+          if (constraint.kind === "coincident" && points.some(p => this.dragExcluded.has(p.id))) {
+            for (const point of points) this.dragExcluded.add(point.id);
+          }
+        }
+      }
       canvas.setPointerCapture(e.pointerId);
     }, { capture: true, signal });
     canvas.addEventListener("pointermove", e => {
-      if (!this.dragPoint || e.buttons !== 1) {
+      if (!this.dragEntity || e.buttons !== 1) {
         return;
       }
       e.stopImmediatePropagation();
       const point = this.viewport.point(e);
-      if (point && !this.pending) {
-        const ref = this.dragPoint;
-        this.run(() => this.sketch!.drag(ref, this.snapped(point)));
+      if (point && this.dragStart && (this.dragMoved || distance(this.dragStart, [e.clientX, e.clientY]) > 0)) {
+        this.dragMoved = true;
+        this.queueDrag(point);
       }
     }, { capture: true, signal });
     canvas.addEventListener("pointerup", e => {
-      if (!this.dragPoint || e.button !== 0) {
+      if (!this.dragEntity || e.button !== 0) {
         return;
       }
       e.stopImmediatePropagation();
-      const ref = this.dragPoint;
-      this.dragPoint = undefined;
-      if (this.dragStart && distance(this.dragStart, [e.clientX, e.clientY]) < 4) {
+      const ref = this.dragEntity;
+      if (this.dragMoved) {
+        const point = this.viewport.point(e);
+        if (point) this.queueDrag(point);
+      } else {
         this.pick({ kind: "geometry", id: ref.id }, e.shiftKey);
       }
+      this.dragEntity = undefined;
+      this.dragLine = undefined;
       if (canvas.hasPointerCapture(e.pointerId)) {
         canvas.releasePointerCapture(e.pointerId);
       }
     }, { capture: true, signal });
-    const clearDrag = () => { this.dragPoint = undefined; this.dragStart = undefined; };
+    const clearDrag = () => {
+      // A normal release has already cleared dragEntity and must retain its queued target.
+      if (this.dragEntity) this.dragQueued = undefined;
+      this.dragEntity = undefined;
+      this.dragLine = undefined;
+      this.dragStart = undefined;
+    };
     canvas.addEventListener("pointercancel", clearDrag, { signal });
     canvas.addEventListener("lostpointercapture", clearDrag, { signal });
     if (this.state) {
       this.viewport.sketching(true);
       this.display();
       this.handles();
-      if (this.dirty.size) {
+      if (this.dirty.size || this.points.length) {
         this.schedulePreview();
       }
     }
   }
   async finish() {
     this.version++;
-    clearTimeout(this.timer);
+    this.interaction++;
+    this.previewQueued = false;
     await this.queue;
     if (!this.sketch) {
       throw new Error("Choose a sketch plane first.");
@@ -969,8 +1048,12 @@ export class SketchTool {
     return this.sketch.id;
   }
   async cancel() {
+    this.dragEntity = undefined;
+    this.dragLine = undefined;
+    this.dragQueued = undefined;
     this.version++;
-    clearTimeout(this.timer);
+    this.interaction++;
+    this.previewQueued = false;
     await this.queue;
     if (this.sketch) {
       await this.sketch.cancel();

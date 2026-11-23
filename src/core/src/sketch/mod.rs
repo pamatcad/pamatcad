@@ -199,7 +199,15 @@ impl Sketch {
         units: SceneUnits,
         external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
     ) -> Result<()> {
-        solver::solve(self, units, external)
+        solver::solve(self, units, external, &[])
+    }
+    pub fn solve_drag(
+        &mut self,
+        units: SceneUnits,
+        external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
+        targets: &[(String, [f64; 2])],
+    ) -> Result<()> {
+        solver::solve(self, units, external, targets)
     }
     pub fn add_constraint(
         &mut self,

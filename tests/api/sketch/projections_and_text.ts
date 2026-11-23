@@ -15,6 +15,9 @@ test("project a solid face into a planar sketch as linked read-only curves", asy
   assert.equal(state.status.degreesOfFreedom, 0);
   const point = state.entities.find(e => e.projected && e.geometry.type === "point")!;
   await assert.rejects(sketch.drag(point.reference, [20, 30]), /read-only/);
+  const line = state.entities.find(e => e.projected && e.geometry.type === "line")!;
+  await assert.rejects(sketch.drag(line.reference, { from: [20, 30], to: [30, 30] }), /read-only/);
+  assert.deepEqual(await sketch.state(), state);
   assert.equal(projection.warning, null);
   await sketch.complete();
   const extruded = await core.solid.extrude(await sketch.regions.only(), { length1: 5 });

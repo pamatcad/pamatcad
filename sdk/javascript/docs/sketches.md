@@ -56,6 +56,8 @@ Preview replaces the session’s temporary sketch, leaving the working sketch un
 
 Use `remove(ids)`, `construction(refs, enabled)`, `drag(point, position)`, and `transform({ entities, pivot, translation, angle, scale, copy })`. `modifyCurves(curves, operation)` supports `split`, `offset`, and `rounding`; its result identifies removed geometry, constraints, and dimensions. An offset's second distance applies to the opposite side.
 
+`drag(line, { from: [x1, y1], to: [x2, y2] })` supplies absolute targets for both line endpoints in one solve. Endpoint order follows `state().entities[].geometry.from/to`. Permanent constraints take priority; targets do not add constraints or change DOF. During a gesture, derive targets from the starting endpoints and the total pointer displacement. With manual recompute, both endpoint coordinates are updated without solving.
+
 ```js
 const projection = await sketch.projections.add({ type: "face", reference: face });
 await sketch.projections.update(projection.id, { type: "face", reference: replacementFace });

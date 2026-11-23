@@ -860,7 +860,7 @@ api! {
     SketchDimensionAdd(AddDimension) -> SketchDimension = "sketch.dimensions.add",
     SketchDimensionUpdate(UpdateDimension) -> SketchDimension = "sketch.dimensions.update",
     SketchRemove(RemoveSketchItems) -> SketchState = "sketch.remove",
-    SketchDrag(DragSketchPoint) -> SketchState = "sketch.drag",
+    SketchDrag(DragSketchGeometry) -> SketchState = "sketch.drag",
     SketchProject(ProjectGeometry) -> SketchProjection = "sketch.project",
     SketchSupportUpdate(UpdateSketchSupport) -> SketchState = "sketch.support.update",
     SketchTransform(TransformSketchGeometry) -> Vec<SketchEntityRef> = "sketch.transform",

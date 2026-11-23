@@ -206,7 +206,7 @@ impl Engine {
             Request::SketchSupportUpdate(input) => self
                 .update_sketch_support(input)
                 .map(Response::SketchSupportUpdate),
-            Request::SketchDrag(input) => self.drag_sketch_point(input).map(Response::SketchDrag),
+            Request::SketchDrag(input) => self.drag_sketch_geometry(input).map(Response::SketchDrag),
             Request::TimelineList(input) => Ok(Response::TimelineList(
                 self.scene(&input.scene_id)?.timeline.clone(),
             )),

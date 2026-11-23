@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { testSketchConstructors } from "./sketch-geometry.mjs";
 import { testInteractiveUpdates } from "./interactive-updates.mjs";
 import { testNavigation } from "./navigation.mjs";
+import { testSketchDragging } from "./sketch-drag.mjs";
+import { testSketchUpdates } from "./sketch-updates.mjs";
 
 const require = createRequire(new URL("../../apps/editor/package.json", import.meta.url));
 const { createServer } = await import(require.resolve("vite"));
@@ -58,5 +60,7 @@ export async function testToolInputs(browser) {
     await testSketchConstructors(page, "/@fs" + resolve("sdk/javascript/dist/index.js"));
     await testInteractiveUpdates(page, "/@fs" + resolve("sdk/javascript/dist/index.js"));
     await testNavigation(page);
+    await testSketchDragging(page);
+    await testSketchUpdates(page);
   } finally { await page.close(); await server.close(); }
 }

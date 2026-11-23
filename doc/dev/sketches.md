@@ -20,6 +20,12 @@ Lengths measure lines; distances measure point pairs. Radius/diameter measure ci
 
 ## References and editing
 
+Point dragging uses temporary solver goals. It first holds the requested corner position while minimizing other parameter movement; if permanent constraints prevent reaching it, it finds an attainable position and preserves that target during the remaining minimization. Coincident endpoints use a canonical target. Residuals and DOF are evaluated from permanent constraints only. The editor excludes the moving coincidence group from snapping and coalesces pending pointer updates through release.
+
+Line dragging expands to two absolute endpoint targets in the same solver call. The adapter accepts multiple targets, canonicalizes coincident endpoints, and rejects conflicting targets for the same vertex. The editor retains the starting endpoints through the gesture instead of accumulating deltas between responses.
+
+The sketch controller shares one update loop for previews and dragging, without a timer delay. Input revisions determine readiness; a separate interaction revision invalidates results on cancellation, tool changes, completion, or suspension. Each preview captures its construction inputs before formula evaluation and waits for both state and proxy reads before starting the newest queued update.
+
 Formula symbols bind to dimension IDs. Renaming preserves bindings. Cross-sketch dependencies are solved in dependency order; cycles and deletion of referenced dimensions fail. Feature formulas carry the same serialized dependency metadata, so deletion checks do not need operation-specific code.
 
 Support frames and projected geometry are cached model data. Failed resolution preserves the cache and reports a warning. Projection repair retains IDs only when the replacement has compatible topology; otherwise callers remove and recreate it explicitly. Edge/vertex references are revision-bound. Face inputs use the core’s face references.

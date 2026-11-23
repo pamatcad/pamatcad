@@ -78,7 +78,7 @@ impl Engine {
         reference: &SketchRef,
         action: impl FnOnce(&mut Sketch) -> Result<T>,
     ) -> Result<T> {
-        self.update_sketch_checked(session, preview, reference, action, |_, _| Ok(()))
+        self.update_sketch_checked(session, preview, reference, action, |_, _| Ok(()), &[])
     }
     fn update_sketch_checked<T>(
         &mut self,
@@ -87,6 +87,7 @@ impl Engine {
         reference: &SketchRef,
         action: impl FnOnce(&mut Sketch) -> Result<T>,
         validate: impl FnOnce(&Sketch, &T) -> Result<()>,
+        drag: &[(String, [f64; 2])],
     ) -> Result<T> {
         if preview {
             self.sketch_previews
@@ -98,7 +99,11 @@ impl Engine {
         sketch.ensure_editable()?;
         let result = action(&mut sketch)?;
         if sketch.auto_recompute {
-            sketch.solve(units, &external)?;
+            if !drag.is_empty() {
+                sketch.solve_drag(units, &external, drag)?;
+            } else {
+                sketch.solve(units, &external)?;
+            }
         } else {
             sketch.status.state = SketchSolveState::Stale;
             sketch.validate_geometry()?;
@@ -492,22 +497,56 @@ impl Engine {
         })?;
         Ok(self.sketch(&input.sketch)?.state())
     }
-    pub(super) fn drag_sketch_point(&mut self, input: DragSketchPoint) -> Result<SketchState> {
-        self.update_sketch(&input.sketch, |sketch| {
-            sketch.check_reference(&input.point)?;
-            if !input.position.iter().all(|v| v.is_finite()) {
-                return Err(invalid("Drag coordinates must be finite"));
+    pub(super) fn drag_sketch_geometry(
+        &mut self,
+        input: DragSketchGeometry,
+    ) -> Result<SketchState> {
+        let (reference, entity) = match &input {
+            DragSketchGeometry::Point(input) => (&input.sketch, &input.point),
+            DragSketchGeometry::Line { sketch, line, .. } => (sketch, line),
+        };
+        let sketch = self.sketch(reference)?;
+        sketch.check_reference(entity)?;
+        let entity = &sketch.entities[&entity.id];
+        if entity.projected {
+            return Err(invalid("Projected geometry is read-only"));
+        }
+        let targets = match (&input, &entity.geometry) {
+            (DragSketchGeometry::Point(input), SketchGeometry::Point { .. }) => {
+                vec![(input.point.id.clone(), input.position)]
             }
-            if sketch.entities[&input.point.id].projected {
-                return Err(invalid("Projected geometry is read-only"));
+            (
+                DragSketchGeometry::Line { from, to, .. },
+                SketchGeometry::Line { from: a, to: b },
+            ) => {
+                vec![(a.clone(), *from), (b.clone(), *to)]
             }
-            match &mut sketch.entities.get_mut(&input.point.id).unwrap().geometry {
-                SketchGeometry::Point { position } => *position = input.position,
-                _ => return Err(invalid("Select a point to drag")),
-            }
-            Ok(())
-        })?;
-        Ok(self.sketch(&input.sketch)?.state())
+            (DragSketchGeometry::Point(_), _) => return Err(invalid("Select a point to drag")),
+            (DragSketchGeometry::Line { .. }, _) => return Err(invalid("Select a line to drag")),
+        };
+        self.update_sketch_checked(
+            0,
+            false,
+            reference,
+            |sketch| {
+                for (id, target) in &targets {
+                    if !target.iter().all(|v| v.is_finite()) {
+                        return Err(invalid("Drag coordinates must be finite"));
+                    }
+                    if !sketch.auto_recompute {
+                        if let SketchGeometry::Point { position } =
+                            &mut sketch.entities.get_mut(id).unwrap().geometry
+                        {
+                            *position = *target;
+                        }
+                    }
+                }
+                Ok(())
+            },
+            |_, _| Ok(()),
+            &targets,
+        )?;
+        Ok(self.sketch(reference)?.state())
     }
 }
 
@@ -835,6 +874,7 @@ impl Engine {
                 Ok((refs, s.clone()))
             },
             |s, (refs, requested)| s.validate_transform(requested, refs),
+            &[],
         )
         .map(|(refs, _)| refs)
     }

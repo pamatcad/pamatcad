@@ -74,6 +74,10 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
   transform(options: Omit<TransformSketchGeometry, "sketch">) { return this.transport.request("sketch.transform", { sketch: this.reference, ...options }); }
   construction(entities: SketchEntityRef[], construction: boolean) { return this.transport.request("sketch.construction", { sketch: this.reference, entities, construction }); }
   remove(ids: string[]) { return this.transport.request("sketch.remove", { sketch: this.reference, ids }); }
-  drag(point: SketchEntityRef, position: [number, number]) { return this.transport.request("sketch.drag", { sketch: this.reference, point, position }); }
+  drag(entity: SketchEntityRef, position: [number, number] | { from: [number, number]; to: [number, number] }) {
+    return this.transport.request("sketch.drag", Array.isArray(position)
+      ? { sketch: this.reference, point: entity, position }
+      : { sketch: this.reference, line: entity, ...position });
+  }
   getProxy(options: { preview?: boolean } = {}) { return this.transport.request("sketch.getProxy", { sketch: this.reference, ...options }); }
 }

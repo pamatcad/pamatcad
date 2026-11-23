@@ -338,6 +338,18 @@ pub struct DragSketchPoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum DragSketchGeometry {
+    Point(DragSketchPoint),
+    Line {
+        sketch: SketchRef,
+        line: SketchEntityRef,
+        from: [f64; 2],
+        to: [f64; 2],
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct PointParameters {
     pub position: [f64; 2],
@@ -468,6 +480,7 @@ pub fn declarations() -> Vec<String> {
         UpdateDimension::decl(),
         RemoveSketchItems::decl(),
         DragSketchPoint::decl(),
+        DragSketchGeometry::decl(),
         PointParameters::decl(),
         LineParameters::decl(),
         ArcParameters::decl(),

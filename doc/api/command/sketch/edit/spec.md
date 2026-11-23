@@ -22,6 +22,10 @@ Formulas accept numbers and expressions. Existing numeric inputs retain millimet
 
 Editing supports removal, split at intersections, offset, rounding, scaling, move/rotate/copy, and projection. Three-point slots take two cap centers and a radius point. Other straight-slot constructors specify the centerline and width directly or from a center and extent. Circle/arc constructions with multiple solutions use the supplied point/side to select a branch. Face projections use boundary edges, projected orthogonally along the sketch normal.
 
+With automatic recompute, point dragging honors permanent constraints, follows the requested position when attainable, and minimizes other parameter movement. An unattainable position is fitted to the permitted motion. Coincident endpoints represent the same drag target. Drag goals are temporary and do not alter persistent constraints or DOF. With manual recompute, dragging retains the existing unsolved coordinate-edit behavior.
+
+Line dragging supplies absolute targets for the line's `from` and `to` endpoints, solved together under the same rules. Manual recompute updates both endpoints without solving. Projected lines are read-only. The editor translates both targets from the geometry and pointer position at drag start.
+
 # Preview, results and effects
 Creation and reopening use a working sketch. Mutations return entity references and solve diagnostics; rendering is requested separately through `sketch.getProxy`. Recompute may be automatic or explicit; Finish performs a final solve. Finish commits one sketch entry and recomputes dependent features; Cancel discards the working copy. Open sketches may be finished but provide no bounded regions. Failed mutations preserve the previous valid working state.
 
@@ -32,6 +36,13 @@ IDs are stable and never renumbered after deletion. Composite geometry retains i
 Reject nonfinite/degenerate geometry, invalid references, conflicting constraints, incompatible formula units, unresolved or cyclic dimension dependencies, ambiguous names/regions, nonplanar supports, and edits outside an active working sketch. Solver failure must not silently accept unsatisfied equations.
 
 # Test cases
+- Drag a rectangle's horizontal and vertical edges in separate tests. Verify both selected endpoints and their coincident partners reach their targets, the opposite edge stays unchanged, and IDs/constraints/DOF remain stable. Finish and extrude an edited profile. Translate a standalone line with repeated identical targets and unrelated geometry present.
+- Drag fixed lines and lines with a fixed endpoint and driving length. Verify constraints win, both endpoint targets are solved together, and repeating a target is stable. Reject collapsed geometry and non-line targets atomically; reject projected lines. Manual recompute updates both endpoints and leaves the sketch stale.
+- In the editor, select a line without moving it, then drag horizontal and vertical edges using the shared update loop. Delay a response across pointer movement and release; verify only the newest endpoint targets follow, with no cumulative movement or camera changes. Retain point-drag and drawing-preview tests.
+- In the editor, continuously draw a rectangle while delaying preview responses. Verify immediate scheduling, at most one update in flight through state/proxy retrieval, display of completed intermediate previews, coalescing to the newest input, and exact final-click geometry. Verify formula-input recovery, cancellation/tool changes, and suspend/resume cannot restore obsolete previews; a failed state/proxy read waits for its companion before the next update. Retain the point-drag regressions.
+- Drag the top-left and bottom-right corners of an unconstrained rectangle in separate tests. Verify the requested corner position, unchanged opposite corner, rectangularity, unchanged DOF/IDs/constraints, and idempotent repeated targets. Repeat through each coincident endpoint and verify equivalent results; finish and extrude to verify the updated profile.
+- Drag a fixed point and a point restricted to a fixed-radius circle: verify permanent constraints win, the attainable target is followed, unrelated geometry stays unchanged, and failure remains atomic. Cover native and WASM.
+- In the editor, drag within the self-snap radius without sticking to the dragged point or its coincident partners; retain snapping to unrelated points. Delay a drag response while moving and releasing: retain only the newest target, apply the release position, and preserve the camera and sketch lifecycle. A click without movement must not alter geometry.
 - Construct and constrain a rectangle, change its width formula, and extrude the updated region. Verify constituent line IDs and a single sketch timeline entry.
 - Add/remove geometry and dimensions; verify names resolve stable IDs and deletion does not renumber survivors. Renaming preserves bound formulas; deleting a dependency reports an error.
 - Fix a line AB; constrain C and D to AB in A–C–D–B order. Define DB as driven, AC from DB, and CD from AC. Verify equal thirds before and after changing AB.
@@ -51,3 +62,5 @@ Reject nonfinite/degenerate geometry, invalid references, conflicting constraint
 
 # History
 2026-11-22: Implemented the planar sketch model, shared native/WASM solver, SDK commands, editor workspace, projections, exact regions, and editing tools. Verified with 72 native API tests, 30 WASM sketch tests, the full browser suite, and the desktop smoke workflow.
+
+2026-11-23: Added point and simultaneous line-endpoint dragging, with shared response-driven editor updates. Verified with 86 native API tests, 44 WASM sketch tests, the full browser suite, and the desktop smoke workflow.
