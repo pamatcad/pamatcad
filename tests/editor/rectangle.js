@@ -1,4 +1,28 @@
 // Runs unchanged in Chromium and the desktop app's WKWebView.
+// Most workflows select through the scene browser; the plane interaction regression
+// separately exercises real pointer picking, hover and sizing in the viewport.
+async function chooseSketchPlane(name = "XY") {
+  const idle = async () => {
+    const deadline = Date.now() + 60000;
+    while (!document.getElementById("progress").hidden) {
+      if (Date.now() > deadline) throw new Error("Plane selection timed out");
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  };
+  await idle();
+  const previous = document.querySelector('#browser-tabs [aria-selected="true"]');
+  document.getElementById("construction-tab").click();
+  const origin = document.querySelector('#object-list [role="treeitem"][aria-label="Origin"]');
+  const collapsed = origin?.getAttribute("aria-expanded") === "false";
+  if (collapsed) origin.querySelector(".tree-expand").click();
+  const plane = [...document.querySelectorAll("#object-list .object-row")].find(b => b.textContent.trim() === name + " plane");
+  if (!plane) throw new Error("Missing construction plane " + name);
+  plane.click();
+  await idle();
+  if (collapsed) document.querySelector('#object-list [role="treeitem"][aria-label="Origin"] .tree-expand').click();
+  previous?.click();
+}
+
 function beginRectangleDraft() {
   document.querySelector('#sketch-ribbon [data-tool="rectangle"]').click();
   const canvas = document.getElementById("model-canvas"), r = canvas.getBoundingClientRect();
@@ -28,13 +52,12 @@ async function testRectangleEditor() {
   };
   await wait(() => find("new-sketch") && !find("new-sketch").disabled, "Start engine");
   if (!find("output-dock").hidden) throw new Error("Output should start collapsed");
-  for (const selector of [".wordmark", "#extrude img"]) {
-    await document.querySelector(selector).decode();
-  }
+  await document.querySelector(".wordmark").decode();
+  if (!document.querySelector("#extrude svg .icon-surface-fill")) throw new Error("Missing themed extrude icon");
   click("new-sketch");
-  await wait(() => find("sketch-planes"), "Show sketch planes");
+  await wait(() => find("sketch-support"), "Show sketch planes");
   if (find("workbench").value !== "sketch" || find("sketch-ribbon").hidden) throw new Error("Expected the Sketch ribbon");
-  find("sketch-planes").querySelector("button").click();
+  await chooseSketchPlane();
   await wait(() => !find("apply").disabled, "Choose sketch plane");
   beginRectangleDraft();
   change("width", "10");

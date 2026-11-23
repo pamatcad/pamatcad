@@ -45,11 +45,14 @@ summary:hover {
   background: var(--hover-background);
 }
 button:focus-visible,
-input:focus-visible,
-select:focus-visible,
 summary:focus-visible {
   outline: 2px solid var(--accent-border);
   outline-offset: 2px;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
 }
 button:disabled {
   opacity: var(--disabled-opacity);
@@ -150,7 +153,7 @@ button:active:not(:disabled) {
   background: transparent;
   border-color: transparent;
 }
-.tools img {
+.tools img, .tools svg {
   width: 24px;
   height: 24px;
 }
@@ -666,8 +669,36 @@ dialog::backdrop {
 }
 
 
-.sketch-variants, .sketch-choices, .sketch-selection-actions { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
-.sketch-variants button, .sketch-choices button { padding: 3px 6px; font-size: 12px; }
+.sketch-variants { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.sketch-variants button { padding: 3px 6px; font-size: 12px; }
+.sketch-variants .sketch-variant-icon { padding: 3px; line-height: 0; }
+.sketch-variant-icon svg { width: 32px; height: 32px; }
+/* Imported SVG geometry retains standalone colors; these semantic roles follow the shared theme. */
+:is(.tools, .sketch-variants) .icon-fill { fill: var(--sketch); }
+:is(.tools, .sketch-variants) .icon-profile-stroke { stroke: var(--sketch); }
+:is(.tools, .sketch-variants) .icon-edge { stroke: var(--sketch-edge); }
+:is(.tools, .sketch-variants) .icon-edge-fill { fill: var(--sketch-edge); }
+:is(.tools, .sketch-variants) .icon-construction { stroke: var(--construction-edge); }
+:is(.tools, .sketch-variants) .icon-construction-fill { fill: var(--construction-edge); }
+:is(.tools, .sketch-variants) .icon-point { fill: var(--handle-edge); }
+:is(.tools, .sketch-variants) .icon-selection-fill { fill: var(--selection); }
+:is(.tools, .sketch-variants) .icon-selection-stroke { stroke: var(--selection); }
+:is(.tools, .sketch-variants) .icon-selection-detail { fill: var(--highlight); }
+:is(.tools, .sketch-variants) .icon-selection-edge { stroke: var(--highlight); }
+:is(.tools, .sketch-variants) .icon-handle-fill { fill: var(--handle); }
+:is(.tools, .sketch-variants) .icon-handle-stroke { stroke: var(--handle); }
+:is(.tools, .sketch-variants) .icon-handle-detail { fill: var(--handle-edge); }
+:is(.tools, .sketch-variants) .icon-handle-edge { stroke: var(--handle-edge); }
+:is(.tools, .sketch-variants) .icon-surface-fill { fill: var(--surface); }
+:is(.tools, .sketch-variants) .icon-surface-stroke { stroke: var(--surface); }
+:is(.tools, .sketch-variants) .icon-solid-edge-fill { fill: var(--edge); }
+:is(.tools, .sketch-variants) .icon-solid-edge { stroke: var(--edge); }
+:is(.tools, .sketch-variants) .icon-foreground-fill { fill: var(--foreground); }
+:is(.tools, .sketch-variants) .icon-foreground { stroke: var(--foreground); }
+:is(.tools, .sketch-variants) .icon-preview-fill { fill: var(--preview); }
+:is(.tools, .sketch-variants) .icon-preview-stroke { stroke: var(--preview); }
+:is(.tools, .sketch-variants) .icon-current-fill { fill: currentColor; }
+:is(.tools, .sketch-variants) .icon-current-stroke { stroke: currentColor; }
 .sketch-variants button[aria-pressed="true"] { background: var(--active-background); color: var(--on-accent); border-color: var(--accent-border); }
 #tool-panel .sketch-fields .check { display: flex; justify-content: flex-start; gap: 6px; }
 #tool-panel .sketch-fields output { display: block; font-size: 12px; margin: 6px 0; overflow-wrap: anywhere; }
@@ -676,6 +707,22 @@ dialog::backdrop {
 .sketch-popup { position: fixed; z-index: 50; display: grid; gap: 4px; max-width: 280px; max-height: 60vh; overflow: auto; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-background); color: var(--foreground); box-shadow: 0 3px 12px var(--shadow); }
 .sketch-popup form { display: grid; gap: 6px; }
 .sketch-popup input, .sketch-popup select { min-width: 0; padding: 4px 6px; }
+.sketch-dimension-input { padding: 4px; }
+.sketch-popup.sketch-dimension-input input { width: 12ch; min-height: 24px; height: 24px; padding: 2px 4px; border: 1px solid var(--field-border); border-radius: 2px; color: var(--foreground-strong); font-size: 12px; font-weight: 500; }
 .sketch-live-dimensions { position: absolute; inset: 0; pointer-events: none; }
 .sketch-live-dimensions > label { position: absolute; z-index: 2; display: flex; align-items: center; gap: 4px; transform: translate(-50%, -50%); padding: 3px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-background); color: var(--foreground); font-size: 12px; pointer-events: auto; }
-.sketch-live-dimensions input[id] { width: 90px; min-width: 0; min-height: 24px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 2px; font-size: 12px; }
+.sketch-live-dimensions input[id] { width: 12ch; min-width: 0; min-height: 24px; height: 24px; padding: 2px 4px; border: 1px solid var(--field-border); border-radius: 2px; color: var(--foreground-strong); font-size: 12px; font-weight: 500; }
+
+.sketch-geometry-mode { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+.sketch-option-section { margin: 12px 0; }
+.sketch-option-section > span, .sketch-geometry-mode > span { font-size: 12px; color: var(--foreground-muted); }
+.sketch-icon-options { display: flex; gap: 4px; margin-top: 4px; }
+.sketch-geometry-mode .sketch-icon-options { margin-top: 0; }
+.sketch-icon-options button { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; min-height: 28px; padding: 4px; background: var(--panel-background); color: var(--foreground-muted); border: 1px solid transparent; }
+.sketch-icon-options button:hover:not(:disabled) { background: var(--hover-background); }
+.sketch-icon-options button[aria-pressed="true"] { background: var(--active-background); color: var(--on-accent); border-color: var(--accent-border); }
+.sketch-option-icon { display: block; width: 18px; height: 18px; background: currentColor; mask: var(--icon) center / contain no-repeat; }
+#sketch-highlight [data-highlight="constrained"] { color: var(--constrained); }
+#sketch-highlight [data-highlight="partial"] { color: var(--partially-constrained); }
+#sketch-highlight [data-highlight="unconstrained"] { color: var(--unconstrained); }
+#tool-panel #sketch-status { padding: 6px 8px; border-radius: 3px; background: var(--hover-background); color: var(--foreground); }

@@ -7,12 +7,18 @@ test("a centered rotated rectangle retains its center and decomposes into four l
   const sketch = await scene.sketches.create(scene.construction.builtin.planes.yz);
   const rectangle = await sketch.primitives.add("rectangle", { from: [20, 30], to: [25, 33], centered: true, angle: 35 });
   const state = await sketch.state();
-  const points = rectangle.points.map(r => state.entities.find(e => e.reference.id === r.id)!).map(e => { if (e.geometry.type !== "point") {
+  const points = rectangle.points.slice(0, 8).map(r => state.entities.find(e => e.reference.id === r.id)!).map(e => { if (e.geometry.type !== "point") {
     assert.fail("Expected endpoint");
   } return e.geometry.position; });
   near(points.reduce((n, p) => n + p[0], 0) / 8, 20);
   near(points.reduce((n, p) => n + p[1], 0) / 8, 30);
-  assert.equal(rectangle.curves.length, 4);
+  assert.equal(rectangle.lines.length, 4);
+  assert.equal(rectangle.curves.length, 6);
+  assert.equal(rectangle.points.length, 9);
+  assert.equal(state.entities.filter(e => rectangle.curves.some(r => r.id === e.reference.id) && e.construction).length, 2);
+  const center = state.entities.find(e => e.reference.id === rectangle.points[8]!.id)!;
+  assert.deepEqual(center.geometry, { type: "point", position: [20, 30] });
+  assert.equal(center.construction, true);
   await sketch.complete();
   const result = await core.solid.extrude(await sketch.regions.only(), { length1: 2 });
   near((await (await scene.bodies.get(result.newSolids[0]!.id)).properties()).volume.value, 120);
@@ -89,4 +95,62 @@ test("symmetry, line tangency and point-on-ellipse constraints solve perturbed i
   const before = await sketch.getProxy();
   await sketch.recompute();
   assert.deepEqual(await sketch.getProxy(), before);
+});
+
+test("centered rectangle helpers follow resizing and survive timeline recomputation", async t => {
+  const { core, scene } = await startCore(t, "rectangle-center-helpers");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const rectangle = await sketch.primitives.add("rectangle", { from: [0, 0], to: [5, 3], centered: true });
+  const center = rectangle.points[8]!;
+  await sketch.constraints.add("coincident", { points: [center, sketch.origin] });
+  await sketch.drag(rectangle.points[4]!, [8, 4]);
+  const state = await sketch.state();
+  const point = (id: string) => { const g = state.entities.find(e => e.reference.id === id)!.geometry; if (g.type !== "point") throw new Error("point"); return g.position; };
+  near(point(center.id)[0], 0); near(point(center.id)[1], 0);
+  near(point(rectangle.points[0]!.id)[0], -8); near(point(rectangle.points[0]!.id)[1], -4);
+  for (const diagonal of rectangle.curves.slice(4)) {
+    const e = state.entities.find(e => e.reference.id === diagonal.id)!;
+    assert.equal(e.construction, true);
+    if (e.geometry.type !== "line") assert.fail("diagonal");
+    const a = point(e.geometry.from), b = point(e.geometry.to);
+    near((a[0] + b[0]) / 2, 0); near((a[1] + b[1]) / 2, 0);
+  }
+  assert.equal((await sketch.getProxy()).regions.length, 1);
+  await sketch.complete();
+  const feature = await core.solid.extrude(await sketch.regions.only(), { length1: 2 });
+  const body = await scene.bodies.get(feature.newSolids[0]!.id);
+  near((await body.properties()).volume.value, 256);
+  await sketch.edit();
+  assert.deepEqual((await sketch.state()).entities, state.entities);
+  await sketch.drag(rectangle.points[4]!, [10, 5]);
+  await sketch.complete();
+  near((await body.properties()).volume.value, 400);
+});
+
+test("slot midpoint translates and anchors its centerline without entering the profile", async t => {
+  const { core, scene } = await startCore(t, "slot-center-helper");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const slot = await sketch.primitives.add("slot", { from: [-10, 0], to: [10, 0], radius: 3 });
+  const center = slot.points.at(-1)!, axis = slot.curves.at(-1)!;
+  const before = await sketch.state();
+  assert.ok(before.constraints.some(c => c.kind === "midpoint" && c.parameters.points?.[0]?.id === center.id && c.parameters.curves?.[0]?.id === axis.id));
+  await sketch.drag(center, [5, 5]);
+  let state = await sketch.state();
+  const position = (id: string) => { const g = state.entities.find(e => e.reference.id === id)!.geometry; if (g.type !== "point") throw new Error("point"); return g.position; };
+  near(position(center.id)[0], 5); near(position(center.id)[1], 5);
+  await sketch.constraints.add("fix", { points: [center] });
+  await sketch.dimensions.add("radius", { curve: slot.curves[0]!, mode: "driving", value: 3 });
+  await sketch.dimensions.add("length", { line: axis, mode: "driving", value: 20 });
+  state = await sketch.state();
+  const line = state.entities.find(e => e.reference.id === axis.id)!;
+  assert.equal(line.construction, true);
+  assert.equal(state.entities.find(e => e.reference.id === center.id)!.construction, true);
+  if (line.geometry.type !== "line") assert.fail("axis");
+  const a = position(line.geometry.from), b = position(line.geometry.to);
+  near((a[0] + b[0]) / 2, 5); near((a[1] + b[1]) / 2, 5);
+  await sketch.complete();
+  const feature = await core.solid.extrude(await sketch.regions.only(), { length1: 2 });
+  near((await (await scene.bodies.get(feature.newSolids[0]!.id)).properties()).volume.value, (120 + Math.PI * 9) * 2);
+  await sketch.edit();
+  assert.deepEqual((await sketch.state()).entities, state.entities);
 });

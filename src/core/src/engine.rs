@@ -167,11 +167,17 @@ impl Engine {
                     self.sketch(&input.sketch)?.status.clone(),
                 ))
             }
-            Request::SketchConstraintAdd(input) => self
-                .update_sketch(&input.sketch, |sketch| {
+            Request::SketchConstraintAdd(input) => {
+                let sketch = self.sketch(&input.sketch)?;
+                sketch.ensure_editable()?;
+                if let Some(existing) = sketch.matching_constraint(input.kind, &input.parameters)? {
+                    return Ok(Response::SketchConstraintAdd(existing));
+                }
+                self.update_sketch(&input.sketch, |sketch| {
                     sketch.add_constraint(input.kind, input.parameters)
                 })
-                .map(Response::SketchConstraintAdd),
+                .map(Response::SketchConstraintAdd)
+            }
             Request::SketchDimensionAdd(input) => self
                 .add_sketch_dimension(input)
                 .map(Response::SketchDimensionAdd),

@@ -24,7 +24,7 @@ Use pastel fills with darker companions for outlines, symbols and labels. Keep r
 | Default geometry | `#CED3D5` | `#65727B` | Ordinary solid faces and edges |
 | Active geometry | `#AEBEC3` | `#536974` | Geometry currently being edited |
 | Sketch profiles | `#C5DDF0` | `#6588A3` | Flat sketch regions and live drawing previews |
-| Selection | `#C0D8CC` | `#487561` | Picked faces, edges, bodies and points |
+| Selection | `#C0D8CC` | `#487561` | Picked solid faces, edges, bodies and points |
 | Arrows and handles | `#DCB58C` | `#815A36` | Direction arrows and draggable controls |
 | Primary buttons | `#C5DDF0` | `#294F6D` | Apply, Create, Save and similar actions |
 | Construction | `#EDF1F3` | `#81909B` | Planes, boundaries, guides and points |
@@ -43,7 +43,7 @@ Use pastel fills with darker companions for outlines, symbols and labels. Keep r
 
 ## Buttons and interactive states
 
-Blue identifies primary actions, active tools, tabs and keyboard focus. Geometry selection remains sage.
+Blue identifies primary actions, active tools, tabs and keyboard focus. Solid selection remains sage.
 
 | State | Treatment |
 | --- | --- |
@@ -52,7 +52,7 @@ Blue identifies primary actions, active tools, tabs and keyboard focus. Geometry
 | Pressed | Fill `#A4C7E1` |
 | Active toolbar tool | Fill `#E7F1F8`, dark blue label |
 | Secondary button | White fill, graphite text, gray border |
-| Keyboard focus | 2px blue outline, 2px offset |
+| Keyboard focus | 2px blue outline, 2px offset on buttons and menus; no outline on inputs, textareas or selects |
 | Disabled | Dim content; no hover or pressed response |
 
 Use one visually primary action per operation panel. Keep text dark on pastel fills.
@@ -101,6 +101,12 @@ Use a 4px spacing scale: 4, 8, 12, 16 and 24px.
 ## Viewport and user colors
 
 Keep the viewport white. Prioritize the model, then interaction feedback, then construction information. Starting screen-space edge widths are 1px for ordinary edges, 1.5px for silhouettes and 2px for selection. Keep their apparent width stable during zoom.
+
+Sketch geometry uses shared theme roles: unconstrained blue `#1565C0`, partially constrained teal `#007C91`, fully constrained black `#000000`, explicitly fixed purple `#7B3FB3`, and selected orange `#D55E00`. Selection overrides constraint colors, doubles line width (1px to 2px) and point size (7px to 14px), and draws above overlapping unselected geometry. New geometry without a DOF result uses the unconstrained color. Projected geometry retains the muted foreground color.
+
+Sketch category highlighting uses the shared `geometryHighlight` role, bright green `#16A34A`; see [Highlight controls](sketches.md#tool-window).
+
+Sketch dimension numbers use strong foreground `#111111` on white, at medium weight. Display and numeric edit fields use up to four decimal places, trimming trailing zeros; formulas and unchanged stored values retain full precision. Dimension edit fields are 24px high and start at 12 characters wide, expanding for longer expressions.
 
 Default user colors are steel `#BAC5CD`, sage `#BDD1C3`, sand `#DEC8A5`, blue `#B5D0E6`, rose `#D8B9BB` and copper `#D7B391`. Allow arbitrary user colors. Preserve them during interaction; use temporary overlays, boundaries and contrasting halos for selection.
 

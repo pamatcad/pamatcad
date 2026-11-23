@@ -1,12 +1,14 @@
 import { Sketch, type Scene, type SketchState, type SketchProxy, type SketchEntityRef, type Primitive, type ConstraintKind, type DimensionKind, type SketchSupport, type GeometryData } from "@pamatcad/sdk";
 import template from "./sketch.html?raw";
-import { drawing, variants, pointOf, distance, type DrawingFields, type SketchToolName } from "./sketch-geometry";
+import { drawing, drawingClicks, variants, pointOf, distance, bearing, type DrawingFields, type SketchToolName } from "./sketch-geometry";
 import { sketchDisplayDefaults, type SketchDisplayOptions, type SketchPick } from "../sketch-display";
 import { type Hit, type Point, type ViewState, Viewport } from "../viewport";
 import type { SelectionItem } from "../selection";
 import { unitScale } from "../formula-input";
 import type { ToolHandle } from "../tool-handles";
-const dimensionKinds: DimensionKind[] = ["length", "distance", "horizontalDistance", "verticalDistance", "radius", "diameter", "majorRadius", "minorRadius", "angle"];
+const icons = import.meta.glob<string>("../icons/*.svg", { query: "?url", import: "default", eager: true });
+const variantIcons = import.meta.glob<string>("../icons/sketch-*-*.svg", { query: "?raw", import: "default", eager: true });
+import { dimensionChoices, dimensionLayout, formatDimension, inferDimension } from "../sketch-dimensions";
 const editing = new Set<SketchToolName>(["select", "dimension", "project", "offset", "rounding", "scale", "move", "split"]);
 const title = (s: string) => s.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
 const errorText = (e: unknown) => e instanceof Error ? e.message : String(e);
@@ -40,12 +42,17 @@ export class SketchTool {
   private popup?: HTMLElement;
   private fontBase64?: string;
   private dirty = new Set<string>();
+  private numericFields = new Map<string, { text: string; source: string }>();
   private draftValid = false;
   private pivot: Point = [0, 0];
   private pickingPivot = false;
   private repairingProjection?: string;
   private changingSupport = false;
   private snapRefs = new Map<string, SketchEntityRef>();
+  private dimensionKind?: DimensionKind;
+  private dimensionPosition?: Point;
+  private annotationDrag?: { id: string; start: Point; original: Point; position: Point; moved: boolean };
+  private dragCircle = false;
   private dragEntity?: SketchEntityRef;
   private dragStart?: Point;
   private dragLine?: { cursor: Point; from: Point; to: Point };
@@ -55,35 +62,79 @@ export class SketchTool {
   private dragQueued?: { entity: SketchEntityRef; position: Parameters<Sketch["drag"]>[1] };
   private liveDimensions: HTMLElement;
   private creating = false;
+  private constructionMode = false;
+  private snapGeometry = true;
+  private snapGrid = false;
   constructor(private panel: HTMLElement, private scene: Scene, private viewport: Viewport, private hooks: Hooks) {
     this.previousView = viewport.captureView();
     panel.innerHTML = template;
     this.liveDimensions = this.find(".sketch-live-dimensions");
-    const planes = this.get("sketch-planes");
-    for (const [name, plane] of Object.entries(scene.construction.builtin.planes)) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = name.toUpperCase();
-      b.onclick = () => this.run(() => this.setSupport(plane));
-      planes.append(b);
-    }
-    this.input("sketch-name").onchange = () => {
-      if (this.sketch) {
-        this.run(() => this.sketch!.settings({ name: this.input("sketch-name").value }));
-      }
+    // All icon controls share the same accessible toggle and palette styling.
+    const option = (group: string, label: string, icon: string, tip: string, pressed: boolean, action: (button: HTMLButtonElement) => void) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.title = tip;
+      button.setAttribute("aria-label", label);
+      button.setAttribute("aria-pressed", String(pressed));
+      const glyph = document.createElement("span");
+      glyph.className = "sketch-option-icon";
+      glyph.style.setProperty("--icon", `url("${icons[`../icons/${icon}.svg`]}")`);
+      glyph.setAttribute("aria-hidden", "true");
+      button.append(glyph);
+      button.onclick = () => action(button);
+      this.get(group).append(button);
+      return button;
     };
+    for (const construction of [false, true]) {
+      const button = option("sketch-construction", construction ? "Construction geometry" : "Normal geometry",
+        construction ? "sketch-construction" : "sketch-line",
+        construction ? "Construction geometry: guides excluded from closed profiles." : "Normal geometry: contributes to closed profiles for solid operations.",
+        !construction, () => {
+          const selected = this.geometry();
+          if (selected.length) {
+            void this.run(() => this.sketch!.construction(selected.map(e => e.reference), construction));
+          } else {
+            this.constructionMode = construction;
+            this.selectionChanged();
+            this.schedulePreview();
+          }
+        });
+      button.dataset.construction = String(construction);
+    }
     this.input("sketch-auto").onchange = () => this.run(() => this.sketch!.settings({ autoRecompute: this.input("sketch-auto").checked }));
     this.get("sketch-recompute").onclick = () => this.run(() => this.sketch!.recompute());
-    this.get("sketch-highlight").onchange = () => {
-      this.options.highlight = this.selectValue("sketch-highlight") as SketchDisplayOptions["highlight"];
-      this.display();
-    };
+    for (const [value, label, icon] of [
+      ["none", "No highlight", "eye"], ["constrained", "Constrained geometry", "sketch-constraint-fix"],
+      ["partial", "Partially constrained geometry", "sketch-freedom-partial"], ["unconstrained", "Unconstrained geometry", "sketch-move"],
+    ] as const) {
+      const button = option("sketch-highlight", label, icon, value === "none" ? "Show normal geometry colors" : "Highlight " + label.toLowerCase(), this.options.highlight === value, () => {
+        this.options.highlight = this.options.highlight === value ? "none" : value;
+        for (const control of this.get("sketch-highlight").querySelectorAll("button")) control.setAttribute("aria-pressed", String(control.dataset.highlight === this.options.highlight));
+        this.display();
+      });
+      button.dataset.highlight = value;
+    }
+    for (const [name, icon] of [["lines", "sketch-line"], ["points", "sketch-point"], ["constraints", "sketch-constraint-coincident"],
+      ["dimensions", "sketch-dimension"], ["construction", "sketch-construction"], ["projections", "sketch-project"]] as const) {
+      option("sketch-display-options", "Show " + name, icon, "Show or hide " + name, this.options[name], button => {
+        this.options[name] = !this.options[name];
+        button.setAttribute("aria-pressed", String(this.options[name]));
+        this.display();
+      });
+    }
+    option("sketch-snap-options", "Snap to geometry", "sketch-snap", "Snap to existing sketch points", this.snapGeometry, button => {
+      this.snapGeometry = !this.snapGeometry;
+      button.setAttribute("aria-pressed", String(this.snapGeometry));
+    });
+    option("sketch-snap-options", "Snap to grid", "sketch-grid", "Snap to the sketch grid", this.snapGrid, button => {
+      this.snapGrid = !this.snapGrid;
+      button.setAttribute("aria-pressed", String(this.snapGrid));
+    });
     this.get("sketch-action").onclick = () => {
       if (this.creating) return;
       this.creating = true;
       void this.run(() => this.action()).finally(() => { this.creating = false; });
     };
-    this.get("sketch-convert").onclick = () => this.run(() => this.sketch!.construction(this.geometry().map(e => e.reference), !this.geometry().every(e => e.construction)));
     this.get("sketch-pivot").onclick = () => {
       this.pickingPivot = true;
       this.hooks.status("Pick the transform pivot in the sketch.");
@@ -105,24 +156,12 @@ export class SketchTool {
       this.fontBase64 = btoa(data);
       this.schedulePreview();
     });
-    for (const name of ["lines", "points", "constraints", "dimensions", "construction", "projections"] as const) {
-      const label = document.createElement("label");
-      label.className = "check";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = true;
-      checkbox.onchange = () => {
-        this.options[name] = checkbox.checked;
-        this.display();
-      };
-      label.append(checkbox, " " + title(name));
-      this.get("sketch-display-options").append(label);
-    }
     for (const field of this.panel.querySelectorAll<HTMLInputElement | HTMLSelectElement>("#sketch-config input, #sketch-config select, .sketch-live-dimensions input")) {
       if (field.type === "file") {
         continue;
       }
       field.addEventListener("input", () => {
+        this.numericFields.delete(field.id);
         this.dirty.add(field.id);
         this.schedulePreview();
         this.handles();
@@ -192,15 +231,14 @@ export class SketchTool {
     this.viewport.sketching(true);
     this.viewport.setSketchFrame(this.state!.frame);
     this.viewport.alignSketch();
-    this.input("sketch-name").value = this.state!.sketch.name ?? this.sketch.id;
     this.hooks.status("Sketch plane selected. Select geometry or choose a drawing tool.");
     this.schedulePreview();
   }
-  private run(action: () => Promise<unknown>) {
+  private run(action: () => Promise<unknown>, reload = true) {
     this.pendingCount++;
     this.hooks.changed(true);
     this.showError("");
-    const next = this.queue.then(action).then(() => this.reload()).catch(e => this.showError(errorText(e))).finally(() => {
+    const next = this.queue.then(action).then(() => reload ? this.reload() : this.display()).catch(e => this.showError(errorText(e))).finally(() => {
       this.pendingCount--;
       if (this.active) {
         this.hooks.changed(this.pending);
@@ -228,9 +266,7 @@ export class SketchTool {
       return;
     }
     this.input("sketch-auto").checked = state.autoRecompute;
-    if (document.activeElement !== this.input("sketch-name")) {
-      this.input("sketch-name").value = state.sketch.name ?? state.sketch.id;
-    }
+    this.get("sketch-recompute").hidden = state.autoRecompute;
     this.hooks.proxy(proxy);
     this.display();
     this.references();
@@ -238,6 +274,15 @@ export class SketchTool {
   }
   private display(state = this.state, proxy = this.proxy, hover?: string) {
     if (state && proxy && this.active) {
+      if (this.annotationDrag) {
+        const drag = this.annotationDrag;
+        state = { ...state, dimensions: state.dimensions.map(d => d.id === drag.id ? { ...d, parameters: { ...d.parameters, annotation: { position: drag.position } } } : d) };
+      }
+      const candidate = this.tool === "dimension" ? inferDimension(state, this.selected, this.dimensionPosition, this.dimensionKind) : undefined;
+      if (candidate) {
+        const unit = this.scene.units[candidate.kind === "angle" ? "angle" : "length"];
+        state = { ...state, dimensions: [...state.dimensions, { id: "dimension-preview", kind: candidate.kind, parameters: candidate.parameters, computed: { value: candidate.value / unitScale[unit], unit }, dependencies: [] }] };
+      }
       this.viewport.showSketch(state, proxy, this.selected, this.options, hover);
     }
   }
@@ -252,7 +297,11 @@ export class SketchTool {
     if (status.warnings.length) {
       this.get("sketch-status").textContent += " · " + status.warnings.join(" · ");
     }
-    this.get("sketch-convert").toggleAttribute("disabled", !selected.length || selected.some(e => e.projected));
+    for (const button of this.get("sketch-construction").querySelectorAll("button")) {
+      const construction = button.dataset.construction === "true";
+      button.disabled = selected.some(e => e.projected);
+      button.setAttribute("aria-pressed", String(selected.length ? selected.every(e => e.construction === construction) : this.constructionMode === construction));
+    }
     this.handles();
     this.display();
     this.hooks.changed(this.pending);
@@ -284,6 +333,9 @@ export class SketchTool {
     this.dragEntity = undefined;
     this.dragLine = undefined;
     this.dragQueued = undefined;
+    this.annotationDrag = undefined;
+    this.dimensionPosition = undefined;
+    this.dimensionKind = undefined;
     this.tool = tool;
     this.variant = variant;
     this.viewport.pickVertices = tool === "project";
@@ -303,7 +355,13 @@ export class SketchTool {
     variants[tool].forEach((name, i) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.textContent = name;
+      b.title = name;
+      b.setAttribute("aria-label", name);
+      if (["rectangle", "arc", "slot"].includes(tool)) {
+        b.classList.add("sketch-variant-icon");
+        b.innerHTML = variantIcons[`../icons/sketch-${tool}-${i}.svg`];
+        b.querySelector("svg")!.setAttribute("aria-hidden", "true");
+      } else b.textContent = name;
       b.setAttribute("aria-pressed", String(i === variant));
       b.onclick = () => this.choose(tool, i);
       group.append(b);
@@ -320,18 +378,18 @@ export class SketchTool {
     this.get("sketch-offset2-row").hidden = tool !== "offset" || variant !== 2;
     this.input("sketch-radius").closest<HTMLElement>("label")!.hidden = !["circle", "arc", "slot", "rounding"].includes(tool) || tool === "circle" && [2, 4].includes(variant) || tool === "arc" && variant === 1;
     this.input("sketch-angle").closest<HTMLElement>("label")!.hidden = !(tool === "arc" && variant === 0 || tool === "move");
-    this.get("sketch-action").hidden = ["select", "project", "point"].includes(tool);
+    this.get("sketch-action").hidden = ["select", "project", "point", "dimension"].includes(tool);
     this.get("sketch-action").toggleAttribute("disabled", !editing.has(tool));
     this.get("sketch-action").textContent = editing.has(tool) ? "Apply " + tool : tool === "spline" ? "Finish spline" : "Add " + tool;
-    this.get("sketch-hint").textContent = tool === "select" ? "Click to select. Shift-click adds to the selection. Double-click overlapping geometry to choose. Drag a point or line to reshape." :
-      tool === "project" ? "Pick a solid face, edge or vertex to project." :
-        editing.has(tool) ? "Select geometry, then apply this tool. Escape returns to selection." : tool === "spline" ? "Pick points, then Finish spline. Escape discards the unfinished spline." :
-          tool === "circle" && variant >= 3 ? "Select the tangent curves first, then pick near the wanted center." : "Pick points to draw. Tab edits dimensions beside the geometry; Enter completes it. Escape returns to selection.";
     if (tool === "move") {
+      this.numericFields.delete("sketch-angle");
       this.input("sketch-angle").value = "0";
     } else if (tool === "arc") {
-      this.input("sketch-angle").value = "90";
+      this.numericFields.delete("sketch-angle");
+      this.input("sketch-angle").value = "0";
     }
+    if (tool === "slot") this.setNumericField("sketch-radius", Math.max(1e-6, 2 * this.viewport.pixelLength) / unitScale[this.scene.units.length]);
+    if (tool === "dimension") this.hooks.status("Select geometry, then click to place the dimension. Right-click for alternate measurements.");
     this.updateDimensions();
     if (this.proxy) this.hooks.proxy(this.proxy);
     this.display();
@@ -341,6 +399,7 @@ export class SketchTool {
   escape() {
     if (this.popup?.isConnected) {
       this.popup.remove();
+      if (this.tool === "dimension") this.choose("select");
       document.getElementById("model-canvas")!.focus();
       return;
     }
@@ -390,10 +449,10 @@ export class SketchTool {
   }
   private snapped(point: Point, excluded = new Set<string>()): Point {
     let result: Point = [...point];
-    if (this.input("sketch-grid").checked) {
+    if (this.snapGrid) {
       result = result.map(v => Math.round(v)) as Point;
     }
-    if (this.input("sketch-snap").checked && this.state) {
+    if (this.snapGeometry && this.state) {
       const limit = this.viewport.pixelLength * 8;
       const nearest = this.state.entities.filter(e => e.geometry.type === "point" && !excluded.has(e.reference.id)).map(e => ({ e, p: pointOf(this.state!, e.reference.id) })).filter(({ p }) => distance(p, point) < limit).sort((a, b) => distance(a.p, point) - distance(b.p, point))[0];
       if (nearest) {
@@ -410,7 +469,7 @@ export class SketchTool {
     this.dragPosition = target;
     const line = this.dragLine;
     const translated = (point: Point): Point => [point[0] + target[0] - line!.cursor[0], point[1] + target[1] - line!.cursor[1]];
-    this.dragQueued = { entity: this.dragEntity, position: line ? { from: translated(line.from), to: translated(line.to) } : target };
+    this.dragQueued = { entity: this.dragEntity, position: line ? { from: translated(line.from), to: translated(line.to) } : this.dragCircle ? { position: target } : target };
     this.flushUpdates();
   }
   private flushUpdates() {
@@ -466,6 +525,28 @@ export class SketchTool {
       this.handles();
       return;
     }
+    if (this.tool === "dimension") {
+      if (this.popup?.isConnected) return;
+      const pick = hit.picks.find(p => p.kind === "geometry");
+      if (pick) {
+        if (this.selected.size >= 2 && !this.selected.has(pick.id)) this.selected.clear();
+        this.dimensionKind = undefined;
+        this.dimensionPosition = undefined;
+        this.pick(pick, true);
+      } else if (hit.point && this.state) {
+        const candidate = inferDimension(this.state, this.selected, hit.point, this.dimensionKind);
+        if (candidate) {
+          this.dimensionPosition = hit.point;
+          this.display();
+          const unit = this.scene.units[candidate.kind === "angle" ? "angle" : "length"];
+          this.dimensionFormula(hit.client, `${candidate.value / unitScale[unit]} ${unit}`, async value => {
+            await this.sketch!.dimensions.add(candidate.kind, { ...candidate.parameters, value });
+            this.choose("select");
+          });
+        } else this.hooks.status("Select a line, circle, arc, ellipse, two points, two lines, or a point and a line.");
+      }
+      return;
+    }
     if (editing.has(this.tool)) {
       this.pick(hit.picks[0], hit.additive);
       return;
@@ -473,10 +554,16 @@ export class SketchTool {
     if (!hit.point) {
       return;
     }
+    const count = drawingClicks(this.tool, this.variant);
+    // A rejected final click remains editable without restarting the construction.
+    if ((this.tool === "arc" || this.tool === "slot") && this.points.length >= count) this.points.length = count - 1;
     this.points.push(this.snapped(hit.point));
     this.cursor = undefined;
+    if (this.tool === "slot" && this.points.length === 2 && !this.dirty.has("sketch-radius")) {
+      const radius = Math.max(1e-6, Math.min(2 * this.viewport.pixelLength, distance(this.points[0], this.points[1]) / 100));
+      this.setNumericField("sketch-radius", radius / unitScale[this.scene.units.length]);
+    }
     this.updateDimensions();
-    const count = this.tool === "point" || this.tool === "text" || this.tool === "circle" && this.variant >= 3 ? 1 : this.tool === "rectangle" && this.variant === 1 || this.tool === "circle" && [1, 2].includes(this.variant) || this.tool === "arc" && this.variant === 1 || this.tool === "slot" && this.variant === 0 ? 3 : 2;
     if (this.tool !== "spline" && this.points.length >= count) {
       this.creating = true;
       void this.run(() => this.create()).finally(() => { this.creating = false; });
@@ -486,14 +573,21 @@ export class SketchTool {
     }
   }
   move(point: Point | null) {
+    if (point && this.tool === "dimension" && !this.popup?.isConnected) {
+      this.dimensionPosition = point;
+      this.display();
+      return;
+    }
     if (!point || !this.sketch || editing.has(this.tool) || this.creating) {
       return;
     }
+    const count = drawingClicks(this.tool, this.variant);
+    if ((this.tool === "arc" || this.tool === "slot") && this.points.length >= count) this.points.length = count - 1;
     this.cursor = this.snapped(point);
     const scale = unitScale[this.scene.units.length];
     const update = (id: string, value: number) => {
       if (!this.dirty.has(id)) {
-        this.input(id).value = String(Number(value.toPrecision(15)));
+        this.setNumericField(id, value);
       }
     };
     if (this.points.length) {
@@ -510,10 +604,15 @@ export class SketchTool {
         update("height", Math.abs(b[1] - a[1]) * factor / scale);
       }
       if (this.tool === "circle" && this.variant === 0 || this.tool === "arc" && this.variant === 0) {
-        update("sketch-radius", distance(a, b) / scale);
+        update("sketch-radius", distance(a, this.tool === "arc" ? this.points[1] ?? b : b) / scale);
+        if (this.tool === "arc" && this.points[1]) {
+          const angle = ((bearing(a, b) - bearing(a, this.points[1])) * 180 / Math.PI + 360) % 360;
+          update("sketch-angle", angle / unitScale[this.scene.units.angle]);
+        }
       }
       if (this.tool === "slot" && this.points[1]) {
-        update("sketch-radius", distance(this.points[1], b) / scale);
+        const end = this.points[1], length = distance(a, end);
+        if (length > 1e-7) update("sketch-radius", Math.abs((end[0] - a[0]) * (b[1] - a[1]) - (end[1] - a[1]) * (b[0] - a[0])) / length / scale);
       }
       this.schedulePreview();
       this.updateDimensions();
@@ -533,8 +632,17 @@ export class SketchTool {
     }
     this.selectionChanged();
   }
+  private setNumericField(id: string, value: number, suffix = "") {
+    const text = formatDimension(value) + suffix, source = String(value) + suffix;
+    this.input(id).value = text;
+    this.numericFields.set(id, { text, source });
+  }
+  private fieldSource(id: string) {
+    const text = this.input(id).value, numeric = this.numericFields.get(id);
+    return numeric?.text === text ? numeric.source : text;
+  }
   private async number(id: string, dimension: "length" | "angle" | "scalar" = "length") {
-    let source = this.input(id).value.trim();
+    let source = this.fieldSource(id).trim();
     for (const d of this.state?.dimensions ?? []) {
       for (const name of [d.id, d.parameters.name].filter((v): v is string => !!v).sort((a, b) => b.length - a.length)) {
         source = source.replace(new RegExp(`(?<![\\w.])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`, "g"), `sketches[${this.sketch!.id}]dimension[${d.id}]`);
@@ -554,11 +662,14 @@ export class SketchTool {
   private async primitive(preview = false): Promise<Primitive> {
     const tool = this.tool, variant = this.variant, dirty = new Set(this.dirty);
     const entities = tool === "text" && !this.input("sketch-guide").checked ? [] : this.geometry();
-    const construction = this.selectValue("sketch-construction") === "construction", state = this.state!;
+    const construction = this.constructionMode, state = this.state!;
     let points = [...this.points];
     if (!points.length) throw new Error("Pick a starting point in the sketch.");
-    if (this.cursor && (preview || tool !== "spline" && points.length === 1)) {
+    if (this.cursor && (preview || tool !== "spline" && points.length < drawingClicks(tool, variant))) {
       points.push(this.cursor);
+    }
+    if (tool === "arc" && (points.length < 2 || points.length < 3 && !(variant === 0 && dirty.has("sketch-angle"))) || tool === "slot" && (points.length < 2 || points.length < 3 && !preview && !dirty.has("sketch-radius"))) {
+      throw new Error("Complete the construction points first.");
     }
     const f = await this.fields();
     if (tool === "line" && dirty.has("width")) {
@@ -581,12 +692,20 @@ export class SketchTool {
     if (tool === "circle" && variant === 0 && dirty.has("sketch-radius")) {
       points = points.slice(0, 1);
     }
+    if (tool === "arc" && variant === 0 && dirty.has("sketch-angle") || tool === "slot" && dirty.has("sketch-radius")) points = points.slice(0, 2);
     const primitive = drawing(tool, variant, points, f, construction, entities, state);
     if (primitive.type === "arc" && variant === 0 && dirty.has("sketch-radius")) primitive.parameters.radius = f.radius;
-    if (primitive.type === "slot" && dirty.has("sketch-radius")) {
-      primitive.parameters.radius = f.radius;
-    }
     return primitive;
+  }
+  private constructionGuide() {
+    if (!this.state || !this.proxy) return;
+    const points = [...this.points, ...(this.cursor ? [this.cursor] : [])], frame = this.state.frame;
+    const world = (p: Point) => frame.origin.map((v, i) => v + frame.u[i] * p[0] + frame.v[i] * p[1]) as [number, number, number];
+    const entity = (id: string) => ({ sceneId: this.scene.id, sketchId: this.sketch!.id, id: `draft-${id}` });
+    this.display(this.state, { ...this.proxy,
+      points: [...this.proxy.points, ...points.map((p, i) => ({ entity: entity(String(i)), position: world(p), construction: true, projected: false }))],
+      curves: [...this.proxy.curves, ...(points.length > 1 ? [{ entity: entity("axis"), points: points.map(world), construction: true, projected: false }] : [])],
+    });
   }
   private async add(primitive: Primitive, preview = false) {
     // The discriminated primitive union is preserved over the transport.
@@ -602,6 +721,12 @@ export class SketchTool {
     if (!editing.has(this.tool)) this.get("sketch-action").setAttribute("disabled", "");
     this.hooks.changed(this.pending);
     if (!this.sketch || editing.has(this.tool) && !["offset", "rounding", "scale", "move"].includes(this.tool) || !editing.has(this.tool) && !this.points.length || !this.active) {
+      return;
+    }
+    if (this.tool === "slot" && this.points.length < 2 || this.tool === "arc" &&
+        (this.points.length < 2 || !this.cursor && !(this.variant === 0 && this.dirty.has("sketch-angle")))) {
+      this.constructionGuide();
+      this.showError("");
       return;
     }
     if (!editing.has(this.tool) && this.points.length === 1 && !this.cursor && !this.dirty.size) return;
@@ -656,9 +781,10 @@ export class SketchTool {
       if (interaction === this.interaction && this.active && !this.creating) {
         this.hooks.proxy(proxy);
         this.display(state, proxy);
-        this.draftValid = version === this.version;
+        const waitingForRadius = tool === "slot" && !this.cursor && this.points.length === 2 && !this.dirty.has("sketch-radius");
+        this.draftValid = version === this.version && !waitingForRadius;
         this.get("sketch-action").toggleAttribute("disabled", !this.draftValid);
-        if (this.draftValid) this.showError("");
+        if (version === this.version) this.showError("");
       }
     }).catch(e => {
       if (interaction === this.interaction && version === this.version && this.active && !this.creating) {
@@ -683,27 +809,27 @@ export class SketchTool {
     if (primitive.type === "rectangle") {
       for (const [id, index] of [["width", 0], ["height", 1]] as const) {
         if (this.dirty.has(id)) {
-          await this.sketch!.dimensions.add("length", { line: result.curves[index], value: this.input(id).value, mode: "driving" });
+          await this.sketch!.dimensions.add("length", { line: result.curves[index], value: this.fieldSource(id), mode: "driving" });
         }
       }
     }
     else if (["circle", "arc", "slot"].includes(primitive.type) && this.dirty.has("sketch-radius")) {
-      await this.sketch!.dimensions.add("radius", { curve: result.curves[0], value: this.input("sketch-radius").value, mode: "driving" });
+      await this.sketch!.dimensions.add("radius", { curve: result.curves[0], value: this.fieldSource("sketch-radius"), mode: "driving" });
     }
     if (primitive.type === "ellipse") {
       const p = primitive.parameters;
       const widthIsMajor = p.angle === 0;
       for (const [id, kind] of [["width", widthIsMajor ? "majorRadius" : "minorRadius"], ["height", widthIsMajor ? "minorRadius" : "majorRadius"]] as const) {
         if (this.dirty.has(id)) {
-          await this.sketch!.dimensions.add(kind, { curve: result.curves[0], mode: "driving", value: `(${this.input(id).value}) / 2` });
+          await this.sketch!.dimensions.add(kind, { curve: result.curves[0], mode: "driving", value: `(${this.fieldSource(id)}) / 2` });
         }
       }
     }
-    if (primitive.type === "arc" && this.variant === 0) {
-      await this.sketch!.dimensions.add("angle", { curve: result.curves[0], mode: "driving", value: this.input("sketch-angle").value });
+    if (primitive.type === "arc" && this.variant === 0 && this.dirty.has("sketch-angle")) {
+      await this.sketch!.dimensions.add("angle", { curve: result.curves[0], mode: "driving", value: this.fieldSource("sketch-angle") });
     }
     if (primitive.type === "line" && this.dirty.has("width")) {
-      await this.sketch!.dimensions.add("length", { line: result.curves[0], mode: "driving", value: this.input("width").value });
+      await this.sketch!.dimensions.add("length", { line: result.curves[0], mode: "driving", value: this.fieldSource("width") });
     }
     if (this.tool === "circle" && this.variant >= 3) {
       for (const entity of this.geometry()) {
@@ -749,22 +875,17 @@ export class SketchTool {
       return this.create();
     }
     const entities = this.geometry(), curves = entities.filter(e => e.geometry.type !== "point").map(e => e.reference);
-    if (this.tool === "dimension") {
-      const kind = dimensionKinds[this.variant], value = this.input("sketch-dimension-value").value.trim();
-      const points = entities.filter(e => e.geometry.type === "point").map(e => e.reference);
-      await this.sketch!.dimensions.add(kind, { ...(kind === "length" ? { line: curves[0] } : ["radius", "diameter", "majorRadius", "minorRadius"].includes(kind) ? { curve: curves[0] } : kind === "angle" ? { curves } : { points }), mode: this.selectValue("sketch-dimension-mode") === "driven" || !value ? "driven" : "driving", ...(value ? { value } : {}) });
-    }
-    else if (this.tool === "split") {
+    if (this.tool === "split") {
       await this.sketch!.modifyCurves(curves, { type: "split" });
     }
     else if (this.tool === "rounding") {
-      await this.sketch!.modifyCurves(curves, { type: "rounding", radius: this.input("sketch-radius").value }, { preview });
+      await this.sketch!.modifyCurves(curves, { type: "rounding", radius: this.fieldSource("sketch-radius") }, { preview });
     }
     else if (this.tool === "offset") {
-      await this.sketch!.modifyCurves(curves, { type: "offset", distance1: this.input("sketch-offset").value, ...(this.variant ? { distance2: this.input(this.variant === 1 ? "sketch-offset" : "sketch-offset2").value } : {}) }, { preview });
+      await this.sketch!.modifyCurves(curves, { type: "offset", distance1: this.fieldSource("sketch-offset"), ...(this.variant ? { distance2: this.fieldSource(this.variant === 1 ? "sketch-offset" : "sketch-offset2") } : {}) }, { preview });
     }
     else if (this.tool === "scale" || this.tool === "move") {
-      await this.sketch!.transform({ preview, entities: entities.map(e => e.reference), pivot: this.pivot, copy: this.input("sketch-copy").checked, ...(this.tool === "scale" ? { scale: this.input("sketch-scale").value } : { translation: [await this.number("sketch-move-x"), await this.number("sketch-move-y")] as Point, angle: this.input("sketch-angle").value }) });
+      await this.sketch!.transform({ preview, entities: entities.map(e => e.reference), pivot: this.pivot, copy: this.input("sketch-copy").checked, ...(this.tool === "scale" ? { scale: this.fieldSource("sketch-scale") } : { translation: [await this.number("sketch-move-x"), await this.number("sketch-move-y")] as Point, angle: this.fieldSource("sketch-angle") }) });
     }
     if (!preview) {
       this.choose("select");
@@ -795,7 +916,7 @@ export class SketchTool {
         items.push({id,label,kind,unit,origin,direction,tangent:frame.v,value:numeric,
           factor:this.tool==="scale"?10:1,min:this.tool==="scale"?1e-6:kind==="angle"?-360:undefined,max:kind==="angle"?360:undefined,
           change:value=>{
-            this.input(id).value=String(Number((value/unitScale[unit]).toPrecision(12)))+(unit==="scalar"?"":" "+unit);
+            this.setNumericField(id, value/unitScale[unit], unit==="scalar"?"":" "+unit);
             this.dirty.add(id);this.schedulePreview();
           },
         });
@@ -816,44 +937,69 @@ export class SketchTool {
     this.popup = menu;
     return menu;
   }
-  private editDimension(id: string, client: Point) {
+  private dimensionFormula(client: Point, formula: string, save: (value: string, changed: boolean) => Promise<void>) {
+    const menu = this.menuAt(client), form = document.createElement("form"), value = document.createElement("input");
+    menu.classList.add("sketch-dimension-input");
+    const initial = formatDimension(formula);
+    value.value = initial;
+    const resize = () => { value.style.width = Math.min(26, Math.max(12, value.value.length + 2)) + "ch"; };
+    value.oninput = resize;
+    resize();
+    value.setAttribute("aria-label", "Dimension formula");
+    value.autocomplete = "off";
+    value.spellcheck = false;
+    form.append(value);
+    form.onsubmit = e => {
+      e.preventDefault();
+      if (this.pending || !value.value.trim()) return;
+      const changed = value.value !== initial;
+      void this.run(async () => { await save(changed ? value.value : formula, changed); menu.remove(); document.getElementById("model-canvas")!.focus(); });
+    };
+    form.onkeydown = e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); this.escape(); } };
+    menu.append(form);
+    value.focus(); value.select();
+  }
+  private editDimension(id: string, client: Point, context = false) {
     const d = this.state?.dimensions.find(d => d.id === id);
-    if (!d) {
+    if (!d) return;
+    const formula = d.parameters.value;
+    const source = typeof formula === "object" ? formula.expression : typeof formula === "number" ? `${formula} ${d.kind === "angle" ? "deg" : "mm"}` : formula ?? `${d.computed.value} ${d.computed.unit}`;
+    if (!context) {
+      if (d.parameters.mode === "driven") { this.hooks.status("This dimension measures the geometry. Right-click to make it driving."); return; }
+      this.dimensionFormula(client, source, async (value, changed) => { if (changed) await this.sketch!.dimensions.update(id, { value }); });
       return;
     }
     const menu = this.menuAt(client);
-    const form = document.createElement("form");
-    const name = document.createElement("input");
-    name.value = d.parameters.name ?? d.id;
-    name.setAttribute("aria-label", "Dimension name");
-    const value = document.createElement("input");
-    const formula = d.parameters.value;
-    value.value = typeof formula === "object" ? formula.expression : String(formula ?? `${d.computed.value} ${d.computed.unit}`);
-    value.setAttribute("aria-label", "Dimension formula");
-    const mode = document.createElement("select");
-    mode.setAttribute("aria-label", "Dimension mode");
-    for (const m of ["driving", "driven"]) {
-      const o = document.createElement("option");
-      o.value = m;
-      o.textContent = title(m);
-      mode.append(o);
-    }
-    mode.value = d.parameters.mode;
-    const save = document.createElement("button");
-    save.textContent = "Apply dimension";
-    form.append(name, value, mode, save);
-    form.onsubmit = e => {
-      e.preventDefault();
-      this.run(async () => {
-        await this.sketch!.dimensions.update(id, { name: name.value, value: value.value, mode: mode.value as "driving" | "driven" });
-        menu.remove();
-      });
-    };
-    menu.append(form);
-    value.focus();
-    value.select();
+    const rename = document.createElement("form"), name = document.createElement("input"), save = document.createElement("button");
+    name.value = d.parameters.name ?? d.id; name.setAttribute("aria-label", "Dimension name");
+    save.textContent = "Rename"; rename.append(name, save);
+    rename.onsubmit = e => { e.preventDefault(); void this.run(async () => { await this.sketch!.dimensions.update(id, { name: name.value }); menu.remove(); }); };
+    const mode = document.createElement("button");
+    mode.textContent = d.parameters.mode === "driven" ? "Make driving" : "Make driven";
+    mode.onclick = () => this.run(async () => {
+      await this.sketch!.dimensions.update(id, { mode: d.parameters.mode === "driven" ? "driving" : "driven", ...(d.parameters.mode === "driven" ? { value: `${d.computed.value} ${d.computed.unit}` } : {}) });
+      menu.remove();
+    });
+    menu.append(rename, mode);
+  }
+  private placeAnnotation(id: string, position: Point) {
+    const original = this.state!.dimensions.find(d => d.id === id)!;
+    this.state = { ...this.state!, dimensions: this.state!.dimensions.map(d => d.id === id ? { ...d, parameters: { ...d.parameters, annotation: { position } } } : d) };
+    this.display();
+    return this.run(async () => {
+      try {
+        const updated = await this.sketch!.dimensions.update(id, { annotation: { position } });
+        if (this.state) this.state = { ...this.state, dimensions: this.state.dimensions.map(d => d.id === id ? updated : d) };
+      } catch (error) {
+        if (this.state) this.state = { ...this.state, dimensions: this.state.dimensions.map(d => d.id === id ? original : d) };
+        this.display();
+        throw error;
+      }
+    }, false);
   }
   suspend() {
+    this.annotationDrag = undefined;
+    this.dimensionPosition = undefined;
     this.viewport.pickVertices = false;
     this.active = false;
     this.dragEntity = undefined;
@@ -909,15 +1055,28 @@ export class SketchTool {
       if (!this.sketch) {
         return;
       }
+      if (this.tool === "dimension" && this.state) {
+        e.preventDefault();
+        const menu = this.menuAt([e.clientX, e.clientY]);
+        for (const kind of dimensionChoices(this.state, this.selected)) {
+          const button = document.createElement("button"); button.textContent = title(kind);
+          button.onclick = () => { this.dimensionKind = kind; menu.remove(); this.display(); };
+          menu.append(button);
+        }
+        return;
+      }
       const pick = this.viewport.sketchPicks(e).find(p => p.kind === "dimension");
       if (pick) {
         e.preventDefault();
-        this.editDimension(pick.id, [e.clientX, e.clientY]);
+        this.editDimension(pick.id, [e.clientX, e.clientY], true);
       }
     }, { signal });
     document.addEventListener("keydown", e => {
       if (e.defaultPrevented || e.target instanceof Element && e.target.closest("dialog, .sketch-popup")) {
         return;
+      }
+      if (e.key.toLowerCase() === "d" && !e.ctrlKey && !e.metaKey && !e.altKey && !this.pickingSupport && !(e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]"))) {
+        e.preventDefault(); this.choose("dimension"); return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox']"))) {
         if (this.selected.size && !this.pending && !this.pickingSupport) {
@@ -955,8 +1114,18 @@ export class SketchTool {
         return;
       }
       const pick = this.viewport.sketchPicks(e)[0];
+      if (pick?.kind === "dimension" && this.state) {
+        const dimension = this.state.dimensions.find(d => d.id === pick.id), cursor = this.viewport.point(e);
+        const layout = dimension && dimensionLayout(this.state, dimension);
+        if (layout && cursor) {
+          e.preventDefault(); e.stopImmediatePropagation();
+          this.annotationDrag = { id: pick.id, start: cursor, original: layout.label, position: layout.label, moved: false };
+          canvas.setPointerCapture(e.pointerId);
+        }
+        return;
+      }
       const entity = pick?.kind === "geometry" ? this.state?.entities.find(entity => entity.reference.id === pick.id) : undefined;
-      if (!entity || entity.projected || (entity.geometry.type !== "point" && entity.geometry.type !== "line")) {
+      if (!entity || entity.projected || !["point", "line", "circle", "arc"].includes(entity.geometry.type)) {
         return;
       }
       const cursor = this.viewport.point(e);
@@ -967,9 +1136,10 @@ export class SketchTool {
       this.dragStart = [e.clientX, e.clientY];
       this.dragMoved = false;
       const geometry = entity.geometry;
+      this.dragCircle = geometry.type === "circle" || geometry.type === "arc";
       this.dragLine = geometry.type === "line" ? { cursor, from: [...pointOf(this.state!, geometry.from)], to: [...pointOf(this.state!, geometry.to)] } : undefined;
       this.dragPosition = geometry.type === "point" ? geometry.position : cursor;
-      this.dragExcluded = new Set(geometry.type === "line" ? [geometry.from, geometry.to] : [entity.reference.id]);
+      this.dragExcluded = new Set(geometry.type === "line" ? [geometry.from, geometry.to] : geometry.type === "arc" ? [geometry.center, geometry.from, geometry.to] : geometry.type === "circle" ? [geometry.center] : [entity.reference.id]);
       // Ignore the moving endpoints and their coincident partners, keeping other snap targets.
       let previousSize = 0;
       while (previousSize !== this.dragExcluded.size) {
@@ -984,6 +1154,16 @@ export class SketchTool {
       canvas.setPointerCapture(e.pointerId);
     }, { capture: true, signal });
     canvas.addEventListener("pointermove", e => {
+      if (this.annotationDrag && e.buttons === 1) {
+        e.stopImmediatePropagation();
+        const cursor = this.viewport.point(e), drag = this.annotationDrag;
+        if (cursor) {
+          drag.position = [drag.original[0] + cursor[0] - drag.start[0], drag.original[1] + cursor[1] - drag.start[1]];
+          drag.moved ||= distance(cursor, drag.start) > this.viewport.pixelLength;
+          this.display();
+        }
+        return;
+      }
       if (!this.dragEntity || e.buttons !== 1) {
         return;
       }
@@ -995,6 +1175,16 @@ export class SketchTool {
       }
     }, { capture: true, signal });
     canvas.addEventListener("pointerup", e => {
+      if (this.annotationDrag && e.button === 0) {
+        e.stopImmediatePropagation();
+        const drag = this.annotationDrag, cursor = this.viewport.point(e);
+        if (cursor) drag.position = [drag.original[0] + cursor[0] - drag.start[0], drag.original[1] + cursor[1] - drag.start[1]];
+        this.annotationDrag = undefined;
+        this.pick({ kind: "dimension", id: drag.id }, e.shiftKey);
+        if (drag.moved) void this.placeAnnotation(drag.id, drag.position);
+        if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+        return;
+      }
       if (!this.dragEntity || e.button !== 0) {
         return;
       }
@@ -1013,6 +1203,7 @@ export class SketchTool {
       }
     }, { capture: true, signal });
     const clearDrag = () => {
+      if (this.annotationDrag) { this.annotationDrag = undefined; this.display(); }
       // A normal release has already cleared dragEntity and must retain its queued target.
       if (this.dragEntity) this.dragQueued = undefined;
       this.dragEntity = undefined;

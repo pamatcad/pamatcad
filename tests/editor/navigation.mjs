@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 export async function testNavigation(page) {
+  await page.addScriptTag({ path: "tests/editor/rectangle.js" });
   await page.getByText("File", { exact: true }).click();
   await page.locator("#menu-new").click();
   await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled && !document.querySelector("#features").children.length);
@@ -18,7 +19,7 @@ export async function testNavigation(page) {
     } finally { SketchTool.prototype.start = start; }
   });
   try {
-    await page.locator("#sketch-planes").getByRole("button", { name: "XY", exact: true }).click();
+    await page.evaluate(() => chooseSketchPlane("XY"));
     await page.waitForFunction(() => !document.querySelector("#apply").disabled);
     await page.evaluate(async () => {
       const { tool } = window.navigationCheck;
@@ -71,6 +72,37 @@ export async function testNavigation(page) {
 
     for (const mode of ["orthographic", "perspective"]) {
       await reset(mode);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const box = await page.locator("#model-canvas").boundingBox();
+      const cube = [box.x + box.width - 60, box.y + 60];
+      // Put an editable point behind the overlay to catch event-routing regressions.
+      await page.evaluate(async ([x, y]) => {
+        const { tool, viewport } = window.navigationCheck;
+        const r = document.querySelector("#model-canvas").getBoundingClientRect(), ray = new viewport.ray.constructor();
+        ray.setFromCamera({x:(x-r.x)/r.width*2-1,y:1-(y-r.y)/r.height*2},viewport.camera);
+        const p = ray.ray.at(-ray.ray.origin.z/ray.ray.direction.z,viewport.camera.position.clone());
+        await tool.sketch.primitives.add("point", { position: [p.x,p.y] }); await tool.reload();
+      },cube);
+      let before = await read();
+      await page.mouse.move(...cube); await page.mouse.down();
+      await page.mouse.move(cube[0]-95,cube[1]+75,{steps:8}); await page.mouse.up();
+      let after = await read(); unchanged(before,after);
+      assert.ok(Math.hypot(...delta(after.view.position,before.view.position))>0.1,mode+" cube drag orbits");
+      near(after.view.target,before.view.target); near([after.view.zoom,after.view.span],[before.view.zoom,before.view.span]);
+      near([Math.hypot(...delta(after.view.position,after.view.target))],[Math.hypot(...delta(before.view.position,before.view.target))]);
+      assert.equal(await page.evaluate(()=>!!window.navigationCheck.viewport.gizmoDrag),false,"Release outside cube clears gesture");
+      await page.mouse.click(...cube); after=await read(); unchanged(before,after);
+      const d=delta(after.view.position,after.view.target), magnitude=Math.hypot(...d);
+      assert.ok(Math.max(...d.map(Math.abs))/magnitude>0.9999,"Cube face click still aligns view");
+      before=after;
+      await page.mouse.move(...cube); await page.mouse.down();
+      await page.evaluate(()=>{const v=window.navigationCheck.viewport;document.querySelector("#model-canvas").dispatchEvent(new PointerEvent("pointercancel",{pointerId:v.gizmoDrag.pointer,bubbles:true}));});
+      await page.mouse.up(); after=await read(); unchanged(before,after); cameraUnchanged(before.view,after.view);
+      assert.equal(await page.evaluate(()=>!!window.navigationCheck.viewport.gizmoDrag),false);
+    }
+
+    for (const mode of ["orthographic", "perspective"]) {
+      await reset(mode);
       let before = await read();
       await drag("middle");
       let after = await read(); unchanged(before, after);
@@ -113,6 +145,11 @@ export async function testNavigation(page) {
     await page.mouse.move(...draftCorner);
     await page.waitForFunction(() => window.navigationCheck.tool.draftValid && !window.navigationCheck.tool.pending);
     before = await read();
+    const cubeBounds=await page.locator("#model-canvas").boundingBox();
+    await drag("left",false,[cubeBounds.x+cubeBounds.width-60,cubeBounds.y+60]);
+    after=await read();unchanged(before,after);
+    assert.ok(Math.hypot(...delta(after.view.position,before.view.position))>0.1,"Cube drag preserves unfinished geometry");
+    await page.mouse.move(...draftCorner); before=await read();
     await page.mouse.down({ button: "middle" }); await page.mouse.move(point[0] + 40, point[1] + 40, { steps: 6 }); await page.mouse.up({ button: "middle" });
     after = await read(); unchanged(before, after);
     before = after;
@@ -151,6 +188,14 @@ export async function testNavigation(page) {
     await page.waitForFunction(() => !document.querySelector("#extrude").disabled);
     await page.locator("#extrude").click();
     await page.waitForFunction(() => !document.querySelector("#apply").disabled);
+    before = await read();
+    const previewCube = await page.locator("#model-canvas").boundingBox();
+    const previewBodies = await page.evaluate(() => window.navigationCheck.viewport.preview.children.map(body => body.proxy));
+    assert.ok(previewBodies.length > 0);
+    await drag("left", false, [previewCube.x + previewCube.width - 60, previewCube.y + 60]);
+    after = await read(); unchanged(before, after);
+    assert.ok(Math.hypot(...delta(after.view.position, before.view.position)) > 0.1, "Cube drag orbits an extrusion preview");
+    assert.deepEqual(await page.evaluate(() => window.navigationCheck.viewport.preview.children.map(body => body.proxy)), previewBodies);
     before = await read(); await drag("middle"); after = await read(); unchanged(before, after);
     before = after; await drag("middle", true); after = await read(); unchanged(before, after);
     const handle = page.locator('[data-handle="length"]');
@@ -165,6 +210,6 @@ export async function testNavigation(page) {
     after = await read(); cameraUnchanged(before.view, after.view);
     assert.notEqual(await page.locator("#length").inputValue(), length, "Left-drag edits the extrusion handle");
     await page.locator("#cancel").click();
-    console.log("Navigation: middle pan, Shift-middle orbit, wheel zoom, point/handle editing and draft preservation passed in both projections");
+    console.log("Navigation: cube drag/click/cancel, middle pan, Shift-middle orbit, wheel zoom, point/handle editing and draft preservation passed in both projections");
   } finally { await page.evaluate(() => { delete window.navigationCheck; }); }
 }

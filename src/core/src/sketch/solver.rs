@@ -23,10 +23,13 @@ extern "C" {
     fn pamat_sketch_solve(
         values: *mut f64,
         count: usize,
+        geometry_count: usize,
         fixed: *const u8,
+        preferred: *const u8,
         code: *const Instruction,
         equations: *const Equation,
         equation_count: usize,
+        permanent_count: usize,
         drag: *const DragTarget,
         drag_count: usize,
         dof: *mut i32,
@@ -203,6 +206,18 @@ impl<'a> System<'a> {
                 self.line_length(curve.ok_or_else(|| invalid("Length requires a line"))?)
             }
             DimensionKind::Distance => {
+                if p.points.len() == 1 && p.line.is_some() {
+                    self.line(&p.line.as_ref().unwrap().id)?;
+                    return Ok(self
+                        .point_on_curve(&p.points[0].id, &p.line.as_ref().unwrap().id)?
+                        .abs());
+                }
+                if p.curves.len() == 2 && p.points.is_empty() {
+                    let (a, _) = self.line(&p.curves[1].id)?;
+                    let (b, c) = self.line(&p.curves[0].id)?;
+                    let v = sub(c, b.clone());
+                    return Ok(cross(sub(a, b), v.clone()).div(length(v)).abs());
+                }
                 let (a, b) = points()?;
                 self.distance(a, b)
             }
@@ -256,9 +271,15 @@ impl<'a> System<'a> {
                 let (c, d) = self.line(&p.curves[1].id)?;
                 let u = sub(b, a);
                 let v = sub(d, c);
-                Ok(cross(u.clone(), v.clone())
+                let angle = cross(u.clone(), v.clone())
                     .atan2(dot(u, v))
-                    .scale(180. / std::f64::consts::PI))
+                    .scale(180. / std::f64::consts::PI);
+                Ok(match p.angle_branch {
+                    Some(AngleBranch::Reversed) => angle.scale(-1.),
+                    Some(AngleBranch::Supplementary) => constant(180.).sub(angle),
+                    Some(AngleBranch::ReversedSupplementary) => constant(180.).add(angle),
+                    _ => angle,
+                })
             }
         }
     }
@@ -376,6 +397,44 @@ impl<'a> System<'a> {
                     std::mem::swap(&mut a, &mut b);
                 }
                 if let SketchGeometry::Line { .. } = self.geometry(a)? {
+                    // At a shared arc endpoint, distance-to-circle tangency is
+                    // singular: coincidence already supplies its first derivative.
+                    // The radius/line perpendicular equation retains the tangent DOF.
+                    if let (
+                        SketchGeometry::Line { from: lf, to: lt },
+                        SketchGeometry::Arc {
+                            center,
+                            from: af,
+                            to: at,
+                            ..
+                        },
+                    ) = (self.geometry(a)?, self.geometry(b)?)
+                    {
+                        let shared = [af, at].into_iter().find(|point| {
+                            [lf, lt].into_iter().any(|end| {
+                                *point == end
+                                    || self.sketch.constraints.values().any(|relation| {
+                                        relation.kind == ConstraintKind::Coincident
+                                            && relation
+                                                .parameters
+                                                .points
+                                                .iter()
+                                                .any(|r| &r.id == *point)
+                                            && relation
+                                                .parameters
+                                                .points
+                                                .iter()
+                                                .any(|r| &r.id == end)
+                                    })
+                            })
+                        });
+                        if let Some(point) = shared {
+                            let direction = sub(self.point(lt)?, self.point(lf)?);
+                            let radius = sub(self.point(point)?, self.point(center)?);
+                            return Ok(vec![dot(direction.clone(), radius.clone())
+                                .div(length(direction).mul(length(radius)))]);
+                        }
+                    }
                     let (from, to) = self.line(a)?;
                     let direction = sub(to, from.clone());
                     let offset =
@@ -409,11 +468,49 @@ pub(super) fn solve(
     sketch: &mut Sketch,
     units: SceneUnits,
     external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
-    drag: &[(String, [f64; 2])],
+    drag: &[DragGoal],
 ) -> Result<()> {
     let mut system = System::new(sketch);
     let mut targets = BTreeMap::new();
-    for (id, position) in drag {
+    let geometry_count = system.values.len();
+    let mut preferred = vec![0u8; geometry_count];
+    let mut temporary = vec![];
+    for goal in drag {
+        let (id, position) = match goal {
+            DragGoal::Point(id, p) | DragGoal::CircularEdge(id, p) => (id, p),
+        };
+        if let DragGoal::CircularEdge(_, _) = goal {
+            let (center, radius) = match system.geometry(id)? {
+                SketchGeometry::Circle { center, radius } => (center, radius),
+                SketchGeometry::Arc { center, radius, .. } => {
+                    let range = &system.ranges[id];
+                    preferred[range.start + 1] = 1;
+                    preferred[range.start + 2] = 1;
+                    (center, radius)
+                }
+                _ => return Err(invalid("Select a circle or arc to drag")),
+            };
+            let center_index = system.ranges[center].start;
+            let c = sketch.point_position(center)?;
+            let d = [position[0] - c[0], position[1] - c[1]];
+            let norm = d[0].hypot(d[1]);
+            let direction = if norm > LINEAR_TOLERANCE {
+                [d[0] / norm, d[1] / norm]
+            } else {
+                [1., 0.]
+            };
+            let x = system.values.len();
+            system
+                .values
+                .extend([c[0] + radius * direction[0], c[1] + radius * direction[1]]);
+            preferred.extend([0, 0]);
+            preferred[center_index] = 1;
+            preferred[center_index + 1] = 1;
+            let cursor = [E::variable(x), E::variable(x + 1)];
+            temporary.push(length(sub(cursor, system.center(id)?)).sub(system.radius(id)?));
+            targets.insert(x, *position);
+            continue;
+        }
         // A corner may have multiple coincident endpoints. Use the same target variables
         // regardless of which endpoint the picker or API caller supplies.
         let mut coincident = std::collections::BTreeSet::from([id.to_owned()]);
@@ -438,6 +535,17 @@ pub(super) fn solve(
             }
         }
         let x = system.ranges[coincident.first().unwrap()].start;
+        // Center dragging prefers a rigid arc translation; these are temporary
+        // preferences, so connected or dimensioned geometry can still limit it.
+        for (arc_id, entity) in &sketch.entities {
+            if let SketchGeometry::Arc { center, .. } = &entity.geometry {
+                if coincident.contains(center) {
+                    for index in system.ranges[arc_id].clone() {
+                        preferred[index] = 1;
+                    }
+                }
+            }
+        }
         if let Some(previous) = targets.insert(x, *position) {
             if previous != *position {
                 return Err(invalid("Coincident drag targets must agree"));
@@ -585,8 +693,24 @@ pub(super) fn solve(
                 (sketch.constraints.len() + index + 1) as i32,
                 system.measurement(dim)?.sub(expression),
             ));
+            if dim.kind == DimensionKind::Distance && dim.parameters.curves.len() == 2 {
+                let (a, b) = system.line(&dim.parameters.curves[0].id)?;
+                let (c, d) = system.line(&dim.parameters.curves[1].id)?;
+                let (u, v) = (sub(b, a), sub(d, c));
+                residuals.push((
+                    (sketch.constraints.len() + index + 1) as i32,
+                    cross(u.clone(), v.clone()).div(length(u).mul(length(v))),
+                ));
+            }
         }
         dependencies.insert(dim.id.clone(), refs);
+    }
+    let permanent_count = residuals.len();
+    for (index, equation) in temporary.into_iter().enumerate() {
+        residuals.push((
+            (sketch.constraints.len() + sketch.dimensions.len() + index + 1) as i32,
+            equation,
+        ));
     }
     let mut instructions = vec![];
     let mut equations = vec![];
@@ -636,10 +760,13 @@ pub(super) fn solve(
         pamat_sketch_solve(
             values.as_mut_ptr(),
             values.len(),
+            geometry_count,
             fixed.as_ptr(),
+            preferred.as_ptr(),
             instructions.as_ptr(),
             equations.as_ptr(),
             equations.len(),
+            permanent_count,
             drag.as_ptr(),
             drag.len(),
             &mut dof,

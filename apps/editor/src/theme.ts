@@ -2,6 +2,7 @@ export interface ThemeDefinition {
   readonly colors: {
     readonly foreground: string;
     readonly foregroundMuted: string;
+    readonly foregroundStrong: string;
     readonly background: string;
     readonly panelBackground: string;
     readonly fieldBackground: string;
@@ -26,6 +27,12 @@ export interface ThemeDefinition {
     readonly sketch: string;
     readonly sketchEdge: string;
     readonly sketchHighlight: string;
+    readonly unconstrained: string;
+    readonly partiallyConstrained: string;
+    readonly constrained: string;
+    readonly fixed: string;
+    readonly geometrySelected: string;
+    readonly geometryHighlight: string;
     readonly selection: string;
     readonly preview: string;
     readonly previewEdge: string;
@@ -64,6 +71,7 @@ export const lightTheme: ThemeDefinition = {
   colors: {
     foreground: "#39434b",
     foregroundMuted: "#65727b",
+    foregroundStrong: "#111111",
     background: "#ffffff",
     panelBackground: "#ffffff",
     fieldBackground: "#ffffff",
@@ -88,6 +96,12 @@ export const lightTheme: ThemeDefinition = {
     sketch: "#c5ddf0",
     sketchEdge: "#6588a3",
     sketchHighlight: "#294f6d",
+    unconstrained: "#1565c0",
+    partiallyConstrained: "#007c91",
+    constrained: "#000000",
+    fixed: "#7b3fb3",
+    geometrySelected: "#d55e00",
+    geometryHighlight: "#16a34a",
     selection: "#c0d8cc",
     preview: "#aebec3",
     previewEdge: "#536974",

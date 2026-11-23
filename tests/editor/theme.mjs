@@ -30,6 +30,8 @@ export async function testEditorTheme(browser) {
     const panel = popup.locator("#output-dock");
     await panel.waitFor();
     await popup.waitForFunction(() => getComputedStyle(document.querySelector("#output-dock")).display === "flex");
+    await popup.locator("#js").focus();
+    assert.equal(await popup.locator("#js").evaluate(el => getComputedStyle(el).outlineStyle), "none");
 
     const commands = await popup.locator("#log summary").count();
     const view = await page.locator("#model-canvas").boundingBox();

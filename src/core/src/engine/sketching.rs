@@ -1,4 +1,5 @@
 use super::*;
+use crate::sketch::DragGoal;
 fn invalid(message: &str) -> CoreError {
     CoreError::new(ErrorCode::InvalidParameter, message)
 }
@@ -87,7 +88,7 @@ impl Engine {
         reference: &SketchRef,
         action: impl FnOnce(&mut Sketch) -> Result<T>,
         validate: impl FnOnce(&Sketch, &T) -> Result<()>,
-        drag: &[(String, [f64; 2])],
+        drag: &[DragGoal],
     ) -> Result<T> {
         if preview {
             self.sketch_previews
@@ -333,6 +334,7 @@ impl Engine {
             {
                 sketch.check_reference(r)?;
             }
+            sketch.validate_dimension(input.kind, &input.parameters)?;
             if input.parameters.name.as_ref().is_some_and(|name| {
                 name.trim().is_empty()
                     || sketch
@@ -378,6 +380,26 @@ impl Engine {
         &mut self,
         input: UpdateDimension,
     ) -> Result<SketchDimension> {
+        // Annotation-only edits do not solve, change geometry revisions, or invalidate proxies.
+        if let Some(annotation) = &input.annotation {
+            if annotation.position.iter().any(|v| !v.is_finite()) {
+                return Err(invalid("Dimension annotation coordinates must be finite"));
+            }
+            if input.value.is_none() && input.name.is_none() && input.mode.is_none() {
+                let sketch = self
+                    .scenes
+                    .get_mut(&input.sketch.scene_id)
+                    .and_then(|s| s.sketches.get_mut(&input.sketch.id))
+                    .ok_or_else(|| invalid("Sketch does not exist"))?;
+                sketch.ensure_editable()?;
+                let d = sketch
+                    .dimensions
+                    .get_mut(&input.id)
+                    .ok_or_else(|| invalid("Dimension does not exist"))?;
+                d.parameters.annotation = input.annotation;
+                return Ok(d.clone());
+            }
+        }
         self.update_sketch(&input.sketch, |sketch| {
             if input.name.as_ref().is_some_and(|name| {
                 name.trim().is_empty()
@@ -392,6 +414,9 @@ impl Engine {
                 .dimensions
                 .get_mut(&input.id)
                 .ok_or_else(|| invalid("Dimension does not exist"))?;
+            if let Some(annotation) = input.annotation {
+                d.parameters.annotation = Some(annotation);
+            }
             if let Some(value) = input.value {
                 d.parameters.value = Some(value);
                 sketch.bindings.remove(&input.id);
@@ -504,6 +529,8 @@ impl Engine {
         let (reference, entity) = match &input {
             DragSketchGeometry::Point(input) => (&input.sketch, &input.point),
             DragSketchGeometry::Line { sketch, line, .. } => (sketch, line),
+            DragSketchGeometry::Circle { sketch, circle, .. } => (sketch, circle),
+            DragSketchGeometry::Curve { sketch, curve, .. } => (sketch, curve),
         };
         let sketch = self.sketch(reference)?;
         sketch.check_reference(entity)?;
@@ -513,13 +540,30 @@ impl Engine {
         }
         let targets = match (&input, &entity.geometry) {
             (DragSketchGeometry::Point(input), SketchGeometry::Point { .. }) => {
-                vec![(input.point.id.clone(), input.position)]
+                vec![DragGoal::Point(input.point.id.clone(), input.position)]
             }
             (
                 DragSketchGeometry::Line { from, to, .. },
                 SketchGeometry::Line { from: a, to: b },
             ) => {
-                vec![(a.clone(), *from), (b.clone(), *to)]
+                vec![
+                    DragGoal::Point(a.clone(), *from),
+                    DragGoal::Point(b.clone(), *to),
+                ]
+            }
+            (
+                DragSketchGeometry::Circle {
+                    circle, position, ..
+                }
+                | DragSketchGeometry::Curve {
+                    curve: circle,
+                    position,
+                    ..
+                },
+                SketchGeometry::Circle { .. } | SketchGeometry::Arc { .. },
+            ) => vec![DragGoal::CircularEdge(circle.id.clone(), *position)],
+            (DragSketchGeometry::Circle { .. } | DragSketchGeometry::Curve { .. }, _) => {
+                return Err(invalid("Select a circle or arc to drag"))
             }
             (DragSketchGeometry::Point(_), _) => return Err(invalid("Select a point to drag")),
             (DragSketchGeometry::Line { .. }, _) => return Err(invalid("Select a line to drag")),
@@ -529,15 +573,68 @@ impl Engine {
             false,
             reference,
             |sketch| {
-                for (id, target) in &targets {
+                for goal in &targets {
+                    let (id, target) = match goal {
+                        DragGoal::Point(id, target) | DragGoal::CircularEdge(id, target) => {
+                            (id, target)
+                        }
+                    };
                     if !target.iter().all(|v| v.is_finite()) {
                         return Err(invalid("Drag coordinates must be finite"));
                     }
                     if !sketch.auto_recompute {
-                        if let SketchGeometry::Point { position } =
-                            &mut sketch.entities.get_mut(id).unwrap().geometry
-                        {
-                            *position = *target;
+                        let radius = match &sketch.entities[id].geometry {
+                            SketchGeometry::Circle { center, .. }
+                            | SketchGeometry::Arc { center, .. } => {
+                                let c = sketch.point_position(center)?;
+                                Some((target[0] - c[0]).hypot(target[1] - c[1]))
+                            }
+                            _ => None,
+                        };
+                        match &mut sketch.entities.get_mut(id).unwrap().geometry {
+                            SketchGeometry::Point { position } => *position = *target,
+                            SketchGeometry::Circle { radius: r, .. }
+                            | SketchGeometry::Arc { radius: r, .. } => *r = radius.unwrap(),
+                            _ => (),
+                        }
+                        // Manual radius/center edits keep the arc's endpoint representation coherent.
+                        let arcs: Vec<_> = sketch
+                            .entities
+                            .values()
+                            .filter_map(|entity| {
+                                if let SketchGeometry::Arc {
+                                    center,
+                                    from,
+                                    to,
+                                    radius,
+                                    start,
+                                    end,
+                                } = &entity.geometry
+                                {
+                                    if &entity.reference.id == id || center == id {
+                                        return Some((
+                                            center.clone(),
+                                            from.clone(),
+                                            to.clone(),
+                                            *radius,
+                                            *start,
+                                            *end,
+                                        ));
+                                    }
+                                }
+                                None
+                            })
+                            .collect();
+                        for (center, from, to, radius, start, end) in arcs {
+                            let c = sketch.point_position(&center)?;
+                            for (point, angle) in [(from, start), (to, end)] {
+                                if let SketchGeometry::Point { position } =
+                                    &mut sketch.entities.get_mut(&point).unwrap().geometry
+                                {
+                                    *position =
+                                        [c[0] + radius * angle.cos(), c[1] + radius * angle.sin()];
+                                }
+                            }
                         }
                     }
                 }

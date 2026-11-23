@@ -58,6 +58,19 @@ Use `remove(ids)`, `construction(refs, enabled)`, `drag(point, position)`, and `
 
 `drag(line, { from: [x1, y1], to: [x2, y2] })` supplies absolute targets for both line endpoints in one solve. Endpoint order follows `state().entities[].geometry.from/to`. Permanent constraints take priority; targets do not add constraints or change DOF. During a gesture, derive targets from the starting endpoints and the total pointer displacement. With manual recompute, both endpoint coordinates are updated without solving.
 
+`drag(curve, { position: [x, y] })` accepts a circle or arc and targets a point on its circumference. It prefers resizing with the center and arc endpoint angles held, then moves them if needed and permitted by constraints. Drag an arc's center point to translate it while preferring unchanged radius and sweep. Manual rim dragging updates the radius and arc endpoints around the existing center.
+
+Dimensions accept `annotation: { position: [x, y] }` in sketch coordinates. Updating only this field does not solve or invalidate geometry/proxies:
+
+```js
+await sketch.dimensions.update(width.id, { annotation: { position: [20, -5] } });
+const clearance = await sketch.dimensions.add("distance", {
+  line: rectangle.curves[0], points: [point], mode: "driving", value: "5 mm",
+});
+```
+
+For two parallel lines, use `curves: [line1, line2]` with `distance`; driving mode also maintains parallelism. Nonparallel lines require `angle`. Its optional `angleBranch` selects `direct`, `reversed`, `supplementary`, or `reversedSupplementary`; see the [command contract](../../../doc/api/command/sketch/edit/spec.md).
+
 ```js
 const projection = await sketch.projections.add({ type: "face", reference: face });
 await sketch.projections.update(projection.id, { type: "face", reference: replacementFace });

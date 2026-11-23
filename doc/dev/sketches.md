@@ -14,15 +14,21 @@ Entity IDs increase monotonically within a sketch; deleted IDs are not reused. R
 
 ## Constraint domains
 
-Coincidence uses points; point-on-curve supports lines and conics. Horizontal/vertical constraints accept a line or two points. Parallel, perpendicular, collinear and midpoint use lines. Equality supports line lengths or circular radii; concentricity uses conic centers. Tangency supports line/circle/arc combinations. Symmetry reflects two points across a line. Invalid combinations report a parameter error.
+Coincidence uses points; point-on-curve supports lines and conics. Horizontal/vertical constraints accept a line or two points. Parallel, perpendicular, collinear and midpoint use lines. Equality supports line lengths or circular radii; concentricity uses conic centers. Tangency supports line/circle/arc combinations. At a coincident line/arc endpoint, use the perpendicular radius/line equation to avoid a singular distance-to-circle equation during dragging. Symmetry reflects two points across a line. Invalid combinations report a parameter error.
 
-Lengths measure lines; distances measure point pairs. Radius/diameter measure circles/arcs; major/minor radius measure ellipses. Angles measure two lines, one line’s orientation, an arc’s span, or an ellipse’s orientation. Unitless expression results use the scene’s units; numeric API values retain mm/degree semantics.
+Lengths measure lines; distances measure point pairs, point-to-infinite-line perpendiculars, or parallel-line separation. A driving line-pair distance owns a parallelism equation; nonparallel line-pair distances are invalid. Radius/diameter measure circles/arcs; major/minor radius measure ellipses. Angles measure two lines, one line’s orientation, an arc’s span, or an ellipse’s orientation. Unitless expression results use the scene’s units; numeric API values retain mm/degree semantics.
 
 ## References and editing
 
 Point dragging uses temporary solver goals. It first holds the requested corner position while minimizing other parameter movement; if permanent constraints prevent reaching it, it finds an attainable position and preserves that target during the remaining minimization. Coincident endpoints use a canonical target. Residuals and DOF are evaluated from permanent constraints only. The editor excludes the moving coincidence group from snapping and coalesces pending pointer updates through release.
 
+Temporary cursor and position-preference equations use negative tags and `driving=false` in PlaneGCS: they remain auxiliary objectives but do not enter its permanent-constraint redundancy proof. This allows constrained motion with redundant relations even when the cursor itself is unreachable. All permanent residuals remain checked after solving.
+
 Line dragging expands to two absolute endpoint targets in the same solver call. The adapter accepts multiple targets, canonicalizes coincident endpoints, and rejects conflicting targets for the same vertex. The editor retains the starting endpoints through the gesture instead of accumulating deltas between responses.
+
+Circle/arc rim dragging adds temporary cursor variables and a point-on-circle equation. It first pins the center and arc endpoint angles, then falls back to the shared constrained drag solve. Arc center dragging prefers unchanged radius and sweep. Temporary variables/equations do not contribute to reported DOF or persistent constraints.
+
+`sketch-dimensions.ts` infers measurements and lays out annotations; the core remains authoritative on commit. `DimensionParameters.annotation.position` is sketch-local display metadata. Annotation-only updates bypass solving, geometry revisions and proxy invalidation. Two-line `angleBranch` fixes the chosen measurement sector independently of annotation position: for signed angle θ, direct/reversed/supplementary/reversedSupplementary measure θ, −θ, 180°−θ, and 180°+θ respectively.
 
 The sketch controller shares one update loop for previews and dragging, without a timer delay. Input revisions determine readiness; a separate interaction revision invalidates results on cancellation, tool changes, completion, or suspension. Each preview captures its construction inputs before formula evaluation and waits for both state and proxy reads before starting the newest queued update.
 

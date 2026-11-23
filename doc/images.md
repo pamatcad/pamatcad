@@ -5,6 +5,6 @@
 
 By default, the icons represent the light theme. Use a transparent canvas and a matching SVG `viewBox`. Give each asset a short `<title>` and the illustration a `<desc>` explaining the diagram.
 
-Follow [Palette](palette.md) for color scheme.
+Follow [Palette](palette.md) for color scheme. Toolbar and variant SVGs use semantic classes for fills, edges, construction, handles and illustrated points, with standalone fallback colors. Illustrated points use contrasting copper. Inline asset imports let the editor map these classes to the shared theme; keep the editable geometry in the SVG files.
 
 ##

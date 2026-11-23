@@ -28,10 +28,10 @@ const xy = new T.Plane(new T.Vector3(0, 0, 1), 0);
 
 function discard(group: T.Object3D) {
   group.traverse((object) => {
-    if (object instanceof T.Mesh || object instanceof T.Line) {
-      object.geometry.dispose();
+    if (object instanceof T.Mesh || object instanceof T.Line || object instanceof T.Sprite) {
+      if (!(object instanceof T.Sprite)) object.geometry.dispose();
       const materials = Array.isArray(object.material) ? object.material : [object.material];
-      materials.forEach((material) => material.dispose());
+      materials.forEach((material) => { if ("map" in material) material.map?.dispose(); material.dispose(); });
     }
   });
   group.clear();
@@ -40,12 +40,14 @@ function discard(group: T.Object3D) {
 function styleProfile(profile: T.Mesh<T.BufferGeometry, T.MeshBasicMaterial>, theme: ThemeDefinition) {
   const selected = profile.userData.selected;
   const construction = !!profile.userData.plane;
-  profile.material.color.set(construction ? (selected ? theme.colors.selection : theme.colors.construction) : theme.colors.sketch);
-  profile.material.opacity = selected ? theme.opacity.selectedFill : construction ? theme.opacity.construction : theme.opacity.fill;
+  const emphasized = selected || construction && profile.userData.hovered;
+  profile.material.color.set(construction ? (emphasized ? theme.colors.selection : theme.colors.construction) : theme.colors.sketch);
+  profile.material.opacity = emphasized ? theme.opacity.selectedFill : construction ? theme.opacity.construction : theme.opacity.fill;
   for (const edge of profile.children) {
     if (edge instanceof T.Line) edge.material.color.set(construction
-      ? (selected ? theme.colors.highlight : theme.colors.constructionEdge)
+      ? (emphasized ? theme.colors.highlight : theme.colors.constructionEdge)
       : (selected ? theme.colors.sketchHighlight : theme.colors.sketchEdge));
+    if (edge instanceof T.Sprite) edge.material.color.set(emphasized ? theme.colors.highlight : theme.colors.foreground);
   }
 }
 
@@ -303,6 +305,7 @@ export class Viewport {
   private ray = new T.Raycaster();
   private span = 60;
   private down = new T.Vector2();
+  private gizmoDrag?: { pointer: number; start: T.Vector2; last: T.Vector2; normal: T.Vector3; moved: boolean };
   private sketchMode = false;
   pickVertices = false;
   private sketchFrame?: PlaneFrame;
@@ -337,6 +340,41 @@ export class Viewport {
     this.perspective.up.copy(this.orthographic.up);
     this.orbit = new OrbitControls(this.camera, canvas);
     this.orbit.mouseButtons = { LEFT: null, MIDDLE: T.MOUSE.PAN, RIGHT: null };
+    // Capture cube gestures before sketch/handle editing can pick geometry behind it.
+    canvas.addEventListener("pointerdown", e => {
+      if (e.button !== 0 || !this.inGizmo(e)) return;
+      const r = canvas.getBoundingClientRect();
+      this.gizmoCamera.updateMatrixWorld();
+      this.ray.setFromCamera(new T.Vector2(2 * (e.clientX - r.right + gizmoSize) / gizmoSize - 1,
+        1 - 2 * (e.clientY - r.top) / gizmoSize), this.gizmoCamera);
+      const face = this.ray.intersectObject(this.cube)[0]?.face;
+      if (!face) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const start = new T.Vector2(e.clientX, e.clientY);
+      this.gizmoDrag = { pointer: e.pointerId, start, last: start.clone(), normal: face.normal.clone(), moved: false };
+      canvas.setPointerCapture(e.pointerId);
+    }, true);
+    canvas.addEventListener("pointermove", e => {
+      const drag = this.gizmoDrag;
+      if (!drag || drag.pointer !== e.pointerId) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const point = new T.Vector2(e.clientX, e.clientY);
+      drag.moved ||= point.distanceTo(drag.start) > 4;
+      if (drag.moved) {
+        this.orbit.rotateLeft((point.x - drag.last.x) * Math.PI / gizmoSize);
+        this.orbit.rotateUp((point.y - drag.last.y) * Math.PI / gizmoSize);
+        drag.last.copy(point);
+      }
+    }, true);
+    const endGizmo = (e: PointerEvent) => {
+      const drag = this.gizmoDrag;
+      if (!drag || drag.pointer !== e.pointerId) return;
+      e.stopImmediatePropagation();
+      this.gizmoDrag = undefined;
+      if (e.type === "pointerup" && !drag.moved) this.orient(drag.normal);
+      if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    };
+    for (const event of ["pointerup", "pointercancel", "lostpointercapture"] as const) canvas.addEventListener(event, endGizmo, true);
     this.handles = new ToolHandles(host, canvas, () => this.camera, (enabled) => { this.orbit.enabled = enabled; }, () => this.render(), theme.colors.handle, theme.colors.handleEdge);
     this.scene.add(this.handles.group);
     this.orbit.minZoom = 0.02;
@@ -383,7 +421,7 @@ export class Viewport {
     });
     canvas.addEventListener("pointermove", (e) => {
       // Navigation must not update a sketch's in-progress drawing parameters.
-      if (e.buttons & ~1) { clearHover(); return; }
+      if (e.buttons & ~1 || this.inGizmo(e)) { clearHover(); return; }
       onMove(this.point(e));
       if (e.buttons || !this.orbit.enabled) { clearHover(); return; }
       this.hoverPointer = e;
@@ -391,6 +429,10 @@ export class Viewport {
     });
   }
 
+  private inGizmo(e: { clientX: number; clientY: number }) {
+    const { right, top } = this.renderer.domElement.getBoundingClientRect();
+    return e.clientX >= right - gizmoSize && e.clientX <= right && e.clientY >= top && e.clientY < top + gizmoSize;
+  }
   private pick(e: PointerEvent): SelectionItem | undefined {
     const canvas = this.renderer.domElement;
     const { right, top } = canvas.getBoundingClientRect();
@@ -435,13 +477,17 @@ export class Viewport {
   }
 
   private setHover(item?: SelectionItem) {
-    if (item && (!accepts(this.filter, item) || !["face", "edge", "body"].includes(item.kind))) item = undefined;
+    if (item && (!accepts(this.filter, item) || !["face", "edge", "body", "plane"].includes(item.kind))) item = undefined;
     if ((this.hover && selectionKey(this.hover)) === (item && selectionKey(item))) return;
     const previous = this.hover;
     this.hover = item;
     for (const solid of [...this.bodies.children, ...this.preview.children]) if (solid instanceof SolidDisplay &&
       ((previous && selectionOwner(previous) === solid.proxy.body.id) || (item && selectionOwner(item) === solid.proxy.body.id))) {
       solid.highlight(solid.parent === this.bodies ? this.selection : [], item);
+    }
+    for (const plane of this.construction.children) if (plane instanceof T.Mesh) {
+      plane.userData.hovered = item?.kind === "plane" && item.id === plane.userData.plane;
+      styleProfile(plane, this.theme);
     }
   }
 
@@ -484,6 +530,7 @@ export class Viewport {
   }
 
   sketchPicks(e: {clientX: number; clientY: number}): SketchPick[] {
+    if (this.gizmoDrag || this.inGizmo(e)) return [];
     this.point(e);
     this.ray.params.Line.threshold = this.ray.params.Points.threshold = this.pixelLength * 6;
     this.sketchDisplay.updateMatrixWorld(true);
@@ -493,6 +540,7 @@ export class Viewport {
   get pixelLength() { return this.span / this.viewZoom / Math.max(1, this.host.clientHeight); }
 
   point(e: {clientX: number; clientY: number}): Point | null {
+    if (this.gizmoDrag || this.inGizmo(e)) return null;
     const r = this.renderer.domElement.getBoundingClientRect();
     this.camera.updateMatrixWorld();
     this.ray.setFromCamera(
@@ -635,15 +683,33 @@ export class Viewport {
   setConstruction(planes: { id: string; plane: "xy" | "xz" | "yz" }[]) {
     discard(this.construction);
     for (const plane of planes) {
-      const node = rectangleObject({ from: [-10, -10], to: [10, 10] }, this.selection.some((s) => s.kind === "plane" && s.id === plane.id), this.theme);
+      // Unit patches share a scale at the origin; keep their geometry in positive world axes.
+      const node = rectangleObject({ from: [-0.5, -0.5], to: [0.5, 0.5] }, this.selection.some((s) => s.kind === "plane" && s.id === plane.id), this.theme);
+      node.position.set(0.625, 0.625, 0);
       if (plane.plane === "xz") node.rotation.x = Math.PI / 2;
-      if (plane.plane === "yz") node.rotation.y = Math.PI / 2;
+      if (plane.plane === "yz") node.rotation.y = -Math.PI / 2;
+      node.position.applyQuaternion(node.quaternion);
       node.userData.plane = plane.id;
+      node.userData.hovered = this.hover?.kind === "plane" && this.hover.id === plane.id;
       for (const edge of node.children) if (edge instanceof T.Line) {
         edge.material.dispose();
-        edge.material = new T.LineDashedMaterial({ dashSize: 2, gapSize: 1 });
+        edge.material = new T.LineDashedMaterial({ dashSize: 0.1, gapSize: 0.05 });
         edge.computeLineDistances();
       }
+      const canvas = document.createElement("canvas");
+      canvas.width = 128; canvas.height = 64;
+      const context = canvas.getContext("2d")!;
+      context.font = `600 44px ${this.theme.typography.fontFamily}`;
+      context.fillStyle = "white"; // Alpha glyph, tinted by the shared foreground material.
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(plane.plane.toUpperCase(), 64, 32);
+      const map = new T.CanvasTexture(canvas);
+      map.colorSpace = T.SRGBColorSpace;
+      const label = new T.Sprite(new T.SpriteMaterial({ map, transparent: true, depthWrite: false, toneMapped: false }));
+      label.userData.planeLabel = plane.plane.toUpperCase();
+      label.position.z = 0.001;
+      node.add(label);
       styleProfile(node, this.theme);
       node.visible = !this.hidden.has(plane.id);
       this.construction.add(node);
@@ -692,6 +758,7 @@ export class Viewport {
     }
     for (const plane of this.construction.children) if (plane instanceof T.Mesh) {
       plane.userData.selected = keys.has("plane:" + plane.userData.plane);
+      plane.userData.hovered = this.hover?.kind === "plane" && this.hover.id === plane.userData.plane;
       styleProfile(plane, this.theme);
     }
     this.render();
@@ -745,6 +812,18 @@ export class Viewport {
       this.renderPending = false;
       if (!w || !h) return;
       this.camera.updateMatrixWorld();
+      // One eighth of the shorter viewport dimension, measured at the origin.
+      // Perspective foreshortening remains natural; zoom and pan change only world scale.
+      const depth = -new T.Vector3().applyMatrix4(this.camera.matrixWorldInverse).z;
+      const pixel = this.camera instanceof T.PerspectiveCamera
+        ? 2 * Math.max(this.camera.near, depth) * Math.tan(T.MathUtils.degToRad(this.camera.fov / 2)) / this.camera.zoom / h
+        : this.pixelLength;
+      const planePixels = Math.min(w, h) / 8;
+      this.construction.scale.setScalar(pixel * planePixels);
+      for (const plane of this.construction.children) for (const label of plane.children) if (label instanceof T.Sprite) {
+        label.scale.set(40 / planePixels, 20 / planePixels, 1);
+      }
+      this.construction.updateMatrixWorld(true);
       this.handles?.update();
       this.sketchDisplay.updateScale(this.pixelLength,this.camera,w,h);
       if (this.hoverPointer) this.setHover(this.pick(this.hoverPointer));

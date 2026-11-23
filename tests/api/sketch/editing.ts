@@ -108,3 +108,58 @@ test("a transform blocked by orientation constraints fails atomically", async (t
   assert.ok(points.every(g => g.type === "point"));
   assert.ok(points.some(g => g.type === "point" && Math.abs(g.position[1] - Math.sqrt(200)) < 1e-7));
 });
+
+test("repeated perpendicular constraints return the original without mutating the sketch or preview", async t => {
+  const { scene } = await startCore(t, "duplicate-perpendicular");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const rectangle = await sketch.primitives.add("rectangle", { from: [0, 0], to: [10, 10] });
+  const parameters = { curves: [rectangle.curves[0]!, rectangle.curves[1]!] };
+  const original = await sketch.constraints.add("perpendicular", parameters);
+  const before = await sketch.state(), proxy = await sketch.getProxy();
+  const draft = await sketch.primitives.add("point", { position: [30, 40] }, { preview: true });
+  const preview = await sketch.state({ preview: true });
+  assert.deepEqual(await sketch.constraints.add("perpendicular", parameters), original);
+  assert.deepEqual(await sketch.constraints.add("perpendicular", { curves: [...parameters.curves].reverse() }), original);
+  assert.deepEqual(await sketch.state(), before);
+  assert.deepEqual(await sketch.getProxy(), proxy);
+  assert.deepEqual(await sketch.state({ preview: true }), preview);
+  const committed = await sketch.primitives.add("point", { position: [30, 40] });
+  assert.deepEqual(committed, draft, "Duplicates must not consume IDs");
+  // An implied but distinct perpendicular pair still has its own identity.
+  const distinct = await sketch.constraints.add("perpendicular", { curves: [rectangle.curves[3]!, rectangle.curves[0]!] });
+  assert.notEqual(distinct.id, original.id);
+  await sketch.settings({ autoRecompute: false });
+  const manual = await sketch.state();
+  assert.deepEqual(await sketch.constraints.add("perpendicular", parameters), original);
+  assert.deepEqual(await sketch.state(), manual);
+  await assert.rejects(sketch.constraints.add("perpendicular", { curves: [{ ...parameters.curves[0]!, sketchId: "missing" }, parameters.curves[1]!] }), /belong/);
+  assert.deepEqual(await sketch.state(), manual);
+  await sketch.complete();
+  await assert.rejects(sketch.constraints.add("perpendicular", parameters), /complete/);
+  await sketch.edit();
+  const reopened = await sketch.state();
+  assert.deepEqual(await sketch.constraints.add("perpendicular", parameters), original);
+  assert.deepEqual(await sketch.state(), reopened);
+});
+
+test("repeated fixed constraints retain their ID and fixed values", async t => {
+  const { scene } = await startCore(t, "duplicate-fix");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const line = await sketch.primitives.add("line", { from: [3, 4], to: [13, 4] });
+  const original = await sketch.constraints.add("fix", { points: line.points });
+  const before = await sketch.state(), proxy = await sketch.getProxy();
+  assert.deepEqual(await sketch.constraints.add("fix", { points: line.points }), original);
+  assert.deepEqual(await sketch.constraints.add("fix", { points: [...line.points].reverse() }), original);
+  assert.deepEqual(await sketch.state(), before);
+  assert.deepEqual(await sketch.getProxy(), proxy);
+  await sketch.drag(line.points[0]!, [20, 20]);
+  assert.deepEqual((await sketch.state()).entities, before.entities);
+  const curveFix = await sketch.constraints.add("fix", { curves: line.curves });
+  assert.notEqual(curveFix.id, original.id);
+  assert.deepEqual(await sketch.constraints.add("fix", { curves: line.curves }), curveFix);
+  await sketch.complete();
+  await sketch.edit();
+  const reopened = await sketch.state();
+  assert.deepEqual(await sketch.constraints.add("fix", { points: line.points }), original);
+  assert.deepEqual(await sketch.state(), reopened);
+});

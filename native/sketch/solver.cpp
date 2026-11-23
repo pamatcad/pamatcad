@@ -23,11 +23,13 @@ class Expression final : public GCS::Constraint {
             }
             if (stack.empty()) throw std::runtime_error("Invalid sketch expression");
             auto b = stack.back(); stack.pop_back();
-            if (op >= 6 && op <= 9) {
+            if ((op >= 6 && op <= 9) || op == 11) {
                 if (op == 6) { const auto r = std::sqrt(std::max(0., b.value)); b = {r, r > 1e-15 ? b.derivative / (2. * r) : 0.}; }
                 if (op == 7) b = {std::sin(b.value), std::cos(b.value) * b.derivative};
                 if (op == 8) b = {std::cos(b.value), -std::sin(b.value) * b.derivative};
                 if (op == 9) b = {-b.value, -b.derivative};
+                // Choose the positive one-sided derivative at zero separation.
+                if (op == 11) b = {std::abs(b.value), b.value < 0. ? -b.derivative : b.derivative};
                 stack.push_back(b); continue;
             }
             if (stack.empty()) throw std::runtime_error("Invalid sketch expression");
@@ -67,8 +69,8 @@ public:
 };
 }
 
-extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* fixed,
-    const PamatInstruction* instructions, const PamatEquation* equations, size_t equation_count,
+extern "C" int pamat_sketch_solve(double* values, size_t count, size_t geometry_count, const uint8_t* fixed, const uint8_t* preferred,
+    const PamatInstruction* instructions, const PamatEquation* equations, size_t equation_count, size_t permanent_count,
     const PamatDragTarget* drag, size_t drag_count,
     int32_t* dof, uint8_t* movable, const size_t* group_indices, const PamatVariableGroup* groups, size_t group_count, int32_t* group_dof, int32_t* diagnostic_tags, size_t* diagnostic_count,
     char* error, size_t error_size) {
@@ -77,7 +79,7 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* f
         system.debugMode = GCS::NoDebug;
         system.maxIter = 200;
         std::vector<Expression*> constraints;
-        for (size_t i=0; i<equation_count; ++i) {
+        for (size_t i=0; i<permanent_count; ++i) {
             const auto& equation = equations[i];
             auto* constraint = new Expression(values,count,instructions+equation.start,equation.count,equation.tag);
             system.addConstraint(constraint);
@@ -85,7 +87,7 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* f
         }
         GCS::VEC_pD parameters;
         std::vector<size_t> active;
-        for (size_t i=0; i<count; ++i) if(!fixed[i]) { parameters.push_back(values+i); active.push_back(i); }
+        for (size_t i=0; i<geometry_count; ++i) if(!fixed[i]) { parameters.push_back(values+i); active.push_back(i); }
         int status = GCS::Success;
         if (drag_count) {
             // The permanent equations below also supply the final residual/DOF checks.
@@ -101,7 +103,7 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* f
                 target.push_back(drag[i].position[0]); target.push_back(drag[i].position[1]);
                 targeted[drag[i].x] = targeted[drag[i].y] = true;
             }
-            const auto attempt = [&](bool pin, bool preserve) {
+            const auto attempt = [&](bool pin, bool preserve, bool holdPreferred = false) {
                 std::copy(seed.begin(), seed.end(), values);
                 for (size_t axis = 0; axis < indices.size(); ++axis) if (pin) {
                     const size_t i = indices[axis];
@@ -111,23 +113,30 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* f
                 GCS::System move;
                 move.debugMode = GCS::NoDebug;
                 move.maxIter = 200;
+                std::vector<Expression*> relations;
                 for (size_t i = 0; i < equation_count; ++i) {
                     const auto& e = equations[i];
-                    move.addConstraint(new Expression(values, count, instructions + e.start, e.count, e.tag));
+                    auto* relation = new Expression(values, count, instructions + e.start, e.count, e.tag);
+                    move.addConstraint(relation);
+                    relations.push_back(relation);
                 }
+                if (holdPreferred) for (size_t i=0; i<count; ++i) if (preferred[i]) values[i] = original[i];
                 GCS::VEC_pD unknowns;
+                // Keep auxiliary objectives out of PlaneGCS's redundancy proof.
+                // An unreachable cursor must not make valid redundant geometry look conflicting.
+                // Negative-tag constraints still participate in the auxiliary drag solve.
                 for (size_t i = 0; i < count; ++i) {
-                    if (fixed[i] || (pin && targeted[i])) continue;
+                    if (fixed[i] || (pin && targeted[i]) || (holdPreferred && preferred[i])) continue;
                     unknowns.push_back(values + i);
-                    if (preserve) move.addConstraintEqual(values + i, original.data() + i, GCS::DefaultTemporaryConstraint);
+                    if (preserve) move.addConstraintEqual(values + i, original.data() + i, GCS::DefaultTemporaryConstraint, false);
                 }
                 if (!pin) for (size_t axis = 0; axis < indices.size(); ++axis) {
-                    move.addConstraintEqual(values + indices[axis], target.data() + axis, GCS::DefaultTemporaryConstraint);
+                    move.addConstraintEqual(values + indices[axis], target.data() + axis, GCS::DefaultTemporaryConstraint, false);
                 }
                 const int result = unknowns.empty() ? GCS::Success : move.solve(unknowns);
                 if (!unknowns.empty()) move.applySolution();
                 if (result != GCS::Success && result != GCS::Converged) return false;
-                for (auto* constraint : constraints) {
+                for (auto* constraint : relations) {
                     const double error = constraint->error();
                     if (!std::isfinite(error) || std::abs(error) > 1e-7) return false;
                 }
@@ -136,7 +145,8 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* f
             // First try the exact cursor with minimum movement elsewhere. If permanent
             // constraints prevent that, find an attainable cursor position, then retain it
             // while minimizing the remaining movement. Preferences never weaken geometry.
-            if (!attempt(true, true)) {
+            const bool hasPreferred = std::any_of(preferred, preferred + count, [](uint8_t p) { return p != 0; });
+            if (!(hasPreferred && attempt(true, true, true)) && !attempt(true, true)) {
                 if (!attempt(false, false)) throw std::runtime_error("Could not solve sketch drag");
                 for (size_t axis = 0; axis < indices.size(); ++axis) target[axis] = values[indices[axis]];
                 // Diagnose the pinned system at the feasible solution, while retaining
@@ -153,9 +163,9 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* f
         size_t capacity = *diagnostic_count;
         *diagnostic_count = std::min(capacity, conflicts.size());
         std::copy_n(conflicts.begin(), *diagnostic_count, diagnostic_tags);
-        Eigen::MatrixXd jacobian(equation_count, active.size());
+        Eigen::MatrixXd jacobian(permanent_count, active.size());
         double residual = 0.;
-        for (size_t i=0; i<equation_count; ++i) {
+        for (size_t i=0; i<permanent_count; ++i) {
             residual = std::max(residual,std::abs(constraints[i]->error()));
             for (size_t j=0; j<active.size(); ++j) jacobian(i,j)=constraints[i]->grad(values+active[j]);
         }
@@ -163,7 +173,7 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, const uint8_t* f
         for(auto i:active)movable[i]=1;
         *dof = static_cast<int32_t>(active.size());
         Eigen::MatrixXd nullspace;
-        if (!active.empty() && equation_count) {
+        if (!active.empty() && permanent_count) {
             Eigen::JacobiSVD<Eigen::MatrixXd> svd(jacobian,Eigen::ComputeFullV);
             svd.setThreshold(1e-9);
             const auto rank = svd.rank();

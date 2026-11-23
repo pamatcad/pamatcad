@@ -16,3 +16,5 @@ export type { ProjectionSource, SketchProjection, VertexRef } from "./generated/
 
 export type { Primitive, GeometryData, RectangleData, CircleData, SketchSupport, TextParameters, SketchCurveEdit, TransformSketchGeometry, ScalarUnit } from "./generated/protocol.js";
 export type { BodyVertex, SketchEntityFreedom } from "./generated/protocol.js";
+
+export type { DimensionAnnotation, AngleBranch } from "./generated/protocol.js";

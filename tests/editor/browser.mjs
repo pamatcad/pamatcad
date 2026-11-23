@@ -60,7 +60,7 @@ try {
   await page.getByRole("button", { name: "New scene" }).click();
   await page.waitForFunction(() => document.querySelector("#features").children.length === 0);
   await page.getByRole("button", { name: "New sketch" }).click();
-  await page.locator("#sketch-planes").getByRole("button", {name:"XY",exact:true}).click();
+  await page.evaluate(() => chooseSketchPlane("XY"));
   await page.waitForFunction(() => !document.querySelector("#apply").disabled);
   const canvas = page.locator("#model-canvas");
   const bounds = await canvas.boundingBox();
@@ -124,7 +124,9 @@ try {
     Number.isFinite(Number(document.querySelector("#console-output").lastElementChild?.textContent)),
   );
   const volume = Number(await page.locator("#console-output > :last-child").textContent());
-  assert.ok(Math.abs(volume - Math.abs(width * height) * 12.5) < 1e-7, JSON.stringify({volume,width,height,expected:Math.abs(width*height)*12.5}));
+  // Visible dimensions are rounded to four decimals; the drawn geometry retains precision.
+  const displayTolerance = (0.00005 * (Math.abs(width) + Math.abs(height)) + 0.00005 ** 2) * 12.5;
+  assert.ok(Math.abs(volume - Math.abs(width * height) * 12.5) <= displayTolerance, JSON.stringify({volume,width,height,expected:Math.abs(width*height)*12.5}));
   console.log("Pointer-drawn rectangle", { width, height, volume });
 
   await chooseProjection("Orthographic");

@@ -1,4 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
   <title>Select</title>
-  <path d="M7 4v22l6-7 6 8 4-3-6-8h10Z" fill="#ced3d5" stroke="#39434b"/>
+  <path class="icon-surface-fill icon-foreground" d="M7 4v22l6-7 6 8 4-3-6-8h10Z" fill="#ced3d5" stroke="#39434b"/>
 </svg>

@@ -109,6 +109,70 @@ test("dragging a point on a fixed circle follows its permitted motion", async t 
   sameContract(before, after);
 });
 
+test("dragging the upper endpoint of a spaced vertical line follows its remaining freedom", async t => {
+  const { scene } = await startCore(t, "drag-spaced-vertical-upper");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const construction = await sketch.primitives.add("line", { from: [0, -10], to: [0, 10], construction: true });
+  await sketch.constraints.add("vertical", { curves: construction.curves });
+  await sketch.constraints.add("pointOnCurve", { points: [sketch.origin], curves: construction.curves });
+  const line = await sketch.primitives.add("line", { from: [12.09, -15], to: [12.09, 8] });
+  await sketch.constraints.add("vertical", { curves: line.curves });
+  await sketch.dimensions.add("distance", { curves: [construction.curves[0]!, line.curves[0]!], value: 12.09, mode: "driving" });
+  const before = await sketch.state(), upper = line.points[1]!;
+  assert.equal(before.status.entities.find(e => e.entity.id === upper.id)!.degreesOfFreedom, 1);
+  const after = await sketch.drag(upper, [14, 15]);
+  near(position(after, upper.id)[0], 12.09); near(position(after, upper.id)[1], 15);
+  sameContract(before, after);
+  for (const e of before.entities.filter(e => e.reference.id !== upper.id)) {
+    const actual = after.entities.find(a => a.reference.id === e.reference.id)!;
+    assert.deepEqual({ ...actual, geometry: e.geometry }, e);
+    if (e.geometry.type === "point") {
+      near(position(after, e.reference.id)[0], e.geometry.position[0]);
+      near(position(after, e.reference.id)[1], e.geometry.position[1]);
+    } else assert.deepEqual(actual.geometry, e.geometry);
+  }
+  // Even sub-pixel horizontal jitter must not prevent the allowed vertical motion.
+  const jittered = await sketch.drag(upper, [12.091, 16]);
+  near(position(jittered, upper.id)[0], 12.09); near(position(jittered, upper.id)[1], 16);
+  sameContract(before, jittered);
+  const repeated = await sketch.drag(upper, [12.091, 16]);
+  for (const e of jittered.entities.filter(e => e.geometry.type === "point")) {
+    near(position(repeated, e.reference.id)[0], position(jittered, e.reference.id)[0]);
+    near(position(repeated, e.reference.id)[1], position(jittered, e.reference.id)[1]);
+  }
+  sameContract(jittered, repeated);
+});
+
+test("dragging the lower endpoint of a spaced vertical line preserves the upper endpoint", async t => {
+  const { scene } = await startCore(t, "drag-spaced-vertical-lower");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const construction = await sketch.primitives.add("line", { from: [0, -10], to: [0, 10], construction: true });
+  await sketch.constraints.add("vertical", { curves: construction.curves });
+  await sketch.constraints.add("pointOnCurve", { points: [sketch.origin], curves: construction.curves });
+  const line = await sketch.primitives.add("line", { from: [12.09, -15], to: [12.09, 8] });
+  await sketch.constraints.add("vertical", { curves: line.curves });
+  await sketch.dimensions.add("distance", { curves: [construction.curves[0]!, line.curves[0]!], value: 12.09, mode: "driving" });
+  const before = await sketch.state(), lower = line.points[0]!;
+  assert.equal(before.status.entities.find(e => e.entity.id === lower.id)!.degreesOfFreedom, 1);
+  const after = await sketch.drag(lower, [10, -20]);
+  near(position(after, lower.id)[0], 12.09); near(position(after, lower.id)[1], -20);
+  sameContract(before, after);
+  for (const e of before.entities.filter(e => e.reference.id !== lower.id)) {
+    const actual = after.entities.find(a => a.reference.id === e.reference.id)!;
+    assert.deepEqual({ ...actual, geometry: e.geometry }, e);
+    if (e.geometry.type === "point") {
+      near(position(after, e.reference.id)[0], e.geometry.position[0]);
+      near(position(after, e.reference.id)[1], e.geometry.position[1]);
+    } else assert.deepEqual(actual.geometry, e.geometry);
+  }
+  const repeated = await sketch.drag(lower, [10, -20]);
+  for (const e of after.entities.filter(e => e.geometry.type === "point")) {
+    near(position(repeated, e.reference.id)[0], position(after, e.reference.id)[0]);
+    near(position(repeated, e.reference.id)[1], position(after, e.reference.id)[1]);
+  }
+  sameContract(after, repeated);
+});
+
 test("a degenerate rectangle drag fails without changing the working sketch", async t => {
   const { scene } = await startCore(t, "drag-invalid-geometry");
   const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);

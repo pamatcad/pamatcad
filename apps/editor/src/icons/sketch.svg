@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect x="4" y="8" width="20" height="20" fill="#c5ddf0" stroke="#6588a3" stroke-width="1.8"/>
-  <path d="m13 21 1-5L25 5l4 4-11 11Z" fill="#ced3d5" stroke="#39434b" stroke-width="1.8" stroke-linejoin="round"/>
-  <path d="m23 7 4 4" fill="none" stroke="#39434b" stroke-width="1.6"/>
+  <rect class="icon-fill icon-edge" x="4" y="8" width="20" height="20" fill="#c5ddf0" stroke="#6588a3" stroke-width="1.8"/>
+  <path class="icon-surface-fill icon-foreground" d="m13 21 1-5L25 5l4 4-11 11Z" fill="#ced3d5" stroke="#39434b" stroke-width="1.8" stroke-linejoin="round"/>
+  <path class="icon-foreground" d="m23 7 4 4" fill="none" stroke="#39434b" stroke-width="1.6"/>
 </svg>

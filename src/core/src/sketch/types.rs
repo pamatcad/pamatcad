@@ -115,8 +115,27 @@ pub enum DimensionMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct DimensionAnnotation {
+    pub position: [f64; 2],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum AngleBranch {
+    Direct,
+    Reversed,
+    Supplementary,
+    ReversedSupplementary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DimensionParameters {
+    #[ts(optional)]
+    pub annotation: Option<DimensionAnnotation>,
+    #[ts(optional)]
+    pub angle_branch: Option<AngleBranch>,
     #[ts(optional)]
     pub line: Option<SketchEntityRef>,
     #[ts(optional)]
@@ -314,6 +333,8 @@ pub struct AddDimension {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateDimension {
+    #[ts(optional)]
+    pub annotation: Option<DimensionAnnotation>,
     pub sketch: SketchRef,
     pub id: String,
     #[ts(optional)]
@@ -341,6 +362,16 @@ pub struct DragSketchPoint {
 #[serde(untagged, deny_unknown_fields)]
 pub enum DragSketchGeometry {
     Point(DragSketchPoint),
+    Curve {
+        sketch: SketchRef,
+        curve: SketchEntityRef,
+        position: [f64; 2],
+    },
+    Circle {
+        sketch: SketchRef,
+        circle: SketchEntityRef,
+        position: [f64; 2],
+    },
     Line {
         sketch: SketchRef,
         line: SketchEntityRef,
@@ -467,6 +498,8 @@ pub fn declarations() -> Vec<String> {
         SketchConstraint::decl(),
         DimensionKind::decl(),
         DimensionMode::decl(),
+        DimensionAnnotation::decl(),
+        AngleBranch::decl(),
         DimensionParameters::decl(),
         SketchDimension::decl(),
         SketchSolveState::decl(),

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <title>Two-corner rectangle</title>
+  <rect class="icon-fill icon-edge" x="5" y="8" width="22" height="16" fill="#c5ddf0" stroke="#6588a3"/>
+  <circle class="icon-point" cx="5" cy="8" r="2" fill="#815a36"/><circle class="icon-point" cx="27" cy="24" r="2" fill="#815a36"/>
+</svg>

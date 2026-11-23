@@ -49,6 +49,11 @@ impl Frame {
     }
 }
 
+pub enum DragGoal {
+    Point(String, [f64; 2]),
+    CircularEdge(String, [f64; 2]),
+}
+
 #[derive(Clone)]
 pub struct Sketch {
     pub data: SketchData,
@@ -205,17 +210,44 @@ impl Sketch {
         &mut self,
         units: SceneUnits,
         external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
-        targets: &[(String, [f64; 2])],
+        targets: &[DragGoal],
     ) -> Result<()> {
         solver::solve(self, units, external, targets)
+    }
+    pub fn matching_constraint(
+        &self,
+        kind: ConstraintKind,
+        parameters: &ConstraintParameters,
+    ) -> Result<Option<SketchConstraint>> {
+        for r in parameters.points.iter().chain(&parameters.curves) {
+            self.check_reference(r)?;
+        }
+        // Current constraint kinds are unordered within each reference role.
+        // Keep points and curves separate, and preserve the stored input order.
+        let ids = |refs: &[SketchEntityRef]| {
+            let mut ids: Vec<_> = refs.iter().map(|r| r.id.clone()).collect();
+            ids.sort();
+            ids
+        };
+        let points = ids(&parameters.points);
+        let curves = ids(&parameters.curves);
+        Ok(self
+            .constraints
+            .values()
+            .find(|c| {
+                c.kind == kind
+                    && ids(&c.parameters.points) == points
+                    && ids(&c.parameters.curves) == curves
+            })
+            .cloned())
     }
     pub fn add_constraint(
         &mut self,
         kind: ConstraintKind,
         parameters: ConstraintParameters,
     ) -> Result<SketchConstraint> {
-        for r in parameters.points.iter().chain(&parameters.curves) {
-            self.check_reference(r)?;
+        if let Some(existing) = self.matching_constraint(kind, &parameters)? {
+            return Ok(existing);
         }
         let id = self.id("constraint");
         if kind == ConstraintKind::Fix {
@@ -249,7 +281,40 @@ impl Sketch {
             )),
         }
     }
+    pub fn validate_dimension(&self, kind: DimensionKind, p: &DimensionParameters) -> Result<()> {
+        let invalid = |message: &str| CoreError::new(ErrorCode::InvalidParameter, message);
+        if p.annotation
+            .as_ref()
+            .is_some_and(|a| a.position.iter().any(|v| !v.is_finite()))
+        {
+            return Err(invalid("Dimension annotation coordinates must be finite"));
+        }
+        if p.angle_branch.is_some() && (kind != DimensionKind::Angle || p.curves.len() != 2) {
+            return Err(invalid("Angle branch requires two lines"));
+        }
+        if kind == DimensionKind::Distance && p.curves.len() == 2 {
+            let mut vectors = vec![];
+            for r in &p.curves {
+                self.check_reference(r)?;
+                let SketchGeometry::Line { from, to } = &self.entities[&r.id].geometry else {
+                    return Err(invalid("Line distance requires two lines"));
+                };
+                let a = self.point_position(from)?;
+                let b = self.point_position(to)?;
+                vectors.push([b[0] - a[0], b[1] - a[1]]);
+            }
+            let (u, v) = (vectors[0], vectors[1]);
+            if (u[0] * v[1] - u[1] * v[0]).abs() > 1e-7 * u[0].hypot(u[1]) * v[0].hypot(v[1]) {
+                return Err(invalid("Distance between lines requires parallel lines"));
+            }
+        }
+        Ok(())
+    }
+
     pub fn validate_geometry(&self) -> Result<()> {
+        for d in self.dimensions.values() {
+            self.validate_dimension(d.kind, &d.parameters)?;
+        }
         for e in self.entities.values() {
             match &e.geometry {
                 SketchGeometry::Line { from, to } => {

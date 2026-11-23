@@ -6,9 +6,11 @@ This documents describes general principles that should be used while implementi
 
 Middle-button drag pans the view. Shift + middle-button drag orbits around the current view target. The wheel zooms. Left-button interactions select and edit geometry or drag tool handles; right-click remains available for context actions. These controls apply in both camera projections and while editing a sketch or feature.
 
+Dragging the view cube with the left button orbits around the current view target, including after the pointer leaves the cube. Clicking a face still aligns the view. Cube gestures do not pick or edit geometry behind the overlay.
+
 Navigation must preserve geometry, selection, and active tool parameters, including an unfinished sketch drawing. Left-button editing must preserve the camera. Middle/right presses on handle labels must not change their values.
 
-Verify panning, orbiting, and wheel zoom in orthographic and perspective views; left/Shift-left selection and point/handle dragging; and navigating during sketch drawing and an extrusion preview without changing the working geometry, parameters, or timeline.
+Verify cube dragging and face clicks, including active sketches, extrusion previews, pointer cancellation, geometry beneath the cube, and release outside its bounds. Verify panning, orbiting, and wheel zoom in orthographic and perspective views; left/Shift-left selection and point/handle dragging; and navigating during sketch drawing and an extrusion preview without changing the working geometry, parameters, or timeline.
 
 # The selection context
 

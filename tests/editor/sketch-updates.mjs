@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 export async function testSketchUpdates(page) {
+  await page.addScriptTag({ path: "tests/editor/rectangle.js" });
   await page.getByText("File", { exact: true }).click();
   await page.locator("#menu-new").click();
   await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled && !document.querySelector("#features").children.length);
@@ -47,7 +48,7 @@ export async function testSketchUpdates(page) {
     await release("sketch.getProxy");
   };
   try {
-    await page.locator("#sketch-planes").getByRole("button", { name: "XY", exact: true }).click();
+    await page.evaluate(() => chooseSketchPlane("XY"));
     await page.waitForFunction(() => !document.querySelector("#apply").disabled);
     await page.evaluate(() => {
       const c = window.sketchUpdates, t = c.tool;

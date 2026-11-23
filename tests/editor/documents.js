@@ -72,8 +72,8 @@ async function testDocumentEditor() {
     const firstHistory = find("console-output").textContent;
     find("js").value = "unfinished first-document input";
     find("new-sketch").click();
-    await wait(() => find("sketch-planes"), "Show sketch planes");
-    find("sketch-planes").querySelector("button").click();
+    await wait(() => find("sketch-support"), "Show sketch planes");
+    await chooseSketchPlane();
     await wait(() => !find("apply").disabled, "Choose sketch plane");
     beginRectangleDraft();
     change("width", "12");
@@ -87,8 +87,8 @@ async function testDocumentEditor() {
     await run('return "second-document-history"', "second-document-history");
     find("js").value = "unfinished second-document input";
     find("new-sketch").click();
-    await wait(() => find("sketch-planes"), "Show sketch planes");
-    find("sketch-planes").querySelector("button").click();
+    await wait(() => find("sketch-support"), "Show sketch planes");
+    await chooseSketchPlane();
     await wait(() => !find("apply").disabled, "Choose sketch plane");
     beginRectangleDraft();
     change("width", "5");

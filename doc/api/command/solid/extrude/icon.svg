@@ -2,12 +2,12 @@
      role="img" aria-labelledby="title">
   <title id="title">Extrude</title>
   <g id="solid">
-    <path id="lit-side" fill="#ced3d5" d="M4 15 16 21v9L4 24Z"/>
-    <path id="shaded-side" fill="#aebec3" d="M16 21 28 15v9l-12 6Z"/>
-    <path id="edges" d="M4 15v9l12 6 12-6v-9M16 21v9"
+    <path class="icon-surface-fill" id="lit-side" fill="#ced3d5" d="M4 15 16 21v9L4 24Z"/>
+    <path class="icon-preview-fill" id="shaded-side" fill="#aebec3" d="M16 21 28 15v9l-12 6Z"/>
+    <path class="icon-solid-edge" id="edges" d="M4 15v9l12 6 12-6v-9M16 21v9"
           fill="none" stroke="#65727b" stroke-opacity="1" stroke-width="1.7"
           stroke-linecap="round" stroke-linejoin="round"/>
-    <path id="cap" fill="#c0d8cc" stroke="#487561" stroke-width="1.7" stroke-linejoin="round" d="M16 9 28 15 16 21 4 15Z"/>
+    <path class="icon-selection-fill icon-selection-edge" id="cap" fill="#c0d8cc" stroke="#487561" stroke-width="1.7" stroke-linejoin="round" d="M16 9 28 15 16 21 4 15Z"/>
   </g>
-  <path id="normal-arrow" fill="#dcb58c" stroke="#815a36" stroke-width="1.5" stroke-linejoin="round" d="m16 2 6 7h-3.5v8h-5V9H10Z"/>
+  <path class="icon-handle-fill icon-handle-edge" id="normal-arrow" fill="#dcb58c" stroke="#815a36" stroke-width="1.5" stroke-linejoin="round" d="m16 2 6 7h-3.5v8h-5V9H10Z"/>
 </svg>

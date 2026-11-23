@@ -1,7 +1,8 @@
 import "./style.css";
 import wordmarkUrl from "../../../doc/media/logo-letters.svg?url";
 import faviconUrl from "../../../doc/media/logo.svg?url";
-import extrudeIconUrl from "../../../doc/api/command/solid/extrude/icon.svg?url";
+import extrudeIcon from "../../../doc/api/command/solid/extrude/icon.svg?raw";
+import sketchIcon from "./icons/sketch.svg?raw";
 import { Core, type Scene, type BodyProxy, type SketchProxy, type TimelineEntry, type SketchSupport } from "@pamatcad/sdk";
 import { editorTransport } from "./runtime/transport";
 import { appendOutput, initOutputDock, logCommand, setConsoleEnabled, updateSceneTree, captureOutput, restoreOutput, type OutputState } from "./dock";
@@ -542,7 +543,9 @@ export async function startEditor() {
   editorTheme.apply(document);
   initStatusLine();
   document.querySelector<HTMLImageElement>(".wordmark")!.src = wordmarkUrl;
-  document.querySelector<HTMLImageElement>("#extrude img")!.src = extrudeIconUrl;
+  document.querySelector("#extrude img")!.outerHTML = extrudeIcon;
+  document.querySelector("#new-sketch img")!.outerHTML = sketchIcon;
+  for (const icon of document.querySelectorAll("#solid-ribbon svg")) icon.setAttribute("aria-hidden", "true");
   document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href = faviconUrl;
   el("runtime").textContent = desktop ? "Native" : "WebAssembly";
   el("web-menu").hidden = desktop;

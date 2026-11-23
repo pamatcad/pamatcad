@@ -8,11 +8,16 @@ export const variants = {
   ellipse: ["Center, width and height", "Rectangle"],
   slot: ["Three points", "Center and line", "Center to center"],
   spline: ["Fit points", "Control points"], text: ["Text"],
-  dimension: ["Length", "Distance", "Horizontal distance", "Vertical distance", "Radius", "Diameter", "Major radius", "Minor radius", "Angle"],
+  dimension: ["Dimension"],
   project: ["Project"], offset: ["One sided", "Symmetric", "Independent"], rounding: ["Rounding"],
   scale: ["Scale"], move: ["Move and rotate"], split: ["Split"],
 } as const;
 export type SketchToolName = keyof typeof variants;
+export function drawingClicks(tool: SketchToolName, variant: number) {
+  if (tool === "point" || tool === "text" || tool === "circle" && variant >= 3) return 1;
+  if (tool === "arc" || tool === "rectangle" && variant === 1 || tool === "circle" && [1, 2].includes(variant) || tool === "slot") return 3;
+  return 2;
+}
 export type DrawingFields = {
   width: number;
   height: number;
@@ -85,34 +90,23 @@ export function drawing(tool: SketchToolName, variant: number, points: Point[], 
     }
     case "arc": {
       let center = a, radius = points[1] ? distance(a, b) : f.radius;
-      let start = degrees(bearing(a, b)), end = start + f.angle;
+      let start = degrees(bearing(a, b)), sweep = c ? (degrees(bearing(a, c)) - start + 360) % 360 : f.angle;
       if (variant === 1) {
         if (!c) {
           throw new Error("Pick three points.");
         }
         ({ center, radius } = circumcircle(a, b, c));
         start = degrees(bearing(center, a));
-        end = degrees(bearing(center, c));
-        const middle = (degrees(bearing(center, b)) - start + 360) % 360;
-        let sweep = (end - start + 360) % 360;
+        const end = degrees(bearing(center, b));
+        const middle = (degrees(bearing(center, c)) - start + 360) % 360;
+        sweep = (end - start + 360) % 360;
         if (middle > sweep) {
           sweep -= 360;
         }
-        // OCCT's arc domain is counterclockwise; reverse the endpoint order for clockwise input.
-        if (sweep < 0) {
-          const old = start;
-          start = end;
-          end = old;
-        }
-        else {
-          end = start + sweep;
-        }
       }
-      if (variant === 1) {
-        while (end <= start) {
-          end += 360;
-        }
-      }
+      // Keep three-point arcs counterclockwise; explicit center-arc angles retain their sign.
+      if (variant === 1 && sweep < 0) { start += sweep; sweep = -sweep; }
+      const end = start + sweep;
       return { type: "arc", parameters: { center, radius, start, end, construction } };
     }
     case "ellipse": {
@@ -131,7 +125,16 @@ export function drawing(tool: SketchToolName, variant: number, points: Point[], 
       if (variant === 1) {
         from = [2 * a[0] - b[0], 2 * a[1] - b[1]];
       }
-      const radius = variant === 0 && c ? distance(b, c) : f.radius;
+      const length = distance(a, b);
+      if (length <= 1e-7) throw new Error("Choose two distinct points for the slot axis.");
+      const u: Point = [(b[0] - a[0]) / length, (b[1] - a[1]) / length];
+      const radius = c ? Math.abs(u[0] * (c[1] - a[1]) - u[1] * (c[0] - a[0])) : f.radius;
+      if (radius <= 1e-7) throw new Error("Slot radius must be positive.");
+      if (variant === 0) {
+        if (2 * radius >= length - 1e-7) throw new Error("Slot diameter must be less than the distance between its outer tips.");
+        from = [a[0] + radius * u[0], a[1] + radius * u[1]];
+        to = [b[0] - radius * u[0], b[1] - radius * u[1]];
+      }
       return { type: "slot", parameters: { from, to, radius, construction } };
     }
     case "spline": {

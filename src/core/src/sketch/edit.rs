@@ -215,6 +215,16 @@ impl Sketch {
         }
         for mut d in dimensions {
             let source_id = d.id.clone();
+            if let Some(annotation) = &mut d.parameters.annotation {
+                let [x, y] = [
+                    (annotation.position[0] - input.pivot[0]) * scale,
+                    (annotation.position[1] - input.pivot[1]) * scale,
+                ];
+                annotation.position = [
+                    input.pivot[0] + x * c - y * s + input.translation[0],
+                    input.pivot[1] + x * s + y * c + input.translation[1],
+                ];
+            }
             if input.copy {
                 d.id = dimension_ids[&source_id].clone();
                 d.parameters.name = None;

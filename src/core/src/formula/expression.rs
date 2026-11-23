@@ -50,6 +50,9 @@ impl Expression {
     pub fn atan2(self, other: Self) -> Self {
         Self::Binary(10, Box::new(self), Box::new(other))
     }
+    pub fn abs(self) -> Self {
+        Self::Unary(11, Box::new(self))
+    }
     pub fn square(self) -> Self {
         self.clone().mul(self)
     }
@@ -69,6 +72,7 @@ impl Expression {
                     7 => value.sin(),
                     8 => value.cos(),
                     9 => -value,
+                    11 => value.abs(),
                     _ => unreachable!(),
                 }
             }

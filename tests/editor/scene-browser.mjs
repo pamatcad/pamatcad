@@ -74,16 +74,20 @@ export async function testSceneBrowser(browser, url) {
     await row("XY plane").click();
     assert.equal(await page.locator("#status").textContent(), "Plane selected");
     assert.ok(!(await canvas.screenshot()).equals(plane), "Tree selection must highlight the visible plane");
+    await page.locator("#home").click(); // Hidden model geometry leaves the origin centered.
     // The gizmo's Top face gives an unambiguous hit inside the XY plane.
     const bounds = await canvas.boundingBox();
     await page.mouse.click(bounds.x + bounds.width - 60, bounds.y + 38);
     await tab("Bodies");
-    await clickCenter();
+    // The plane is offset into positive XY and keeps a viewport-relative size.
+    const size = Math.min(bounds.width, bounds.height) / 8;
+    const pickPlane = () => page.mouse.click(bounds.x + bounds.width / 2 + size * 0.625, bounds.y + bounds.height / 2 - size * 0.625);
+    await pickPlane();
     assert.equal(await page.locator("#status").textContent(), "Plane selected");
     assert.equal(await page.locator("#construction-tab").getAttribute("aria-selected"), "true");
     assert.equal(await row("XY plane").getAttribute("aria-pressed"), "true", "Viewport selection must highlight the plane in the tree");
     await row("Hide XY plane").click();
-    await clickCenter();
+    await pickPlane();
     assert.equal(await page.locator("#status").textContent(), "Ready", "Hidden planes must not be pickable");
 
     await row("Collapse Origin").click();
@@ -106,6 +110,8 @@ export async function testSceneBrowser(browser, url) {
     await page.addScriptTag({ path: "tests/editor/rectangle.js" });
     await page.evaluate(() => testRectangleEditor());
     await tab("Construction");
+    // Recreating the fixture now chooses its support through this branch.
+    if (await origin.getAttribute("aria-expanded") === "true") await row("Collapse Origin").click();
     assert.equal(await origin.getAttribute("aria-expanded"), "false");
     await page.locator("#toggle-browser").click();
     await page.locator("#web-menu").getByText("Help", { exact: true }).click();

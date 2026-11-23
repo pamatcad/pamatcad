@@ -39,6 +39,9 @@ Goal: establish branching timelines early
 - branching timeline, switching between branches
 - timeline recalculation, timeline dependencies, cached geometry and error state
 
+- 
+- undo/redo stack
+- setting: sketch-dimension-precision
 - 3d sketches
 - popovers and tooltips
 - icons where needed

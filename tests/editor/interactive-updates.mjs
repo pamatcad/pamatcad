@@ -348,7 +348,7 @@ export async function testInteractiveUpdates(page, sdk) {
     try {
       await until(() => !document.querySelector("#new-sketch").disabled);
       document.querySelector("#new-sketch").click();
-      await until(() => editor && document.querySelector("#sketch-planes"));
+      await until(() => editor && document.querySelector("#sketch-support"));
     } finally { Viewport.prototype.captureView = capture; }
     let view = JSON.stringify(editor.captureView());
     const restoredView = () => {
@@ -356,7 +356,7 @@ export async function testInteractiveUpdates(page, sdk) {
       const values = v => [...v.position, ...v.target, ...v.up, v.span, v.zoom];
       return before.mode === after.mode && values(before).every((n, i) => Math.abs(n - values(after)[i]) < 1e-9);
     };
-    [...document.querySelectorAll("#sketch-planes button")].find(b => b.textContent === "XY").click();
+    await chooseSketchPlane("XY");
     await until(() => !document.querySelector("#apply").disabled);
     beginRectangleDraft();
     for (const id of ["width", "height"]) {
@@ -385,7 +385,7 @@ export async function testInteractiveUpdates(page, sdk) {
     }
     view = JSON.stringify(editor.captureView());
     document.querySelector("#new-sketch").click();
-    [...document.querySelectorAll("#sketch-planes button")].find(b => b.textContent === "YZ").click();
+    await chooseSketchPlane("YZ");
     await until(() => !document.querySelector("#apply").disabled);
     editor.restoreView({ mode: "orthographic", position: [2, 3, 50], target: [2, 3, 0], span: 30, zoom: 2 });
     document.querySelector("#cancel").click();

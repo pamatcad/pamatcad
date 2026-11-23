@@ -34,7 +34,7 @@ export async function testDocumentTabs(browser, url) {
     const second = await create();
     const third = await create();
     await page.locator("#new-sketch").click();
-    await page.locator("#sketch-planes button").first().click();
+    await page.evaluate(() => chooseSketchPlane());
     await page.waitForFunction(() => !document.querySelector("#apply").disabled);
     await page.evaluate(() => beginRectangleDraft());
     await page.locator("#width").fill("23");

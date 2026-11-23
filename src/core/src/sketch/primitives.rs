@@ -209,6 +209,31 @@ impl Sketch {
                         id: r.id.clone(),
                     })
                     .collect();
+                if p.centered {
+                    for [from, to] in [[0, 4], [2, 6]] {
+                        let id = self.id("line");
+                        curves.push(self.insert_geometry(
+                            id,
+                            SketchGeometry::Line {
+                                from: points[from].id.clone(),
+                                to: points[to].id.clone(),
+                            },
+                            true,
+                        ));
+                    }
+                    let center = self.add_point(anchor, true)?;
+                    constraints.push(
+                        self.add_constraint(
+                            ConstraintKind::Midpoint,
+                            ConstraintParameters {
+                                points: vec![center.clone()],
+                                curves: vec![curves[4].clone()],
+                            },
+                        )?
+                        .id,
+                    );
+                    points.push(center);
+                }
                 PrimitiveData::Rectangle(RectangleData {
                     id,
                     lines,
@@ -362,6 +387,21 @@ impl Sketch {
                     points.extend(data.points);
                     curves.extend(data.curves);
                 }
+                let center = self.add_point(
+                    [(p.from[0] + p.to[0]) / 2., (p.from[1] + p.to[1]) / 2.],
+                    true,
+                )?;
+                constraints.push(
+                    self.add_constraint(
+                        ConstraintKind::Midpoint,
+                        ConstraintParameters {
+                            points: vec![center.clone()],
+                            curves: vec![axis.clone()],
+                        },
+                    )?
+                    .id,
+                );
+                points.push(center);
                 curves.push(axis);
                 PrimitiveData::Geometry(GeometryData {
                     id,

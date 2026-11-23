@@ -6,6 +6,7 @@ export async function testSketchEditor(browser, url) {
   const errors=[];page.on("pageerror",e=>errors.push(e.message));
   try {
     await page.goto(url);
+    await page.addScriptTag({ path: "tests/editor/rectangle.js" });
     await page.waitForFunction(()=>document.querySelector("#new-sketch")&&!document.querySelector("#new-sketch").disabled);
     const canvas=page.locator("#model-canvas");const bounds=await canvas.boundingBox();
     const cube={x:bounds.x+bounds.width-120,y:bounds.y,width:120,height:120};
@@ -15,13 +16,13 @@ export async function testSketchEditor(browser, url) {
     assert.deepEqual(await page.locator("#sketch-ribbon .tool-group > span").allTextContents(), ["Geometry", "Constraints", "Tools"]);
     assert.equal(await page.locator("#tool-panel [data-tool], #tool-panel [data-constraint]").count(), 0);
     assert.equal(await page.locator("#apply").isDisabled(),true);
-    await page.locator("#sketch-planes").getByRole("button",{name:"YZ",exact:true}).click();
+    await page.evaluate(() => chooseSketchPlane("YZ"));
     await page.waitForFunction(()=>!document.querySelector("#apply").disabled);
     assert.ok(await page.locator("#tool-panel #sketch-construction").isVisible());
-    assert.ok(await page.locator("#tool-panel #sketch-convert").count());
+    assert.equal(await page.locator("#tool-panel #sketch-convert, #sketch-name, #sketch-hint").count(), 0);
     assert.equal(await page.locator("#sketch-ribbon #sketch-convert").count(), 0);
     assert.equal(await page.locator("#sketch-view").isVisible(),true);
-    await page.locator("#sketch-name").fill("side");await page.locator("#sketch-name").press("Tab");
+
     assert.equal(await page.locator('#sketch-ribbon [aria-pressed="true"]').count(), 0);
     assert.equal(await page.locator('#sketch-ribbon [data-tool="select"], #sketch-delete, #sketch-x, #sketch-y, #tool-panel #width, #tool-panel #height').count(), 0);
     const drawAt = (x, y) => [bounds.x + bounds.width / 2 + x * bounds.height / 60, bounds.y + bounds.height / 2 - y * bounds.height / 60];
@@ -66,16 +67,15 @@ export async function testSketchEditor(browser, url) {
     await page.locator("#workbench").selectOption("solid");
     assert.ok(await page.locator("#new-sketch").isDisabled());
     await page.locator("#workbench").selectOption("sketch");
-    assert.equal(await page.locator("#sketch-name").inputValue(), "side");
-    const icons = await page.locator("#sketch-ribbon img").evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0));
+    assert.ok(await page.locator("#sketch-workspace").isVisible());
+    const icons = await page.locator("#sketch-ribbon button").evaluateAll(buttons => buttons.length > 20 && buttons.every(button => button.querySelector("svg [class]")));
     assert.ok(icons, "Every geometry, constraint, and tool icon loads");
     await page.setViewportSize({width:960,height:840});
     assert.ok(await page.locator(".ribbon").evaluate(ribbon => ribbon.getBoundingClientRect().right <= innerWidth));
     assert.ok(await page.locator("#sketch-ribbon .tools").evaluateAll(groups => groups.every(group => getComputedStyle(group).gridTemplateRows.split(" ").length === 2)));
     await page.screenshot({path:"/private/tmp/pamatcad-sketch-ribbon.png"});
     await page.setViewportSize({width:1440,height:1000});
-    await page.locator("#tool-panel details").filter({has:page.getByText("Display",{exact:true})}).locator("summary").click();
-    const lines=page.getByLabel("Lines",{exact:true});await lines.uncheck();await lines.check();
+    const lines=page.getByRole("button",{name:"Show lines",exact:true});await lines.click();await lines.click();
     await page.screenshot({path:"/private/tmp/pamatcad-sketch-workspace.png"});
     await page.locator("#apply").click();
     await page.waitForFunction(()=>document.querySelector("#features").children.length===1&&!document.querySelector("#new-sketch").disabled);
@@ -87,15 +87,15 @@ export async function testSketchEditor(browser, url) {
       await page.waitForFunction(()=>!document.querySelector("#js").disabled);
       return JSON.parse(await page.locator("#console-output > :last-child").textContent());
     };
-    const state=await evaluate('return await (await scene.sketches.findByName("side")).state()');
+    const state=await evaluate('return await (await scene.sketches.get((await scene.timeline.list())[0].id)).state()');
     assert.equal(state.sketch.plane.plane,"yz");assert.equal(state.entities.filter(e=>e.geometry.type==="line").length,4);
     assert.equal(state.entities.filter(e=>e.geometry.type==="circle").length,1);assert.equal(state.dimensions.length,3);
     assert.ok(state.dimensions.some(d=>d.parameters.value==="20 / 2"));
-    const volume=await evaluate('const s=await scene.sketches.findByName("side"); const f=await core.solid.extrude(await s.regions.all(),{length1:2}); return (await Promise.all(f.newSolids.map(async b=>(await (await scene.bodies.get(b.id)).properties()).volume.value))).reduce((a,b)=>a+b,0)');
+    const volume=await evaluate('const s=await scene.sketches.get((await scene.timeline.list())[0].id); const f=await core.solid.extrude(await s.regions.all(),{length1:2}); return (await Promise.all(f.newSolids.map(async b=>(await (await scene.bodies.get(b.id)).properties()).volume.value))).reduce((a,b)=>a+b,0)');
     assert.ok(Math.abs(volume-(60+Math.PI*9)*2)<1e-7);
     await page.locator("#features li").first().dblclick();
     await page.waitForFunction(()=>document.querySelector("#sketch-workspace")&&!document.querySelector("#apply").disabled);
-    assert.equal(await page.locator("#sketch-name").inputValue(),"side");
+    assert.ok(await page.locator("#sketch-workspace").isVisible());
     const editView = await canvas.boundingBox();
     await page.mouse.click(editView.x + editView.width / 2 + 6 * editView.height / 60, editView.y + editView.height / 2);
     await page.waitForFunction(() => document.querySelector("#sketch-status").textContent.startsWith("Line"));
@@ -136,9 +136,11 @@ export async function testSketchEditor(browser, url) {
     await page.locator("#features li").first().dblclick();
     await page.waitForFunction(() => document.querySelector("#sketch-workspace") && !document.querySelector("#apply").disabled);
     await at(10, 0);
-    await page.locator("#sketch-name").fill("keep me");
-    await page.locator("#sketch-name").press("Backspace");
-    assert.equal(await page.locator("#sketch-name").inputValue(), "keep m", "Backspace edits an input without deleting geometry");
+    await page.locator('#sketch-ribbon [data-tool="text"]').click();
+    await page.locator("#sketch-text").fill("keep me");
+    await page.locator("#sketch-text").press("Backspace");
+    assert.equal(await page.locator("#sketch-text").inputValue(), "keep m", "Backspace edits an input without deleting geometry");
+    await page.keyboard.press("Escape");
     await canvas.focus();
     await page.waitForFunction(() => document.querySelector("#progress").hidden);
     await at(10, 0);

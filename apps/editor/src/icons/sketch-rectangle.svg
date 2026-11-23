@@ -1,4 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
   <title>Rectangle</title>
-  <rect x="5" y="8" width="22" height="16" fill="#c5ddf0" stroke="#6588a3"/>
+  <rect class="icon-fill icon-edge" x="5" y="8" width="22" height="16" fill="#c5ddf0" stroke="#6588a3"/>
 </svg>
