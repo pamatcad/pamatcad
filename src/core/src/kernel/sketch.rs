@@ -43,8 +43,8 @@ extern "C" {
         error_size: usize,
     ) -> i32;
 }
-pub(crate) fn regions(sketch: &Sketch) -> Result<Vec<Profile>> {
-    let (curves, data, ids) = encode(sketch, None)?;
+pub(crate) fn regions(sketch: &Sketch, selected: &[String]) -> Result<Vec<Profile>> {
+    let (curves, data, ids) = encode_curves(sketch, Some(selected))?;
     struct Context {
         profiles: Vec<Profile>,
         ids: Vec<String>,
@@ -110,6 +110,10 @@ pub(crate) fn regions(sketch: &Sketch) -> Result<Vec<Profile>> {
                 .into_owned(),
         ));
     }
+    sort_profiles(&mut context.profiles);
+    Ok(context.profiles)
+}
+pub(crate) fn sort_profiles(profiles: &mut [Profile]) {
     let first_source = |profile: &Profile| {
         profile
             .edges
@@ -122,12 +126,63 @@ pub(crate) fn regions(sketch: &Sketch) -> Result<Vec<Profile>> {
             .min()
             .unwrap_or(u64::MAX)
     };
-    context.profiles.sort_by(|a, b| {
+    profiles.sort_by(|a, b| {
         first_source(a)
             .cmp(&first_source(b))
             .then_with(|| a.signature.cmp(&b.signature))
     });
-    Ok(context.profiles)
+}
+extern "C" {
+    fn pamat_sketch_groups(
+        frame: *const f64,
+        curves: *const Curve,
+        count: usize,
+        data: *const f64,
+        sink: extern "C" fn(*mut c_void, *const usize, usize),
+        context: *mut c_void,
+        error: *mut c_char,
+        error_size: usize,
+    ) -> i32;
+}
+pub(crate) fn region_groups(sketch: &Sketch) -> Result<Vec<Vec<String>>> {
+    let (curves, data, ids) = encode(sketch, None)?;
+    extern "C" fn receive(context: *mut c_void, indices: *const usize, count: usize) {
+        let output = unsafe { &mut *context.cast::<Vec<Vec<usize>>>() };
+        output.push(unsafe { std::slice::from_raw_parts(indices, count) }.to_vec());
+    }
+    let frame = [
+        sketch.frame.origin,
+        sketch.frame.u,
+        sketch.frame.v,
+        sketch.frame.normal,
+    ]
+    .concat();
+    let mut groups: Vec<Vec<usize>> = vec![];
+    let mut error = [0; 1024];
+    let status = unsafe {
+        pamat_sketch_groups(
+            frame.as_ptr(),
+            curves.as_ptr(),
+            curves.len(),
+            data.as_ptr(),
+            receive,
+            (&mut groups as *mut Vec<Vec<usize>>).cast(),
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    if status != 0 {
+        return Err(CoreError::new(
+            ErrorCode::KernelFailure,
+            unsafe { CStr::from_ptr(error.as_ptr()) }
+                .to_string_lossy()
+                .into_owned(),
+        ));
+    }
+    Ok(groups
+        .into_iter()
+        .map(|group| group.into_iter().map(|i| ids[i].clone()).collect())
+        .collect())
 }
 
 impl Profile {
@@ -291,8 +346,8 @@ fn encode(sketch: &Sketch, selected: Option<&str>) -> Result<(Vec<Curve>, Vec<f6
 
 // Exact, collision-free input key. Referenced point coordinates, curve parameters,
 // construction inclusion, source identities and the support frame all participate.
-pub(crate) fn geometry_key(sketch: &Sketch, selected: Option<&str>) -> Result<Vec<u8>> {
-    let (curves, data, ids) = encode(sketch, selected)?;
+pub(crate) fn geometry_key(sketch: &Sketch, selected: Option<&[String]>) -> Result<Vec<u8>> {
+    let (curves, data, ids) = encode_curves(sketch, selected)?;
     let mut key = vec![];
     key.extend((curves.len() as u64).to_le_bytes());
     for id in [&sketch.data.scene_id, &sketch.data.id]
@@ -394,20 +449,7 @@ pub(crate) fn modify(
     operation: i32,
     value: f64,
 ) -> Result<Vec<(Option<String>, i32, Vec<f64>)>> {
-    let mut curves = vec![];
-    let mut data = vec![];
-    for id in ids {
-        let (mut item, values, _) = encode(sketch, Some(id))?;
-        if item.len() != 1 {
-            return Err(CoreError::new(
-                ErrorCode::InvalidParameter,
-                "Select curves to edit",
-            ));
-        }
-        item[0].start = data.len();
-        data.extend(values);
-        curves.extend(item);
-    }
+    let (curves, data, _) = encode_curves(sketch, Some(ids))?;
     extern "C" fn receive(
         context: *mut c_void,
         source: usize,
@@ -457,4 +499,28 @@ pub(crate) fn modify(
         .into_iter()
         .map(|(source, kind, data)| (ids.get(source).cloned(), kind, data))
         .collect())
+}
+
+fn encode_curves(
+    sketch: &Sketch,
+    selected: Option<&[String]>,
+) -> Result<(Vec<Curve>, Vec<f64>, Vec<String>)> {
+    let Some(ids) = selected else {
+        return encode(sketch, None);
+    };
+    let mut curves = vec![];
+    let mut data = vec![];
+    for id in ids {
+        let (mut item, values, _) = encode(sketch, Some(id))?;
+        if item.len() != 1 {
+            return Err(CoreError::new(
+                ErrorCode::InvalidParameter,
+                "Select curves to edit",
+            ));
+        }
+        item[0].start = data.len();
+        data.extend(values);
+        curves.extend(item);
+    }
+    Ok((curves, data, ids.to_vec()))
 }

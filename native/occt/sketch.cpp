@@ -5,7 +5,10 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepGProp.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <BRepLib.hxx>
+#include <BRep_Tool.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepClass_FaceClassifier.hxx>
@@ -24,10 +27,33 @@
 #include <map>
 #include <memory>
 #include <cmath>
+#include <chrono>
+#include <cstdlib>
 
 struct PamatSketchCurve { int32_t kind; size_t start, count; };
 using RegionSink = void (*)(void*, PamatShape*, const size_t*, const int32_t*, size_t);
 namespace {
+struct SketchTiming {
+    using Clock = std::chrono::steady_clock;
+    const char* operation;
+    size_t curves;
+#ifndef __EMSCRIPTEN__
+    bool enabled = std::getenv("PAMATCAD_GEOMETRY_PROFILE") != nullptr;
+#else
+    bool enabled = false;
+#endif
+    Clock::time_point started;
+    SketchTiming(const char* name, size_t count): operation(name), curves(count) {
+        if(enabled) started = Clock::now();
+    }
+    void mark(const char* stage) {
+        if(!enabled) return;
+        const auto now = Clock::now();
+        const double ms = std::chrono::duration<double, std::milli>(now-started).count();
+        std::fprintf(stderr,"{\"event\":\"sketch.geometry\",\"operation\":\"%s\",\"stage\":\"%s\",\"curves\":%zu,\"ms\":%.6f}\n",operation,stage,curves,ms);
+        started=now;
+    }
+};
 std::vector<double> sample_wire(const TopoDS_Wire& wire,const TopoDS_Face& face) {
     std::vector<double> points;
     for (BRepTools_WireExplorer it(wire,face);it.More();it.Next()) {
@@ -81,51 +107,98 @@ static std::vector<TopoDS_Edge> make_sketch_edges(const double* frame,const Pama
         }
         return original;
 }
+// Merge aggregate bounds to a fixed point: a closed boundary's box must
+// retain enclosed contours even when their individual edge boxes do not touch.
+static std::vector<std::vector<size_t>> sketch_groups(const std::vector<TopoDS_Edge>& edges) {
+    struct Group { Bnd_Box bounds; std::vector<size_t> sources; };
+    std::vector<Group> groups;
+    for(size_t i=0;i<edges.size();++i){
+        Group next;BRepAdaptor_Curve curve(edges[i]);
+        if(curve.GetType()==GeomAbs_BSplineCurve){
+            // Positive-weight B-splines stay inside their control hull. This is
+            // conservative for grouping and avoids numerical extrema searches.
+            const auto spline=curve.BSpline();for(int j=1;j<=spline->NbPoles();++j)next.bounds.Add(spline->Pole(j));
+            next.bounds.Enlarge(BRep_Tool::Tolerance(edges[i]));
+        }else BRepBndLib::AddOptimal(edges[i],next.bounds,false,true);
+        next.bounds.Enlarge(1e-7);next.sources.push_back(i);
+        if(next.bounds.IsVoid()||next.bounds.IsWhole()){
+            std::vector<size_t> all;for(size_t j=0;j<edges.size();++j)all.push_back(j);return {all};
+        }
+        for(size_t j=0;j<groups.size();){
+            if(next.bounds.IsOut(groups[j].bounds)){++j;continue;}
+            next.bounds.Add(groups[j].bounds);next.sources.insert(next.sources.end(),groups[j].sources.begin(),groups[j].sources.end());
+            groups.erase(groups.begin()+j);j=0;
+        }
+        groups.push_back(std::move(next));
+    }
+    std::vector<std::vector<size_t>> result;
+    for(auto& group:groups){std::sort(group.sources.begin(),group.sources.end());result.push_back(std::move(group.sources));}
+    std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return a.front()<b.front();});
+    return result;
+}
+static void build_sketch_regions(const double* frame,const std::vector<TopoDS_Edge>& original,RegionSink sink,void* context) {
+    const size_t count=original.size();if(!count)return;
+    SketchTiming timing("regions",count);
+    NCollection_List<TopoDS_Shape> arguments;for(const auto& edge:original)arguments.Append(edge);
+    auto plane=BRepBuilderAPI_MakeFace(gp_Pln(gp_Ax3(gp_Pnt(frame[0],frame[1],frame[2]),gp_Dir(frame[9],frame[10],frame[11]),gp_Dir(frame[3],frame[4],frame[5])))).Face();
+    BOPAlgo_Builder split;
+    split.SetArguments(arguments);split.SetFuzzyValue(1e-7);split.SetNonDestructive(true);
+    TopTools_IndexedMapOfShape edges;
+    if(count>1){split.Perform();if(split.HasErrors())throw std::runtime_error("Could not intersect sketch curves");TopExp::MapShapes(split.Shape(),TopAbs_EDGE,edges);}
+    else edges.Add(original[0]);
+    timing.mark("intersect");
+    std::vector<size_t> sources(edges.Extent(),static_cast<size_t>(-1));
+    for(size_t i=0;i<count;++i){
+        const auto mark=[&](const TopoDS_Shape& e){int index=edges.FindIndex(e);if(index&&sources[index-1]==static_cast<size_t>(-1))sources[index-1]=i;};
+        mark(original[i]);if(count>1)for(const auto& e:split.Modified(original[i]))mark(e);
+    }
+    NCollection_List<TopoDS_Shape> oriented;
+    for(const auto& item:edges){auto edge=TopoDS::Edge(item);BRepLib::BuildPCurveForEdgeOnPlane(edge,plane);oriented.Append(edge.Oriented(TopAbs_FORWARD));oriented.Append(edge.Oriented(TopAbs_REVERSED));}
+    BOPAlgo_BuilderFace builder;builder.SetFace(plane);builder.SetShapes(oriented);builder.SetAvoidInternalShapes(true);builder.Perform();
+    if(builder.HasErrors())throw std::runtime_error("Could not build sketch regions");
+    timing.mark("faces");
+    for(const auto& item:builder.Areas()){
+        auto face=TopoDS::Face(item);auto outer=BRepTools::OuterWire(face);if(outer.IsNull())continue;
+        GProp_GProps properties;BRepGProp::SurfaceProperties(face,properties);
+        if(!std::isfinite(properties.Mass())||properties.Mass()<1e-12||properties.Mass()>1e90)continue;
+        TopTools_IndexedMapOfShape boundary;TopExp::MapShapes(face,TopAbs_EDGE,boundary);
+        std::vector<size_t> source;std::vector<int32_t> orientation;
+        for(const auto& edge:boundary){const auto index=edges.FindIndex(edge);if(!index||sources[index-1]==static_cast<size_t>(-1))throw std::runtime_error("Lost sketch boundary source");source.push_back(sources[index-1]);orientation.push_back(edge.Orientation()==TopAbs_REVERSED?-1:1);}
+        auto shape=std::make_unique<PamatShape>();shape->value=face;shape->named_faces.resize(1);shape->named_faces[0].Add(face);shape->index_faces();
+        sink(context,shape.release(),source.data(),orientation.data(),source.size());
+    }
+    timing.mark("profiles");
+}
 extern "C" int pamat_sketch_regions(const double* frame,const PamatSketchCurve* curves,size_t count,
                                      const double* data,RegionSink sink,void* context,char* error,size_t error_size) {
     return checked([&]{
-        if(!count)return;
-        auto original=make_sketch_edges(frame,curves,count,data);
-        NCollection_List<TopoDS_Shape> arguments;for(const auto& edge:original)arguments.Append(edge);
-        auto plane=BRepBuilderAPI_MakeFace(gp_Pln(gp_Ax3(gp_Pnt(frame[0],frame[1],frame[2]),gp_Dir(frame[9],frame[10],frame[11]),gp_Dir(frame[3],frame[4],frame[5])))).Face();
-        BOPAlgo_Builder split;
-        split.SetArguments(arguments);split.SetFuzzyValue(1e-7);split.SetNonDestructive(true);
-        TopTools_IndexedMapOfShape edges;
-        if(count>1){split.Perform();if(split.HasErrors())throw std::runtime_error("Could not intersect sketch curves");TopExp::MapShapes(split.Shape(),TopAbs_EDGE,edges);}
-        else edges.Add(original[0]);
-        std::vector<size_t> sources(edges.Extent(),static_cast<size_t>(-1));
-        for(size_t i=0;i<count;++i){
-            const auto mark=[&](const TopoDS_Shape& e){int index=edges.FindIndex(e);if(index&&sources[index-1]==static_cast<size_t>(-1))sources[index-1]=i;};
-            mark(original[i]);if(count>1)for(const auto& e:split.Modified(original[i]))mark(e);
-        }
-        NCollection_List<TopoDS_Shape> oriented;
-        for(const auto& item:edges){auto edge=TopoDS::Edge(item);BRepLib::BuildPCurveForEdgeOnPlane(edge,plane);oriented.Append(edge.Oriented(TopAbs_FORWARD));oriented.Append(edge.Oriented(TopAbs_REVERSED));}
-        BOPAlgo_BuilderFace builder;builder.SetFace(plane);builder.SetShapes(oriented);builder.SetAvoidInternalShapes(true);builder.Perform();
-        if(builder.HasErrors())throw std::runtime_error("Could not build sketch regions");
-        for(const auto& item:builder.Areas()){
-            auto face=TopoDS::Face(item);auto outer=BRepTools::OuterWire(face);if(outer.IsNull())continue;
-            GProp_GProps properties;BRepGProp::SurfaceProperties(face,properties);
-            if(!std::isfinite(properties.Mass())||properties.Mass()<1e-12||properties.Mass()>1e90)continue;
-            TopTools_IndexedMapOfShape boundary;TopExp::MapShapes(face,TopAbs_EDGE,boundary);
-            std::vector<size_t> source;std::vector<int32_t> orientation;
-            for(const auto& edge:boundary){const auto index=edges.FindIndex(edge);if(!index||sources[index-1]==static_cast<size_t>(-1))throw std::runtime_error("Lost sketch boundary source");source.push_back(sources[index-1]);orientation.push_back(edge.Orientation()==TopAbs_REVERSED?-1:1);}
-            auto shape=std::make_unique<PamatShape>();shape->value=face;shape->named_faces.resize(1);shape->named_faces[0].Add(face);shape->index_faces();
-            sink(context,shape.release(),source.data(),orientation.data(),source.size());
-        }
+        SketchTiming timing("region_input",count);
+        auto original=make_sketch_edges(frame,curves,count,data);timing.mark("edges");
+        build_sketch_regions(frame,original,sink,context);
+    },error,error_size);
+}
+extern "C" int pamat_sketch_groups(const double* frame,const PamatSketchCurve* curves,size_t count,
+    const double* data,void(*sink)(void*,const size_t*,size_t),void* context,char* error,size_t error_size) {
+    return checked([&]{
+        SketchTiming timing("group_input",count);
+        auto edges=make_sketch_edges(frame,curves,count,data);timing.mark("edges");
+        const auto groups=sketch_groups(edges);timing.mark("bounds");
+        for(const auto& group:groups)sink(context,group.data(),group.size());
     },error,error_size);
 }
 
 extern "C" int pamat_sketch_profile_proxy(const PamatShape* shape,void(*sink)(void*,const double*,size_t),void* context,char* error,size_t error_size){
     return checked([&]{
+        SketchTiming timing("boundary",0);
         const auto face=TopoDS::Face(shape->value);const auto outer=BRepTools::OuterWire(face);
         auto points=sample_wire(outer,face);sink(context,points.data(),points.size()/3);
         for(TopExp_Explorer it(face,TopAbs_WIRE);it.More();it.Next())if(!it.Current().IsSame(outer)){
             points=sample_wire(TopoDS::Wire(it.Current()),face);sink(context,points.data(),points.size()/3);
         }
+        timing.mark("sample");
     },error,error_size);
 }
 
-#include <BRep_Tool.hxx>
 #include <GeomProjLib.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_TrimmedCurve.hxx>
@@ -179,7 +252,8 @@ extern "C" int pamat_sketch_curve_proxy(const double* frame,const PamatSketchCur
 }
 
 #include <BRepBuilderAPI_MakeWire.hxx>
-#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRep_Builder.hxx>
+#include <TopoDS_Compound.hxx>
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <ChFi2d_FilletAPI.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -199,7 +273,8 @@ static void emit_sketch_edge(const TopoDS_Edge& edge,const gp_Trsf& local,size_t
 }
 extern "C" int pamat_sketch_modify(const double* frame,const PamatSketchCurve* curves,size_t count,const double* data,int operation,double value,CurveSink sink,void* context,char* error,size_t error_size){
     return checked([&]{
-        auto edges=make_sketch_edges(frame,curves,count,data);if(edges.empty())throw std::invalid_argument("Select sketch curves");
+        SketchTiming timing(operation==3?"normalize":"modify",count);
+        auto edges=make_sketch_edges(frame,curves,count,data);timing.mark("edges");if(edges.empty())throw std::invalid_argument("Select sketch curves");
         gp_Ax3 axes(gp_Pnt(frame[0],frame[1],frame[2]),gp_Dir(frame[9],frame[10],frame[11]),gp_Dir(frame[3],frame[4],frame[5]));gp_Trsf local;local.SetTransformation(axes);
         const auto emit=[&](const TopoDS_Shape& shape,size_t source){TopTools_IndexedMapOfShape result;TopExp::MapShapes(shape,TopAbs_EDGE,result);for(const auto& e:result)emit_sketch_edge(TopoDS::Edge(e),local,source,sink,context);};
         if(operation==0){
@@ -220,29 +295,33 @@ extern "C" int pamat_sketch_modify(const double* frame,const PamatSketchCurve* c
             if(!changed)throw std::invalid_argument("Rounding requires curves sharing a corner");
             for(size_t i=0;i<count;++i)emit(edges[i],i);for(const auto& e:fillets)emit(e,count);
         }else if(operation==3){
-            struct Cells{std::vector<std::unique_ptr<PamatShape>> faces;};Cells cells;
-            const auto receive=[](void* c,PamatShape* face,const size_t*,const int32_t*,size_t){static_cast<Cells*>(c)->faces.emplace_back(face);};
-            char detail[1024];if(pamat_sketch_regions(frame,curves,count,data,receive,&cells,detail,sizeof(detail)))throw std::runtime_error(detail);
-            std::vector<std::pair<gp_Pnt,gp_Pnt>> segments;
-            for(const auto& e:edges){BRepAdaptor_Curve c(e);GCPnts_QuasiUniformDeflection sample(c,0.0001);if(!sample.IsDone())throw std::runtime_error("Could not classify text contours");for(int i=1;i<sample.NbPoints();++i)segments.emplace_back(sample.Value(i).Transformed(local),sample.Value(i+1).Transformed(local));}
-            NCollection_List<TopoDS_Shape> filled;
-            for(const auto& cell:cells.faces){auto face=TopoDS::Face(cell->value);double u0,u1,v0,v1;BRepTools::UVBounds(face,u0,u1,v0,v1);gp_Pnt2d inside;bool found=false;
-                for(int grid:{3,7,17,37}){for(int i=0;i<grid&&!found;++i)for(int j=0;j<grid&&!found;++j){gp_Pnt2d p(u0+(u1-u0)*(i+0.5)/grid,v0+(v1-v0)*(j+0.5)/grid);BRepClass_FaceClassifier test(face,p,1e-8);if(test.State()==TopAbs_IN){inside=p;found=true;}}if(found)break;}
-                if(!found)continue;int winding=0;for(const auto&[a,b]:segments){double cross=(b.X()-a.X())*(inside.Y()-a.Y())-(inside.X()-a.X())*(b.Y()-a.Y());if(a.Y()<=inside.Y()&&b.Y()>inside.Y()&&cross>0.)++winding;if(a.Y()>inside.Y()&&b.Y()<=inside.Y()&&cross<0.)--winding;}
-                if(winding)filled.Append(face);
+            const auto groups=sketch_groups(edges);timing.mark("groups");
+            for(const auto& group:groups){
+                std::vector<TopoDS_Edge> selected;for(size_t i:group)selected.push_back(edges[i]);
+                SketchTiming timing("normalize",selected.size());
+                struct Cells{std::vector<std::unique_ptr<PamatShape>> faces;};Cells cells;
+                const auto receive=[](void* c,PamatShape* face,const size_t*,const int32_t*,size_t){static_cast<Cells*>(c)->faces.emplace_back(face);};
+                build_sketch_regions(frame,selected,receive,&cells);
+                timing.mark("regions");
+                std::vector<std::pair<gp_Pnt,gp_Pnt>> segments;
+                for(const auto& e:selected){BRepAdaptor_Curve c(e);GCPnts_QuasiUniformDeflection sample(c,0.0001);if(!sample.IsDone())throw std::runtime_error("Could not classify text contours");for(int i=1;i<sample.NbPoints();++i)segments.emplace_back(sample.Value(i).Transformed(local),sample.Value(i+1).Transformed(local));}
+                timing.mark("sample");
+                NCollection_List<TopoDS_Shape> filled;
+                for(const auto& cell:cells.faces){auto face=TopoDS::Face(cell->value);double u0,u1,v0,v1;BRepTools::UVBounds(face,u0,u1,v0,v1);gp_Pnt2d inside;bool found=false;
+                    for(int grid:{3,7,17,37}){for(int i=0;i<grid&&!found;++i)for(int j=0;j<grid&&!found;++j){gp_Pnt2d p(u0+(u1-u0)*(i+0.5)/grid,v0+(v1-v0)*(j+0.5)/grid);BRepClass_FaceClassifier test(face,p,1e-8);if(test.State()==TopAbs_IN){inside=p;found=true;}}if(found)break;}
+                    if(!found)continue;int winding=0;for(const auto&[a,b]:segments){double cross=(b.X()-a.X())*(inside.Y()-a.Y())-(inside.X()-a.X())*(b.Y()-a.Y());if(a.Y()<=inside.Y()&&b.Y()>inside.Y()&&cross>0.)++winding;if(a.Y()>inside.Y()&&b.Y()<=inside.Y()&&cross<0.)--winding;}
+                    if(winding)filled.Append(face);
+                }
+                timing.mark("classify");
+                if(filled.IsEmpty())continue;
+                // These are already disjoint cells sharing split edges. Unify
+                // their common boundaries directly; another Boolean would
+                // repeat intersection and classification of the same geometry.
+                TopoDS_Compound result;BRep_Builder combine;combine.MakeCompound(result);
+                for(const auto& face:filled)combine.Add(result,face);
+                timing.mark("collect");
+                ShapeUpgrade_UnifySameDomain unified(result,true,true,false);unified.Build();emit(unified.Shape(),count);timing.mark("emit");
             }
-            if(filled.IsEmpty())return;
-            TopoDS_Shape result=filled.First();
-            if(filled.Size()>1){
-                // Normalize all filled cells together instead of repeatedly
-                // intersecting an ever-growing union for each glyph region.
-                NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(filled.First());
-                for(auto it=filled.begin();it!=filled.end();++it)if(it!=filled.begin())tools.Append(*it);
-                BRepAlgoAPI_Fuse merge;merge.SetArguments(arguments);merge.SetTools(tools);merge.SetNonDestructive(true);merge.Build();
-                if(!merge.IsDone())throw std::runtime_error("Could not combine text contours");
-                result=merge.Shape();
-            }
-            ShapeUpgrade_UnifySameDomain unified(result,true,true,false);unified.Build();emit(unified.Shape(),count);
         }else throw std::invalid_argument("Unknown sketch edit");
     },error,error_size);
 }

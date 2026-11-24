@@ -7,6 +7,7 @@ npm run test:performance
 npm run test:performance -- --runtime wasm
 npm run test:performance -- --test-name-pattern="100 slots"
 npm run test:performance -- --solver-profile --test-name-pattern="100 slots"
+npm run test:performance -- --geometry-profile --test-name-pattern="15-letter|100 slots"
 ```
 
 The dedicated command builds the selected runtime and runs scenarios sequentially. Native uses the release core over WebSocket; WASM uses the production module in Node. These measure SDK round trips, excluding browser worker transfer and viewport rendering. Normal `npm test`, SDK and editor test commands do not discover this suite.
@@ -22,3 +23,5 @@ JSON results are saved under `reports/performance/`; their paths are printed by 
 `--solver-profile` adds native slot-drag stage timings and component sizes to the report (first interaction, warm-ups, then samples). Diagnosis includes PlaneGCS initialization; solve includes applying its result. Jacobian and entity/total DOF are separate. Profiling is opt-in, adds measurement overhead, and excludes response serialization from the internal solver total. Direct native callers can enable the same JSON stderr events with `PAMATCAD_SKETCH_PROFILE=1`.
 
 2026-11-24 optimization measurements: on the same machine, warmed WASM 15-letter creation fell from 428 to 217 ms, repeated unchanged proxies from 100 to 2 ms, and 100-slot drag solving from 26 to 12 ms. The long-text geometry-only proxy measured 9 ms (20 ms for drag/state/live proxy); its final full proxy still cost 165 ms. A fresh full proxy after 15-letter creation cost 130 ms versus 100 ms before batching, so the improvement applies to creation and live/repeated reads, not fresh full-region reconstruction. The focused final report is `reports/performance/2026-11-24T17-22-52-100Z-wasm-sketch.json`; the native report is `reports/performance/2026-11-24T17-21-50-775Z-native-sketch.json`. An earlier final WASM run was affected by heavy macOS indexing load and should not be compared directly with the baseline.
+
+`--geometry-profile` records native text setup/outlines/normalization, OCCT intersection/face construction/boundary sampling, and region-group reuse. Profiling adds overhead and remains separate from unprofiled WASM request measurements. Independent-slot scenarios verify that only the changed group rebuilds after the initial full proxy. See [Text and region optimization report](performance-text-regions.md) for the controlled first-proxy comparison and the correction to the earlier attribution.

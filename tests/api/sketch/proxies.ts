@@ -127,3 +127,51 @@ test("region caches preserve nested contours and ignore open wires", async t => 
   const feature = await core.solid.extrude(plate.region, { length1: 2 });
   near((await (await scene.bodies.get(feature.newSolids[0]!.id)).properties()).volume.value, (400 - 9 * Math.PI) * 2);
 });
+
+test("region groups merge and split after movement while distant references remain stable", async t => {
+  const { scene, core } = await startCore(t, "sketch-region-groups");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  await sketch.primitives.add("circle", { center: [0, 0], diameter: 10 });
+  const moving = await sketch.primitives.add("circle", { center: [20, 0], diameter: 10 });
+  await sketch.primitives.add("rectangle", { from: [40, 0], to: [50, 10] });
+  await sketch.primitives.add("circle", { center: [45, 5], diameter: 4 });
+  const before = await sketch.getProxy();
+  assert.equal(before.regions.length, 4);
+  const distant = before.regions.filter(r => r.boundary.every(p => p[0] >= 40));
+  assert.equal(distant.length, 2);
+  assert.ok(distant.some(r => r.holes.length === 1));
+  await sketch.drag(moving.points[0]!, [8, 0]);
+  const merged = await sketch.getProxy();
+  assert.equal(merged.regions.length, 5);
+  assert.deepEqual(merged.regions.filter(r => r.boundary.every(p => p[0] >= 40)), distant);
+  await sketch.drag(moving.points[0]!, [20, 0]);
+  assert.deepEqual(await sketch.getProxy(), before);
+  await sketch.drag(moving.points[0]!, [10, 0]);
+  assert.equal((await sketch.getProxy()).regions.length, 4, "Tangent contours remain two bounded regions");
+  await sketch.drag(moving.points[0]!, [8, 0]);
+  await sketch.complete();
+  const profiles = (await sketch.getProxy()).regions.filter(r => r.boundary.every(p => p[0] < 40));
+  const feature = await core.solid.extrude(profiles.map(p => p.region), { length1: 2 });
+  const volumes = await Promise.all(feature.newSolids.map(async body => (await (await scene.bodies.get(body.id)).properties()).volume.value));
+  const intersection = 50 * Math.acos(0.8) - 4 * Math.sqrt(36);
+  near(volumes.reduce((a, b) => a + b, 0), (50 * Math.PI - intersection) * 2);
+});
+
+test("region grouping retains nested holes after closure, opening and construction changes", async t => {
+  const { scene, core } = await startCore(t, "sketch-region-containment");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.yz);
+  const frame = await sketch.primitives.add("rectangle", { from: [0, 0], to: [20, 20] });
+  await sketch.primitives.add("circle", { center: [10, 10], diameter: 6 });
+  await sketch.primitives.add("circle", { center: [40, 0], diameter: 4 });
+  const before = await sketch.getProxy();
+  assert.equal(before.regions.length, 3);
+  assert.equal(before.regions.filter(r => r.holes.length === 1).length, 1);
+  await sketch.construction([frame.lines[0]!], true);
+  assert.equal((await sketch.getProxy()).regions.length, 2);
+  await sketch.construction([frame.lines[0]!], false);
+  assert.deepEqual(await sketch.getProxy(), before);
+  await sketch.complete();
+  const plate = (await sketch.getProxy()).regions.find(r => r.holes.length === 1)!;
+  const feature = await core.solid.extrude(plate.region, { length1: 2 });
+  near((await (await scene.bodies.get(feature.newSolids[0]!.id)).properties()).volume.value, (400 - 9 * Math.PI) * 2);
+});

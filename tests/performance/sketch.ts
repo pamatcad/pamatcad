@@ -27,6 +27,7 @@ type Measurement = {
   samples: Sample[];
   timings: Record<keyof Sample, Summary>;
   solverProfiles?: SolverProfile[];
+  geometryProfiles?: unknown[];
 };
 const results: Measurement[] = [];
 const creationResults: unknown[] = [];
@@ -42,7 +43,7 @@ after(async () => {
     startedAt, runtime, build: "release", transport: runtime === "native" ? "websocket" : "in-process",
     node: process.version, platform: platform(), architecture: arch(), osRelease: release(),
     cpu: cpus()[0]?.model, logicalCpus: cpus().length, revision, dirty: dirty === null ? null : dirty.length > 0,
-    warmupCount, sampleCount, solverProfile: !!process.env.PAMATCAD_SKETCH_PROFILE, results, creationResults,
+    warmupCount, sampleCount, solverProfile: !!process.env.PAMATCAD_SKETCH_PROFILE, geometryProfile: !!process.env.PAMATCAD_GEOMETRY_PROFILE, results, creationResults,
   }, null, 2) + "\n");
   console.log(`Performance results: ${path}`);
 });
@@ -98,8 +99,13 @@ async function measure(t: TestContext, sketch: Sketch, target: SketchEntityRef, 
 
 async function slots(t: TestContext, count: number, connected = false) {
   const profiles: SolverProfile[] | undefined = process.env.PAMATCAD_SKETCH_PROFILE ? [] : undefined;
-  const { scene } = await startCore(t, t.name, "release", profiles && (line => {
-    try { const value = JSON.parse(line); if (value.event === "sketch.solve" && value.drag) profiles.push(value); } catch { /* Other native diagnostics. */ }
+  const geometryProfiles: unknown[] | undefined = process.env.PAMATCAD_GEOMETRY_PROFILE ? [] : undefined;
+  const { scene } = await startCore(t, t.name, "release", (profiles || geometryProfiles) && (line => {
+    try {
+      const value = JSON.parse(line);
+      if (value.event === "sketch.solve" && value.drag) profiles?.push(value);
+      if (["sketch.geometry", "sketch.regions"].includes(value.event)) geometryProfiles?.push(value);
+    } catch { /* Other native diagnostics. */ }
   }));
   const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
   // Construct the fixture without repeatedly solving it; measured drags use automatic recompute.
@@ -116,6 +122,14 @@ async function slots(t: TestContext, count: number, connected = false) {
   await sketch.settings({ autoRecompute: true });
   assert.ok(target);
   await measure(t, sketch, target, count, profiles);
+  if (geometryProfiles) {
+    const regions = () => geometryProfiles.filter(p => (p as { event: string }).event === "sketch.regions") as { groups: number; reused: number; rebuilt: number }[];
+    for (let i = 0; regions().length < 1 + warmupCount + sampleCount && i < 100; i++) await delay(10);
+    assert.equal(regions().length, 1 + warmupCount + sampleCount);
+    assert.ok(regions().every(p => p.groups === count));
+    if (!connected) assert.ok(regions().slice(1).every(p => p.reused === count - 1 && p.rebuilt === 1));
+    results.at(-1)!.geometryProfiles = geometryProfiles;
+  }
   if (profiles) assert.ok(profiles.every(p => p.components === (connected ? 1 : count)));
   if (profiles) assert.ok(profiles.every(p => p.reusedComponents === (connected ? 0 : count - 1)));
   if (connected) {
@@ -137,7 +151,10 @@ test("drag a text block with hundreds of outline curves", async t => {
 });
 
 test("create a 15-letter text block and retrieve first and repeated proxies", async t => {
-  const { core } = await startCore(t, t.name, "release");
+  const geometryProfiles: unknown[] | undefined = process.env.PAMATCAD_GEOMETRY_PROFILE ? [] : undefined;
+  const { core } = await startCore(t, t.name, "release", geometryProfiles && (line => {
+    try { const value = JSON.parse(line); if (["sketch.geometry", "sketch.text", "sketch.regions"].includes(value.event)) geometryProfiles.push(value); } catch { /* Other native diagnostics. */ }
+  }));
   const interaction = async () => {
     const scene = await core.scene.create(t.name);
     try {
@@ -162,6 +179,6 @@ test("create a 15-letter text block and retrieve first and repeated proxies", as
     const sorted = samples.map(s => s[key]).sort((a, b) => a - b), middle = Math.floor(sorted.length / 2);
     return [key, { medianMs: (sorted[middle - 1]! + sorted[middle]!) / 2, p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1]! }];
   }));
-  creationResults.push({ name: t.name, text: "PerformanceTest", size: 10, first, warmup, samples, timings });
+  creationResults.push({ name: t.name, text: "PerformanceTest", size: 10, first, warmup, samples, timings, geometryProfiles });
   t.diagnostic(JSON.stringify({ runtime, timings }));
 });

@@ -32,7 +32,10 @@ impl Sketch {
             .values()
             .filter(|e| !matches!(e.geometry, SketchGeometry::Point { .. }))
             .map(|e| {
-                let key = crate::kernel::sketch::geometry_key(self, Some(&e.reference.id))?;
+                let key = crate::kernel::sketch::geometry_key(
+                    self,
+                    Some(std::slice::from_ref(&e.reference.id)),
+                )?;
                 let cached =
                     if let Some(cached) = previous.get(&e.reference.id).filter(|c| c.key == key) {
                         Rc::clone(cached)

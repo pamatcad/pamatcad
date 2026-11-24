@@ -178,6 +178,8 @@ impl Sketch {
     }
 
     pub fn add_text(&mut self, p: TextParameters) -> Result<GeometryData> {
+        let started =
+            std::env::var_os("PAMATCAD_GEOMETRY_PROFILE").map(|_| std::time::Instant::now());
         let size = text_size(&p.size)?;
         if !size.is_finite()
             || size <= 0.
@@ -293,9 +295,11 @@ impl Sketch {
                 );
             }
         }
+        let font_ms = started.map(|t| t.elapsed().as_secs_f64() * 1000.);
         let id = self.id("text");
         let mut points = vec![];
         let mut curves = vec![];
+        let mut outlines = BTreeMap::new();
         for (line_index, line) in lines.iter().enumerate() {
             let mut buffer = rustybuzz::UnicodeBuffer::new();
             buffer.push_str(line.trim_end_matches('\r'));
@@ -349,8 +353,11 @@ impl Sketch {
                         "The selected font has no glyph for part of this text",
                     ));
                 }
-                let mut outline = Outline::default();
-                face.outline_glyph(ttf_parser::GlyphId(info.glyph_id as u16), &mut outline);
+                let outline = outlines.entry(info.glyph_id).or_insert_with(|| {
+                    let mut outline = Outline::default();
+                    face.outline_glyph(ttf_parser::GlyphId(info.glyph_id as u16), &mut outline);
+                    outline
+                });
                 let offset = [
                     x + position.x_offset as f64 * scale,
                     y + position.y_offset as f64 * scale,
@@ -373,9 +380,9 @@ impl Sketch {
                 } else {
                     (p.origin, 0.)
                 };
-                for segment in outline.segments {
+                for segment in &outline.segments {
                     let positions = segment
-                        .into_iter()
+                        .iter()
                         .map(|q| {
                             let u = q[0] * scale + offset[0] - if guide.is_some() { x } else { 0. };
                             let v = q[1] * scale + offset[1];
@@ -408,6 +415,7 @@ impl Sketch {
                 x += position.x_advance as f64 * scale;
             }
         }
+        let outlines_ms = started.map(|t| t.elapsed().as_secs_f64() * 1000.);
         if !curves.is_empty() {
             let normalized = crate::kernel::sketch::modify(
                 self,
@@ -426,6 +434,7 @@ impl Sketch {
                 curves.extend(geometry.curves);
             }
         }
+        let normalization_ms = started.map(|t| t.elapsed().as_secs_f64() * 1000.);
         for reference in points.iter().chain(&curves) {
             self.entities.get_mut(&reference.id).unwrap().construction = p.construction;
         }
@@ -466,6 +475,15 @@ impl Sketch {
             },
         );
         self.reset_text_frame(&geometry.id);
+        if let Some(t) = started {
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"sketch.text", "fontMs":font_ms.unwrap(),
+                "outlinesMs":outlines_ms.unwrap()-font_ms.unwrap(),
+                "normalizationMs":normalization_ms.unwrap()-outlines_ms.unwrap(),
+                "finalizeMs":t.elapsed().as_secs_f64()*1000.-normalization_ms.unwrap()})
+            );
+        }
         Ok(geometry)
     }
 
