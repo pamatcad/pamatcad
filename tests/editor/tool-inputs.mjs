@@ -9,6 +9,8 @@ import { testSketchUpdates } from "./sketch-updates.mjs";
 import { testSketchDimensions } from "./sketch-dimensions.mjs";
 import { testSketchAppearance } from "./sketch-appearance.mjs";
 import { testSketchPanel } from "./sketch-panel.mjs";
+import { testSketchModes } from "./sketch-modes.mjs";
+import { testSketchText } from "./sketch-text.mjs";
 
 const require = createRequire(new URL("../../apps/editor/package.json", import.meta.url));
 const { createServer } = await import(require.resolve("vite"));
@@ -69,5 +71,7 @@ export async function testToolInputs(browser) {
     await testSketchPanel(page);
     await testSketchDimensions(page);
     await testSketchAppearance(page);
+    await testSketchModes(page);
+    await testSketchText(page);
   } finally { await page.close(); await server.close(); }
 }

@@ -1,4 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <title>Construction geometry</title>
-  <path class="icon-current-stroke" d="M5 26 27 6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4"/><circle class="icon-point" cx="5" cy="26" r="2" fill="#815a36"/><circle class="icon-point" cx="27" cy="6" r="2" fill="#815a36"/>
+  <path class="icon-current-stroke" d="M5 26 27 6" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4"/><circle class="icon-point" cx="5" cy="26" r="2" fill="#dcb58c"/><circle class="icon-point" cx="27" cy="6" r="2" fill="#dcb58c"/>
 </svg>

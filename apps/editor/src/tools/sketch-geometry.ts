@@ -24,11 +24,14 @@ export type DrawingFields = {
   radius: number;
   angle: number;
   text: string;
-  size: number;
+  size: import("@pamatcad/sdk").Formula<import("@pamatcad/sdk").LengthUnit>;
+  fontIndex?: number;
+  fontFamily?: string;
+  italic?: boolean;
   weight: number;
   fontBase64?: string;
-  horizontal: "left" | "center" | "right";
-  vertical: "baseline" | "bottom" | "middle" | "top";
+  horizontal?: "left" | "center" | "right";
+  vertical?: "baseline" | "bottom" | "middle" | "top";
   closed: boolean;
 };
 export const distance = (a: Point, b: Point) => Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -144,7 +147,7 @@ export function drawing(tool: SketchToolName, variant: number, points: Point[], 
       }
       return { type: "spline", parameters: { points: all, fit: variant === 0, closed: f.closed, construction } };
     }
-    case "text": return { type: "text", parameters: { text: f.text, origin: a, size: f.size, weight: f.weight, fontBase64: f.fontBase64, horizontal: f.horizontal, vertical: f.vertical, guide: selected.find(e => e.geometry.type !== "point")?.reference, construction } };
+    case "text": return { type: "text", parameters: { text: f.text, origin: a, size: f.size, weight: f.weight, fontBase64: f.fontBase64, fontIndex: f.fontIndex, fontFamily: f.fontFamily, italic: f.italic, horizontal: f.horizontal, vertical: f.vertical, guide: selected.find(e => e.geometry.type !== "point")?.reference, construction } };
     default: throw new Error("Choose a drawing tool.");
   }
 }

@@ -849,6 +849,8 @@ api! {
     SceneCapture(CaptureScene) -> EncodedFile = "scene.capture",
     SketchCreate(CreateSketch) -> SketchData = "sketch.create",
     PrimitiveAdd(AddPrimitive) -> PrimitiveData = "sketch.primitives.add",
+    SketchTextUpdate(UpdateSketchText) -> SketchText = "sketch.texts.update",
+    SketchTextExplode(ExplodeSketchText) -> GeometryData = "sketch.texts.explode",
     SketchComplete(SketchQuery) -> SketchData = "sketch.complete",
     SketchFind(SketchFind) -> SketchData = "sketch.find",
     SketchState(SketchViewQuery) -> SketchState = "sketch.state",

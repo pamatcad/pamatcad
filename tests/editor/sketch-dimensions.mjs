@@ -93,7 +93,8 @@ export async function testSketchDimensions(page) {
       return { id: d.id, position: d.parameters.annotation.position, entities: t.state.entities, revision: String(t.state.revision), status: t.state.status };
     });
     assert.equal(await page.evaluate(() => window.dimensionCheck.tool.state.dimensions[0].computed.value), 10);
-    assert.equal(await page.evaluate(() => window.dimensionCheck.tool.tool), "select");
+    assert.equal(await page.evaluate(() => window.dimensionCheck.tool.tool), "dimension");
+    await page.keyboard.press("Escape");
 
     // Annotation drag remains entirely local until release and never requests a proxy.
     await page.evaluate(() => { window.dimensionCheck.annotations = []; window.dimensionCheck.proxyCalls = 0; });
@@ -144,6 +145,8 @@ export async function testSketchDimensions(page) {
     await formula.fill("30 / 2"); await formula.press("Enter"); await idle();
     assert.equal(await page.evaluate(() => window.dimensionCheck.tool.state.dimensions.at(-1).kind), "length");
     await page.screenshot({ path: "/private/tmp/pamatcad-dimensions.png" });
+
+    await page.keyboard.press("Escape");
 
     // Context menu owns mode/name, while double-click only edits the formula.
     const lengthPosition = await page.evaluate(() => window.dimensionCheck.tool.state.dimensions.at(-1).parameters.annotation.position);

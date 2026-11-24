@@ -71,7 +71,7 @@ const core = new Core(transport);
 
 function controls() {
   const doc = activeDocument;
-  ribbon?.render(doc?.workbench ?? "solid", doc?.sketchTool, busy || pendingPreview, !!doc);
+  ribbon?.render(doc?.workbench ?? "solid", doc?.sketchTool, busy || (doc?.sketchTool ? doc.sketchTool.blocking : pendingPreview), !!doc);
   button("new-sketch").disabled = busy || pendingPreview || !doc || !!doc.tool;
   button("extrude").disabled = busy || pendingPreview || !doc || !!doc.tool;
   for (const [id, name] of [

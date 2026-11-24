@@ -577,6 +577,37 @@ pub(super) fn solve(
         }
     }
     let mut residuals: Vec<(i32, E)> = vec![];
+    for text in sketch.texts.values() {
+        let Some(frame) = &text.frame else { continue };
+        let [[x0, y0], [x1, y1]] = text.layout;
+        let height = y1 - y0;
+        let b = system.point(&frame.bottom_left.id)?;
+        let t = system.point(&frame.top_left.id)?;
+        let v = sub(t, b.clone());
+        let u = [
+            v[1].clone().scale((x1 - x0) / height),
+            v[0].clone().scale(-(x1 - x0) / height),
+        ];
+        residuals.push((1, length(v.clone()).sub(constant(height))));
+        for (point, vertical, horizontal) in [
+            (&frame.bottom_right, 0., 1.),
+            (&frame.top_right, 1., 1.),
+            (&frame.center, 0.5, 0.5),
+        ] {
+            let p = system.point(&point.id)?;
+            for axis in 0..2 {
+                residuals.push((
+                    1,
+                    p[axis].clone().sub(
+                        b[axis]
+                            .clone()
+                            .add(v[axis].clone().scale(vertical))
+                            .add(u[axis].clone().scale(horizontal)),
+                    ),
+                ));
+            }
+        }
+    }
     for (id, entity) in &sketch.entities {
         if let SketchGeometry::Arc {
             center, from, to, ..
@@ -854,6 +885,7 @@ pub(super) fn solve(
         entities: freedom,
         warnings: sketch.status.warnings.clone(),
     };
+    sketch.sync_text_frames()?;
     sketch.validate_geometry()?;
     Ok(())
 }

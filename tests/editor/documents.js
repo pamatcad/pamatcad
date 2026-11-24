@@ -93,7 +93,8 @@ async function testDocumentEditor() {
     beginRectangleDraft();
     change("width", "5");
     change("height", "7");
-    await wait(() => !find("apply").disabled, "Validate second sketch dimensions");
+    find("height").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await wait(() => !find("apply").disabled, "Commit second rectangle");
     find("apply").click();
     await wait(() => find("features").children.length === 1 && !find("extrude").disabled,
       "Commit second document's sketch");
@@ -118,7 +119,8 @@ async function testDocumentEditor() {
     check(find("width").value === "0" && find("apply").disabled,
       "Returning to an invalid sketch draft must keep Finish disabled");
     change("width", "12");
-    await wait(() => !find("apply").disabled, "Validate first sketch dimensions");
+    find("width").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await wait(() => !find("apply").disabled, "Commit first rectangle");
     find("apply").click();
     await wait(() => !find("extrude").disabled, "Commit first document's sketch");
     find("extrude").click();

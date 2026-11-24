@@ -62,7 +62,8 @@ async function testRectangleEditor() {
   beginRectangleDraft();
   change("width", "10");
   change("height", "10");
-  await wait(() => !find("apply").disabled, "Validate rectangle dimensions");
+  find("height").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await wait(() => !find("apply").disabled, "Commit rectangle dimensions");
   click("apply");
   await wait(() => !find("extrude").disabled, "Finish sketch");
   if (find("workbench").value !== "solid" || find("solid-ribbon").hidden) throw new Error("Expected the Solid ribbon");

@@ -25,6 +25,7 @@ Goal: basic CAD operations
 - fillets and chamfers
 - body split
 - STL export
+- sweep
 
 ## More CAD
 

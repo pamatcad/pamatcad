@@ -1,5 +1,5 @@
 import type { CircleData, CircleParameters, RectangleData, RectangleParameters, SketchData, SketchRef, SketchSupport,
-  SketchEntityRef, Primitive, GeometryData, ConstraintKind, ConstraintParameters, DimensionKind, DimensionParameters,
+  TextUpdateParameters, SketchEntityRef, Primitive, GeometryData, ConstraintKind, ConstraintParameters, DimensionKind, DimensionParameters,
   UpdateDimension, SketchSettings, ProjectionSource, TransformSketchGeometry, SketchCurveEdit } from "./generated/protocol.js";
 import type { Transport } from "./transport.js";
 
@@ -14,6 +14,7 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
   readonly dimensions;
   readonly regions;
   readonly projections;
+  readonly texts;
   readonly support;
   private readonly reference: SketchRef;
 
@@ -31,6 +32,17 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
       return transport.request("sketch.primitives.add", { sketch, primitive: { type, parameters } as Primitive, ...options });
     }
     this.primitives = { add };
+    this.texts = {
+      all: async () => (await this.state()).texts,
+      get: async (id: string) => {
+        const text = (await this.state()).texts.find(text => text.id === id);
+        if (!text) throw new Error(`Text object ${id} does not exist`);
+        return text;
+      },
+      update: (id: string, parameters: TextUpdateParameters, options: { preview?: boolean } = {}) =>
+        transport.request("sketch.texts.update", { sketch, id, parameters, ...options }),
+      explode: (id: string) => transport.request("sketch.texts.explode", { sketch, id }),
+    };
     this.projections = {
       add: (source: ProjectionSource) => transport.request("sketch.project", { sketch, source }),
       update: (id: string, source: ProjectionSource) => transport.request("sketch.project", { sketch, source, id }),

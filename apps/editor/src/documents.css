@@ -13,6 +13,8 @@
 .document-tab-group { position: relative; display: flex; align-items: stretch; flex-shrink: 0; border-bottom: 2px solid transparent; }
 .document-tab-group[data-active="true"] { border-bottom-color: var(--accent-border); background: var(--active-background); color: var(--on-accent); }
 .document-tab-group [role="tab"] { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 10px; user-select: none; touch-action: none; }
+/* Document identity stays legible while requests temporarily lock tab actions. */
+.document-tab-group button:disabled { opacity: 1; }
 .dragging-tabs, .dragging-tabs button { cursor: grabbing; }
 .document-tab-group.dragging-tab { opacity: var(--disabled-opacity); }
 .document-tab-group[data-drop]::after { content: ""; position: absolute; top: 3px; bottom: 3px; width: 2px; background: var(--accent-border); pointer-events: none; }

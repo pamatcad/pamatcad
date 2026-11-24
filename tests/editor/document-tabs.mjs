@@ -39,13 +39,14 @@ export async function testDocumentTabs(browser, url) {
     await page.evaluate(() => beginRectangleDraft());
     await page.locator("#width").fill("23");
     await page.locator("#height").fill("9");
-    await page.waitForFunction(() => !document.querySelector("#apply").disabled);
+    await page.waitForFunction(() => document.querySelector("#progress").hidden);
+    assert.equal(await page.locator("#apply").isDisabled(), true);
 
     await move(first, third, false);
     assert.deepEqual(await order(), [second, third, first]);
     assert.equal(await active(), third, "Dragging an inactive tab must not activate it");
-    assert.equal(await page.locator("#width").inputValue(), "23");
-    assert.equal(await page.locator("#height").inputValue(), "9");
+    assert.equal(await page.locator("#width").inputValue(), "23 mm");
+    assert.equal(await page.locator("#height").inputValue(), "9 mm");
     assert.equal(await page.locator("#features li").count(), 0, "Reordering must not commit a draft");
 
     await move(third, second, true);
@@ -57,7 +58,7 @@ export async function testDocumentTabs(browser, url) {
     await page.keyboard.press("Escape");
     await page.mouse.up();
     assert.deepEqual(await order(), [third, second, first], "Escape cancels the reorder");
-    assert.equal(await page.locator("#width").inputValue(), "23", "Escape during drag must not cancel the sketch");
+    assert.equal(await page.locator("#width").inputValue(), "23 mm", "Escape during drag must not cancel the sketch");
     await beginDrag(third, last.x, last.y + last.height + 40);
     await page.mouse.up();
     assert.deepEqual(await order(), [third, second, first], "Dropping outside the bar cancels the reorder");
@@ -94,7 +95,7 @@ export async function testDocumentTabs(browser, url) {
     await page.locator("#js").press("Enter");
     await page.waitForFunction(() => document.querySelector("#console-output").lastElementChild?.textContent === "1500" && !document.querySelector("#js").disabled);
     await tab(third).click();
-    assert.equal(await page.locator("#width").inputValue(), "23", "Draft survives reorder, switching and closing another tab");
+    assert.equal(await page.locator("#width").inputValue(), "23 mm", "Draft survives reorder, switching and closing another tab");
 
     await page.setViewportSize({ width: 800, height: 840 });
     for (let index = 0; index < 10; index++) await create();

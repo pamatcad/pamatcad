@@ -11,6 +11,8 @@ pamatcad-core = { path = "../../../src/core" }
 pamatcad-host = { path = "../../../src/host" }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
+font-kit = "0.14.3"
+base64 = "0.22"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

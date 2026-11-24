@@ -29,16 +29,16 @@ export async function testSketchEditor(browser, url) {
     await page.locator('[data-tool="rectangle"]').click();
     await page.mouse.click(...drawAt(0, 0));
     await page.mouse.move(...drawAt(10, 6));
-    await page.waitForFunction(() => !document.querySelector("#sketch-action").disabled);
+    await page.waitForFunction(() => document.querySelector("#progress").hidden);
     assert.ok(await page.locator('.sketch-live-dimensions #width').isVisible());
     await page.locator("#width").fill("20 / 2");await page.locator("#height").fill("6");
     await page.locator("#width").press("Tab");assert.equal(await page.locator("#height").evaluate(n=>n===document.activeElement),true);
     await page.locator("#height").press("Shift+Tab");assert.equal(await page.locator("#width").evaluate(n=>n===document.activeElement),true);
-    await page.waitForFunction(() => !document.querySelector("#sketch-action").disabled);
+    await page.waitForFunction(() => document.querySelector("#progress").hidden);
     await page.screenshot({path:"/private/tmp/pamatcad-sketch-live-dimensions.png"});
     await page.locator("#width").press("Enter");
     await page.waitForFunction(()=>!document.querySelector("#progress").hidden===false&&document.querySelector("#status").textContent.includes("added"));
-    assert.equal(await page.locator('#sketch-ribbon [aria-pressed="true"]').count(), 0);
+    assert.equal(await page.locator('[data-tool="rectangle"]').getAttribute("aria-pressed"), "true");
     assert.equal(await page.locator('.sketch-live-dimensions').isVisible(), false);
     await page.locator('[data-tool="circle"]').click();
     await page.mouse.click(...drawAt(-16, 0));
@@ -46,7 +46,7 @@ export async function testSketchEditor(browser, url) {
     await page.locator("#sketch-radius").fill("3");
     await page.locator("#sketch-radius").press("Enter");
     await page.waitForFunction(()=>document.querySelector("#status").textContent==="Circle added"&&!document.querySelector("#apply").disabled);
-    assert.equal(await page.locator('#sketch-ribbon [aria-pressed="true"]').count(), 0);
+    assert.equal(await page.locator('[data-tool="circle"]').getAttribute("aria-pressed"), "true");
     await page.locator('[data-tool="rectangle"]').click();
     await page.mouse.click(...drawAt(-15, -10));
     await page.mouse.move(...drawAt(-10, -5));
@@ -112,7 +112,8 @@ export async function testSketchEditor(browser, url) {
     await at(10, 0);
     await page.waitForFunction(() => document.querySelector("#sketch-status").textContent.startsWith("Line"));
     await page.locator('#sketch-ribbon [data-constraint="horizontal"]').click();
-    await page.waitForFunction(() => document.querySelector("#progress").hidden && document.querySelector("#sketch-status").textContent.includes("3 DOF"));
+    await page.waitForFunction(() => document.querySelector("#progress").hidden && document.querySelector("#sketch-status").textContent.includes("3 sketch DOF"));
+    await page.keyboard.press("Escape");
     await at(9, 0); // The H label is drawn over the line and must win the pick.
     await page.keyboard.press("Delete");
     await page.waitForFunction(() => document.querySelector("#progress").hidden && document.querySelector("#sketch-status").textContent.includes("4 sketch DOF"));

@@ -8,6 +8,7 @@ import type { BodyProxy, SketchProxy, SketchState, PlaneFrame } from "@pamatcad/
 import type { ThemeDefinition } from "./theme";
 import { accepts, selectionKey, selectionOwner, type SelectionItem, type SelectionFilter } from "./selection";
 import { ToolHandles, type ToolHandle } from "./tool-handles";
+import { SketchCursor } from "./sketch-cursor";
 
 export type Point = [number, number];
 export type Rectangle = { from: Point; to: Point };
@@ -317,6 +318,7 @@ export class Viewport {
   private filter: SelectionFilter = "all";
   private handles: ToolHandles;
   private renderPending = false;
+  private commandCursor: SketchCursor;
 
   constructor(
     private host: HTMLElement,
@@ -334,6 +336,7 @@ export class Viewport {
     host.style.setProperty("--gizmo-size", `${gizmoSize}px`);
     canvas.id = "model-canvas";
     host.prepend(canvas);
+    this.commandCursor = new SketchCursor(canvas, e => this.inGizmo(e) || !!this.gizmoDrag);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.autoClear = false;
     this.orthographic.up.set(0, 0, 1);
@@ -631,8 +634,9 @@ export class Viewport {
     this.sketchMode = enabled;
     this.orbit.enableRotate = true;
     if (!enabled) { this.sketchFrame = undefined; this.sketchDisplay.clearDisplay(); this.sketchDisplayState = undefined; }
-    this.renderer.domElement.style.cursor = enabled ? "crosshair" : "";
+    if (!enabled) this.commandCursor.set();
   }
+  setSketchCursor(symbol?: string, drawing = false) { this.commandCursor.set(symbol, drawing); }
   setSketchFrame(frame: PlaneFrame) { this.sketchFrame = frame; }
   setSketchInputs(inputs: SketchDisplay["inputs"] = []) {
     this.sketchDisplay.inputs = inputs;

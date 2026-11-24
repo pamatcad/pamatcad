@@ -364,6 +364,7 @@ export async function testInteractiveUpdates(page, sdk) {
       input.value = "10";
       input.dispatchEvent(new Event("input", { bubbles: true }));
     }
+    document.getElementById("height").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await until(() => !document.querySelector("#apply").disabled);
     editor.restoreView({ mode: "orthographic", position: [3, 2, 60], target: [3, 2, 0], span: 60, zoom: 1.7 });
     document.querySelector("#apply").click();

@@ -18,7 +18,11 @@ For user convenience the origin (xy/xz/yz) planes become visible during sketch c
 
 Sketch elements are selected by clicking on them. In case when there are two geometries (two lines on one another, or two overlapping points), double-click opens a small popup listing all selectable geometries at sketch point, hovering over the list items highlights the geometry.
 
-With no active command, the sketch is in selection mode. Completing geometry, applying a tool, or toggling the active ribbon button returns to selection. Escape discards the unfinished drawing or active tool without closing the sketch; in selection mode it clears the selection. Delete or Backspace removes selected geometry, constraints, or dimensions, except while editing text.
+With no active command, the sketch is in selection mode. Geometry, tools, and constraints remain active after each application. Completing geometry resets its construction points and typed dimensions while retaining the tool variant and construction mode. Applying an editing tool clears its operand selection. Escape discards the unfinished drawing or active command without closing the sketch; in selection mode it clears the selection. Choosing another command replaces the current one, and clicking its active ribbon button returns to selection. Delete or Backspace removes selected geometry, constraints, or dimensions, except while editing text.
+
+The viewport uses the standard arrow in selection mode, a small hairline crosshair for drawing, and the standard arrow for editing tools and constraints. Active commands add a small monochrome outline symbol without filled geometry or vertex dots; variants share their command's symbol. Cursors and symbols follow the active document and disappear over panels, inputs, the navigation cube, and during camera navigation.
+
+Constraints can be activated before picking geometry. With preselection, the ribbon enables constraints whose operand types and counts are compatible, including incomplete selections. Complete selections apply immediately. In active constraint mode, click compatible geometry without Shift; Fix applies to each clicked item, while multi-object constraints apply when all required operands are collected. Each application starts a fresh selection. Clicking a pending operand again removes it; clicking empty space clears pending operands. Invalid picks do not replace them. Solver failures retain the mode and operands for correction, and duplicates retain the existing constraint.
 
 Dragging excludes the moving point and its coincident partners from snap targets. While a drag update is pending, retain the newest pointer position and always apply the release position. A click without movement only selects.
 
@@ -26,7 +30,7 @@ Dragging a line moves both endpoints together according to their constraints. En
 
 Dragging a circle rim or arc edge first resizes it with its center held; arcs also prefer unchanged endpoint angles. Dragging an arc center prefers translation with unchanged radius and sweep. Permanent constraints take priority over these temporary preferences. Projected geometry remains read-only.
 
-Drawing previews and dragging start immediately, with one update in flight and only the newest input waiting. Display completed previews during continued movement; enable Apply only for the current valid input. Completion uses the final input. Escape, tool changes, and document suspension invalidate pending previews.
+Drawing previews and dragging start immediately, with one update in flight and only the newest input waiting. Display completed previews during continued movement. Background updates keep the sketch ribbon usable; commits temporarily block it. Finish sketch stays disabled throughout unfinished drawing and dragging, including gaps between responses, until geometry is committed or cancelled and the last update settles. Finish does not add unfinished geometry. Completion uses the final input. Escape, tool changes, and document suspension invalidate pending previews.
 
 Points are visible small circles. Constrained, partially constrained, unconstrained, explicitly fixed and projected geometry have distinct shared [palette colors](default_palette.md#viewport-and-user-colors). Selection overrides their color and doubles line width and point size. Construction geometry is presented as dotted lines. New geometry is visibly unconstrained before DOF results are available.
 
@@ -34,7 +38,9 @@ When a tool, constraint, or a geometry is selected, a part of tool window change
 
 Every geometry displays live dimensions during creation - with an ability to navigate between editable dimensions via tab and entering a dimension value. Every dimension is a formula. 
 
-Drawing starts with a canvas point. Editable dimensions appear beside the draft on the canvas; the tool window has no generic X/Y/width/height inputs. Enter completes the geometry using the entered dimensions.
+Drawing starts with a canvas point. Editable dimensions appear beside the draft on the canvas; the tool window has no generic X/Y/width/height inputs or geometry submission buttons. The final click or Enter from the canvas or a geometry input completes geometry using the current dimensions. Enter finishes a spline using its confirmed points. Editing operations retain their Apply buttons.
+
+Live drawing dimensions are standalone inputs without visible captions, surrounding panels, or tooltips. Use 10px text and 20px height, with accessible names. Numeric values include the document's length or angle unit. Typed formulas remain visible while editing; on blur, show their evaluated value in document units and restore the source on focus.
 
 Dimension labels and numeric edit fields show up to four decimal places, trimming trailing zeros. Compact fields and high-contrast numbers follow the shared palette. Formatting preserves formulas and the full stored precision when a value is accepted unchanged.
 
@@ -50,8 +56,8 @@ A tool window appears in the sketch mode, some of the interface is shared and so
 
 - Geometry mode: normal / construction icons with explanatory tooltips
 - Recompute automatically checkbox and a status panel (constrained / unconstrained / dof), for the selected object or the whole sketch. Show Recompute only when automatic recompute is off.
-- Highlight: caption and one row of icons for none / constrained / partially constrained / unconstrained
 - Currently selected tool configurations, see below
+- Highlight: caption and one row of icons for none / constrained / partially constrained / unconstrained
 - Display: caption and one row of icon toggles for lines, points, constraints, dimensions, construction geometry, projections
 - Snap: caption and one row of icons for geometry snapping and grid snapping
 - Cancel sketch / Finish sketch
@@ -70,7 +76,7 @@ Icon selectors
 - Ellipse: center, width and height; rectangle
 - Slot: 3 point slot; center and line slot, center to center slot
 - Spline: fit point; control point
-- Text: font, font weight, font size, alignment (vertical / horizontal), guide (straight or pick a guideline)
+- Text: multiline text area, font-family list, weight dropdown, Bold/Italic style icons, formula size with document units, and horizontal/vertical alignment icons. Bold stays synchronized with weight; unavailable font styles are disabled. Guideline selection is omitted from this panel.
 - Edit/Offset: 1 sided, 2 sided (symmetric or independent), 1 or 2 lengths accordingly
 - Edit/Rounding: one radius in the tool window for all selected geometry
 - Edit/Scale: one scale rate in the tool window, a draggable arrow in a viewpoint
@@ -118,3 +124,11 @@ Dimensions can reference driven dimensions during computation, for example this 
 # Constrained and unconstrained sketches
 
 Constrained and unconstrained sketches can be used in the same way be other tools and commands, as long as they create closed regions.
+
+# Text objects
+
+Straight text has a construction rectangle with diagonals and a center point. Its typographic bounds include advances, spaces, ascenders, descenders, line spacing and empty lines. Corners, edges and center can be used for snapping and constraints. Text controls its size; constraints control placement and rotation. Helpers cannot be independently edited or removed until conversion. Text edits retain helper references and reject conflicting constraints atomically.
+
+Text remains an editable object: select it as a whole, double-click to edit its settings, and use the context menu to convert it to ordinary sketch geometry. Conversion preserves exact lines and curves, boundaries and region references. Non-construction text supplies regions before conversion, including glyph holes and disconnected characters. Outline points and curves cannot be edited independently until conversion. Size retains its formula and computed value; multiline layout uses font metrics.
+
+Roboto is the only bundled font. Native builds list installed fonts; supported browsers request local-font permission on explicit action. Otherwise show a small (?) beside the font list: “This browser does not support access to installed fonts. Use Chrome to select a local font.” Denied permission has its own explanation. Font-file import remains available. Use actual font faces/variation axes rather than simulated bold or italic; retain selected font bytes and collection index with editable text.

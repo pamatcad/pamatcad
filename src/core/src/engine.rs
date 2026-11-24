@@ -135,10 +135,7 @@ impl Engine {
                 if let Primitive::Text(p) = &mut input.primitive {
                     let scene = self.scene(&input.sketch.scene_id)?;
                     let evaluated = scene.evaluate_formula(&p.size, scene.data.units.length)?;
-                    p.size = Formula::Number(
-                        evaluated.computed.value
-                            * FormulaUnit::Length(evaluated.computed.unit).scale(),
-                    );
+                    p.size = Formula::Evaluated(evaluated);
                 }
                 let data = self.update_sketch_for(
                     session,
@@ -147,6 +144,60 @@ impl Engine {
                     |sketch| sketch.add_primitive(input.primitive),
                 )?;
                 Ok(Response::PrimitiveAdd(data))
+            }
+            Request::SketchTextUpdate(input) => {
+                let mut parameters = self
+                    .sketch(&input.sketch)?
+                    .texts
+                    .get(&input.id)
+                    .ok_or_else(|| {
+                        CoreError::new(ErrorCode::NotFound, "Text object does not exist")
+                    })?
+                    .parameters
+                    .clone();
+                macro_rules! apply_fields {
+                    ($($field:ident),*) => { $(if let Some(value) = input.parameters.$field { parameters.$field = value; })* };
+                }
+                apply_fields!(
+                    text,
+                    origin,
+                    size,
+                    font_base64,
+                    font_index,
+                    font_family,
+                    weight,
+                    italic,
+                    horizontal,
+                    vertical,
+                    guide,
+                    construction
+                );
+                let scene = self.scene(&input.sketch.scene_id)?;
+                parameters.size = Formula::Evaluated(
+                    scene.evaluate_formula(&parameters.size, scene.data.units.length)?,
+                );
+                self.update_sketch_for(
+                    session,
+                    input.preview.unwrap_or(false),
+                    &input.sketch,
+                    |sketch| sketch.update_text(&input.id, parameters).map(|_| ()),
+                )?;
+                let text = self
+                    .view_sketch(
+                        session,
+                        &SketchViewQuery {
+                            sketch: input.sketch,
+                            preview: input.preview,
+                        },
+                    )?
+                    .texts[&input.id]
+                    .clone();
+                Ok(Response::SketchTextUpdate(text))
+            }
+            Request::SketchTextExplode(input) => {
+                let geometry =
+                    self.update_sketch(&input.sketch, |sketch| sketch.explode_text(&input.id))?;
+                Ok(Response::SketchTextExplode(geometry))
             }
             Request::SketchComplete(input) => {
                 self.complete_sketch(input).map(Response::SketchComplete)
@@ -195,7 +246,26 @@ impl Engine {
                 .map(Response::SketchTransform),
             Request::SketchConstruction(input) => {
                 self.update_sketch(&input.sketch, |s| {
-                    for id in s.selected_entities(&input.entities)? {
+                    let mut entities = input.entities.clone();
+                    for reference in &entities {
+                        s.ensure_text_frame_editable(&reference.id)?;
+                    }
+                    let owners = entities
+                        .iter()
+                        .filter_map(|r| s.text_owner(&r.id).map(|t| t.id.clone()))
+                        .collect::<std::collections::BTreeSet<_>>();
+                    for id in owners {
+                        let text = s.texts.get_mut(&id).unwrap();
+                        text.parameters.construction = input.construction;
+                        entities.extend(
+                            text.geometry
+                                .points
+                                .iter()
+                                .chain(&text.geometry.curves)
+                                .cloned(),
+                        );
+                    }
+                    for id in s.selected_entities(&entities)? {
                         if id != "origin" {
                             s.entities.get_mut(&id).unwrap().construction = input.construction;
                         }
@@ -212,7 +282,9 @@ impl Engine {
             Request::SketchSupportUpdate(input) => self
                 .update_sketch_support(input)
                 .map(Response::SketchSupportUpdate),
-            Request::SketchDrag(input) => self.drag_sketch_geometry(input).map(Response::SketchDrag),
+            Request::SketchDrag(input) => {
+                self.drag_sketch_geometry(input).map(Response::SketchDrag)
+            }
             Request::TimelineList(input) => Ok(Response::TimelineList(
                 self.scene(&input.scene_id)?.timeline.clone(),
             )),

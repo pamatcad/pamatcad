@@ -31,7 +31,7 @@ export async function testSketchUpdates(page) {
   const state = () => page.evaluate(() => {
     const c = window.sketchUpdates, t = c.tool;
     return { requests: c.requests, snapshots: c.snapshots, valid: t.draftValid, ready: t.ready,
-      disabled: t.get("sketch-action").disabled, tool: t.tool, state: t.state, error: t.get("sketch-error").textContent };
+      disabled: document.querySelector("#apply").disabled, tool: t.tool, state: t.state, error: t.get("sketch-error").textContent };
   });
   const waitReply = method => page.waitForFunction(method => window.sketchUpdates.replies.some(r => r.method === method), method);
   const release = async (method, reject = false) => {
@@ -66,6 +66,17 @@ export async function testSketchUpdates(page) {
         if (args[0] && args[0] !== this.state) c.snapshots.push(structuredClone(args[0]));
         return c.display.apply(this, args);
       };
+      c.controls = [];
+      c.tabs = [...document.querySelectorAll('#document-tabs [role="tab"]')];
+      c.changed = t.hooks.changed;
+      t.hooks.changed = (...args) => {
+        c.changed(...args);
+        if (c.capture) c.controls.push({ finish: document.querySelector("#apply").disabled,
+          ribbon: [...document.querySelectorAll('#sketch-ribbon [data-tool]')].some(b => b.disabled),
+          tabs: [...document.querySelectorAll('#document-tabs [role="tab"]')].every((tab, i) =>
+            tab === c.tabs[i] && getComputedStyle(tab).opacity === "1" && tab.textContent === tab.title),
+        });
+      };
       c.timeout = window.setTimeout;
       window.setTimeout = function (callback, delay, ...args) {
         if (delay > 0 && new Error().stack.includes("/src/tools/sketch.ts")) c.delays.push(delay);
@@ -75,6 +86,8 @@ export async function testSketchUpdates(page) {
 
     // Continuous pointer movement must display intermediate results without waiting for a pause.
     await page.locator('#sketch-ribbon [data-tool="rectangle"]').click();
+    assert.equal(await page.locator("#sketch-action").isVisible(), false);
+    await page.evaluate(() => { window.sketchUpdates.capture = true; });
     await page.mouse.click(...await screen([-20, 20]));
     await page.mouse.move(...await screen([-10, 10]));
     await waitReply("sketch.primitives.add");
@@ -95,13 +108,22 @@ export async function testSketchUpdates(page) {
     assert.equal(additions.length, 2, "Only the latest waiting pointer position is evaluated");
     const latest = additions[1].params.primitive.parameters.to;
     assert.ok(Math.hypot(latest[0] - 2, latest[1] + 8) < 1e-5);
+    const finishError = await page.evaluate(async () => {
+      try { await window.sketchUpdates.tool.finish(); return ""; } catch (error) { return error.message; }
+    });
+    assert.match(finishError, /Complete or cancel/);
+    const controls = await page.evaluate(() => { const c = window.sketchUpdates; c.capture = false; return c.controls; });
+    assert.ok(controls.length > 4 && controls.every(c => c.finish && !c.ribbon), "Background previews keep the ribbon enabled and Finish disabled across every response");
+    assert.ok(controls.every(c => c.tabs), "Preview responses retain tab elements and full-opacity titles");
 
     // Clicking before the pending response returns commits the clicked endpoint, not the displayed preview.
     await page.mouse.click(...await screen([5, -10]));
+    assert.ok(await page.locator('#sketch-ribbon [data-tool]').evaluateAll(buttons => buttons.every(b => b.disabled)), "Committing the final point blocks the ribbon");
     await release("sketch.primitives.add");
     await idle();
     current = await state();
-    assert.equal(current.tool, "select");
+    assert.equal(current.tool, "rectangle");
+    assert.equal(current.ready, true); assert.equal(current.disabled, false);
     assert.equal(current.requests.filter(r => r.method === "sketch.primitives.add").length, 2);
     assert.ok(current.state.entities.some(e => e.geometry.type === "point" && Math.hypot(e.geometry.position[0] - 5, e.geometry.position[1] + 10) < 1e-5));
     const committed = current.state;
@@ -115,7 +137,7 @@ export async function testSketchUpdates(page) {
     await page.mouse.move(...await screen([-8, 5]));
     await page.keyboard.press("Escape");
     const shown = (await state()).snapshots.length;
-    await page.evaluate(() => window.sketchUpdates.tool.choose("line"));
+    await page.locator('#sketch-ribbon [data-tool="line"]').click();
     await release("sketch.state"); await release("sketch.getProxy"); await idle();
     current = await state();
     assert.equal(current.snapshots.length, shown);
@@ -156,6 +178,7 @@ export async function testSketchUpdates(page) {
     await readPreview(); await idle();
     assert.equal((await state()).valid, true);
     assert.equal((await state()).error, "");
+    assert.equal((await state()).disabled, true, "A valid unfinished drawing must not enable Finish");
     assert.deepEqual(await page.evaluate(() => window.sketchUpdates.delays), [], "Sketch updates must not use a timer delay");
     await page.screenshot({ path: "/private/tmp/pamatcad-drawing-updates.png" });
     await page.keyboard.press("Escape");
@@ -167,6 +190,7 @@ export async function testSketchUpdates(page) {
       const c = window.sketchUpdates;
       if (c.transport) c.transport.request = c.request;
       if (c.display) c.tool.display = c.display;
+      if (c.changed) c.tool.hooks.changed = c.changed;
       if (c.timeout) window.setTimeout = c.timeout;
       c.hold = false; c.replies.splice(0).forEach(r => r.resolve());
       delete window.sketchUpdates;

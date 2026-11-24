@@ -7,8 +7,9 @@
     <label class="check"><input id="sketch-auto" type="checkbox" checked /> Recompute automatically</label>
     <button id="sketch-recompute" type="button" hidden>Recompute</button>
     <output id="sketch-status" aria-live="polite"></output>
-    <div class="sketch-option-section"><span>Highlight</span><div class="sketch-icon-options" id="sketch-highlight" role="group" aria-label="Highlight"></div></div>
     <div id="sketch-config">
+      <label id="sketch-radius-label" for="sketch-radius" hidden>Radius</label>
+      <label id="sketch-angle-label" for="sketch-angle" hidden>Angle</label>
       <label data-tools="offset">Distance <input id="sketch-offset" value="2" /></label>
       <label data-tools="offset" id="sketch-offset2-row">Second distance <input id="sketch-offset2" value="2" /></label>
       <label data-tools="scale">Scale <input id="sketch-scale" value="1" /></label>
@@ -17,15 +18,18 @@
       <label data-tools="move scale" class="check"><input id="sketch-copy" type="checkbox" /> Copy</label>
       <button data-tools="move scale" id="sketch-pivot" type="button">Pick pivot</button>
       <label data-tools="spline" class="check"><input id="sketch-closed" type="checkbox" /> Closed</label>
-      <label data-tools="text">Text <input id="sketch-text" value="Text" /></label>
-      <label data-tools="text">Font <input id="sketch-font" type="file" accept=".ttf,.otf" /><small>Roboto, or import an OpenType/TrueType font</small></label>
-      <label data-tools="text">Font weight <input id="sketch-weight" type="number" min="100" max="900" step="100" value="400" /></label>
-      <label data-tools="text">Font size <input id="sketch-size" value="10" /></label>
-      <label data-tools="text">Horizontal alignment <select id="sketch-horizontal"><option>left</option><option>center</option><option>right</option></select></label>
-      <label data-tools="text">Vertical alignment <select id="sketch-vertical"><option>baseline</option><option>bottom</option><option>middle</option><option>top</option></select></label>
-      <label data-tools="text" class="check"><input id="sketch-guide" type="checkbox" /> Use selected curve as guideline</label>
-      <button id="sketch-action" type="button">Add geometry</button>
+      <div data-tools="text" class="sketch-text-controls">
+        <label>Text <textarea id="sketch-text" rows="5" spellcheck="false">Text</textarea></label>
+        <div class="sketch-font-heading"><label for="sketch-font-family">Font</label><button id="sketch-font-help" type="button" aria-label="Font access information" hidden>?</button><button id="sketch-local-fonts" type="button">Local fonts</button><label class="sketch-font-import" title="Import an OpenType/TrueType font">Import<input id="sketch-font" type="file" accept=".ttf,.otf,.ttc,.otc" /></label></div>
+        <select id="sketch-font-family" size="5" aria-label="Font family"></select>
+        <div class="sketch-font-style"><label>Weight <select id="sketch-weight"></select></label><div class="sketch-icon-options" id="sketch-font-styles" role="group" aria-label="Font style"></div></div>
+        <label>Size <input id="sketch-size" value="10" data-dimension="length" autocomplete="off" spellcheck="false" /></label>
+        <div class="sketch-text-align"><div class="sketch-icon-options" id="sketch-horizontal" role="group" aria-label="Horizontal alignment"></div><div class="sketch-icon-options" id="sketch-vertical" role="group" aria-label="Vertical alignment"></div></div>
+        <div id="sketch-text-edit-actions" class="actions" hidden><button id="sketch-text-cancel" type="button">Cancel edit</button><button id="sketch-text-done" type="button">Done</button></div>
+      </div>
+      <button id="sketch-action" type="button" hidden>Apply</button>
     </div>
+    <div class="sketch-option-section"><span>Highlight</span><div class="sketch-icon-options" id="sketch-highlight" role="group" aria-label="Highlight"></div></div>
     <div hidden><button id="sketch-repair-support" type="button">Change sketch plane</button><div id="sketch-projections"></div></div>
     <div class="sketch-option-section"><span>Display</span><div class="sketch-icon-options" id="sketch-display-options" role="group" aria-label="Display"></div></div>
     <div class="sketch-option-section"><span>Snap</span><div class="sketch-icon-options" id="sketch-snap-options" role="group" aria-label="Snap"></div></div>
@@ -33,9 +37,9 @@
   <p class="field-error" id="sketch-error" role="alert" hidden></p>
 </div>
 <div class="sketch-live-dimensions" hidden>
-  <label data-tools="rectangle ellipse line"><span>Width</span><input id="width" value="10" autocomplete="off" spellcheck="false" /></label>
-  <label data-tools="rectangle ellipse"><span>Height</span><input id="height" value="10" autocomplete="off" spellcheck="false" /></label>
-  <label data-tools="circle arc slot rounding"><span>Radius</span><input id="sketch-radius" value="5" autocomplete="off" spellcheck="false" /></label>
-  <label data-tools="arc move"><span>Angle</span><input id="sketch-angle" value="90" autocomplete="off" spellcheck="false" /></label>
+  <input id="width" data-tools="rectangle ellipse line" data-dimension="length" aria-label="Width" value="10" autocomplete="off" spellcheck="false" />
+  <input id="height" data-tools="rectangle ellipse" data-dimension="length" aria-label="Height" value="10" autocomplete="off" spellcheck="false" />
+  <input id="sketch-radius" data-tools="circle arc slot rounding" data-dimension="length" aria-label="Radius" value="5" autocomplete="off" spellcheck="false" />
+  <input id="sketch-angle" data-tools="arc move" data-dimension="angle" aria-label="Angle" value="90" autocomplete="off" spellcheck="false" />
 </div>
 <div class="actions"><button id="cancel">Cancel</button><button id="apply" disabled>Finish sketch</button></div>

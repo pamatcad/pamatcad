@@ -33,7 +33,7 @@ export function initRibbon(root: HTMLElement, changeWorkbench: (value: Workbench
       button.querySelector("svg")!.setAttribute("aria-hidden", "true");
       if (label === "Constraints") {
         button.dataset.constraint = name;
-        button.onclick = () => { void currentSketch()?.addConstraint(name as ConstraintKind); };
+        button.onclick = () => { currentSketch()?.chooseConstraint(name as ConstraintKind); };
       } else {
         button.dataset.tool = name;
         button.onclick = () => {
@@ -59,7 +59,11 @@ export function initRibbon(root: HTMLElement, changeWorkbench: (value: Workbench
       root.setAttribute("aria-label", title(workbench) + " workbench");
       for (const button of buttons) {
         button.disabled = busy || !tool?.sketch || tool.pickingSupport;
-        if (button.dataset.constraint) button.disabled ||= !tool?.selected.size;
+        if (button.dataset.constraint) {
+          const kind = button.dataset.constraint as ConstraintKind;
+          button.disabled ||= tool?.constraint !== kind && tool?.constraintState(kind) === "invalid";
+          button.setAttribute("aria-pressed", String(tool?.constraint === kind));
+        }
         if (button.dataset.tool) button.setAttribute("aria-pressed", String(tool?.tool === button.dataset.tool));
       }
     },

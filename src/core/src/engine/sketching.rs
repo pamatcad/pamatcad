@@ -149,22 +149,34 @@ impl Engine {
                     .ok_or_else(|| invalid("Referenced sketch does not exist"))?
             };
             path.push(id.to_owned());
-            for dimension in sketch.dimensions.values() {
-                for r in &dimension.dependencies {
-                    let source = if r.sketch_id == candidate.data.id {
-                        candidate
-                    } else {
-                        scene
-                            .sketches
-                            .get(&r.sketch_id)
-                            .ok_or_else(|| invalid("Referenced sketch does not exist"))?
-                    };
-                    if !source.dimensions.contains_key(&r.id) {
-                        return Err(invalid("Cannot remove a referenced dimension"));
-                    }
-                    if r.sketch_id != id {
-                        visit(&r.sketch_id, scene, candidate, path, done)?;
-                    }
+            let dependencies = sketch
+                .dimensions
+                .values()
+                .flat_map(|d| d.dependencies.iter())
+                .chain(
+                    sketch
+                        .texts
+                        .values()
+                        .flat_map(|t| match &t.parameters.size {
+                            Formula::Evaluated(e) => e.references.as_slice(),
+                            _ => &[],
+                        })
+                        .map(|r| &r.dimension),
+                );
+            for r in dependencies {
+                let source = if r.sketch_id == candidate.data.id {
+                    candidate
+                } else {
+                    scene
+                        .sketches
+                        .get(&r.sketch_id)
+                        .ok_or_else(|| invalid("Referenced sketch does not exist"))?
+                };
+                if !source.dimensions.contains_key(&r.id) {
+                    return Err(invalid("Cannot remove a referenced dimension"));
+                }
+                if r.sketch_id != id {
+                    visit(&r.sketch_id, scene, candidate, path, done)?;
                 }
             }
             path.pop();
@@ -442,12 +454,26 @@ impl Engine {
         self.update_sketch(&input.sketch, |sketch| {
             let mut ids = vec![];
             for id in &input.ids {
-                if let Some(projection) = sketch.projections.remove(id) {
+                if sketch.texts.contains_key(id) {
+                    if let Some(frame) = &sketch.texts[id].frame {
+                        ids.extend(frame.references().iter().map(|r| r.id.clone()));
+                    }
+                    let geometry = sketch.explode_text(id)?;
+                    ids.extend(
+                        geometry
+                            .points
+                            .iter()
+                            .chain(&geometry.curves)
+                            .map(|r| r.id.clone()),
+                    );
+                } else if let Some(projection) = sketch.projections.remove(id) {
                     ids.extend(projection.entities.into_iter().map(|r| r.id));
                     let fixed = format!("{id}-fixed");
                     sketch.constraints.remove(&fixed);
                     sketch.fixed.remove(&fixed);
                 } else {
+                    sketch.ensure_text_outline_editable(id)?;
+                    sketch.ensure_text_frame_editable(id)?;
                     if sketch.entities.get(id).is_some_and(|e| e.projected)
                         || sketch
                             .projections
@@ -534,6 +560,14 @@ impl Engine {
         };
         let sketch = self.sketch(reference)?;
         sketch.check_reference(entity)?;
+        sketch.ensure_text_outline_editable(&entity.id)?;
+        // Frame helpers are constraint references. Only the center can be dragged,
+        // moving the text as a rigid object instead of deforming its rectangle.
+        if let Some(text) = sketch.text_frame_owner(&entity.id) {
+            if entity.id != text.frame.as_ref().unwrap().center.id {
+                return Err(invalid("Text frame geometry cannot be dragged independently; drag the text or its center"));
+            }
+        }
         let entity = &sketch.entities[&entity.id];
         if entity.projected {
             return Err(invalid("Projected geometry is read-only"));
@@ -583,6 +617,15 @@ impl Engine {
                         return Err(invalid("Drag coordinates must be finite"));
                     }
                     if !sketch.auto_recompute {
+                        if let Some(text) = sketch.text_frame_owner(id).cloned() {
+                            let old = sketch.point_position(id)?;
+                            let mut parameters = text.parameters;
+                            for i in 0..2 {
+                                parameters.origin[i] += target[i] - old[i];
+                            }
+                            sketch.update_text(&text.id, parameters)?;
+                            continue;
+                        }
                         let radius = match &sketch.entities[id].geometry {
                             SketchGeometry::Circle { center, .. }
                             | SketchGeometry::Arc { center, .. } => {
@@ -700,7 +743,17 @@ impl Engine {
                         .map(|r| r.sketch_id.clone())
                 })
                 .collect::<Vec<_>>();
-            for dependency in dependencies {
+            let text_dependencies = engine.scene(scene)?.sketches[id]
+                .texts
+                .values()
+                .flat_map(|t| match &t.parameters.size {
+                    Formula::Evaluated(e) => e.references.as_slice(),
+                    _ => &[],
+                })
+                .filter(|r| r.dimension.sketch_id != id)
+                .map(|r| r.dimension.sketch_id.clone())
+                .collect::<Vec<_>>();
+            for dependency in dependencies.into_iter().chain(text_dependencies) {
                 solve_dependencies(engine, scene, &dependency, visited)?;
             }
             engine.recompute_sketch(&SketchRef {

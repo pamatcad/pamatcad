@@ -38,6 +38,18 @@ export async function testSketchDragging(page) {
       await tool.reload(); tool.choose("select");
       const at = (x, y) => tool.state.entities.find(e => e.geometry.type === "point" && e.geometry.position[0] === x && e.geometry.position[1] === y).reference.id;
       const original = tool.sketch.drag.bind(tool.sketch);
+      check.controls = [];
+      check.tabs = [...document.querySelectorAll('#document-tabs [role="tab"]')];
+      check.changed = tool.hooks.changed;
+      tool.hooks.changed = (...args) => {
+        check.changed(...args);
+        if (tool.dragEntity || tool.dragQueued || tool.updateRunning) check.controls.push({
+          finish: document.querySelector("#apply").disabled,
+          ribbon: [...document.querySelectorAll('#sketch-ribbon [data-tool]')].some(b => b.disabled),
+          tabs: [...document.querySelectorAll('#document-tabs [role="tab"]')].every((tab, i) =>
+            tab === check.tabs[i] && getComputedStyle(tab).opacity === "1" && tab.textContent === tab.title),
+        });
+      };
       tool.sketch.drag = async (...args) => {
         check.calls.push(args);
         const result = await original(...args);
@@ -59,7 +71,10 @@ export async function testSketchDragging(page) {
 
     // Two pixels is inside the old eight-pixel self-snap dead zone.
     await page.mouse.move(...p); await page.mouse.down();
-    await page.mouse.move(p[0] + 2, p[1] - 2); await page.mouse.up(); await idle();
+    await page.mouse.move(p[0] + 2, p[1] - 2); await idle();
+    assert.equal(await page.locator("#apply").isDisabled(), true, "Finish stays disabled while the mouse is held, even with no request in flight");
+    await page.mouse.up(); await idle();
+    assert.equal(await page.locator("#apply").isDisabled(), false);
     const smallTarget = await page.evaluate(([x, y]) => window.dragCheck.viewport.point({ clientX: x, clientY: y }), [p[0] + 2, p[1] - 2]);
     near(await point(setup.topLeft), smallTarget);
     assert.ok(Math.hypot(smallTarget[0] + 15, smallTarget[1] - 15) > 0.01);
@@ -75,10 +90,15 @@ export async function testSketchDragging(page) {
     await page.waitForFunction(() => !!window.dragCheck.release);
     await page.mouse.move(p[0] + 48, p[1] + 32, { steps: 8 });
     await page.mouse.up();
+    assert.equal(await page.locator("#apply").isDisabled(), true, "The released target must settle before Finish is enabled");
     assert.equal(await page.evaluate(() => window.dragCheck.calls.length), 1, "Only one drag may be in flight");
     const target = await page.evaluate(([x, y]) => window.dragCheck.viewport.point({ clientX: x, clientY: y }), [p[0] + 48, p[1] + 32]);
     await page.evaluate(() => window.dragCheck.release()); await idle();
     assert.equal(await page.evaluate(() => window.dragCheck.calls.length), 2, "Intermediate pointer positions are coalesced");
+    assert.equal(await page.locator("#apply").isDisabled(), false);
+    const controls = await page.evaluate(() => window.dragCheck.controls);
+    assert.ok(controls.length > 4 && controls.every(c => c.finish && !c.ribbon), "Drag response boundaries never flash the ribbon or Finish button");
+    assert.ok(controls.every(c => c.tabs), "Dragging retains tab elements and full-opacity titles");
     near(await point(setup.bottomRight), target);
     near(await point(setup.topLeft), opposite);
     assert.deepEqual(await page.evaluate(() => window.dragCheck.viewport.captureView()), setup.view);
@@ -222,5 +242,8 @@ export async function testSketchDragging(page) {
     await page.locator("#apply").click();
     await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled && document.querySelector("#features").children.length === 1);
     console.log("Sketch dragging: points, edges, arc rim/center, constrained endpoint projection, stable unrelated geometry, snapping, latest/release targets and camera preservation passed");
-  } finally { await page.evaluate(() => { delete window.dragCheck; }); }
+  } finally { await page.evaluate(() => {
+    if (window.dragCheck.changed) window.dragCheck.tool.hooks.changed = window.dragCheck.changed;
+    delete window.dragCheck;
+  }); }
 }

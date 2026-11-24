@@ -680,7 +680,7 @@ dialog::backdrop {
 :is(.tools, .sketch-variants) .icon-edge-fill { fill: var(--sketch-edge); }
 :is(.tools, .sketch-variants) .icon-construction { stroke: var(--construction-edge); }
 :is(.tools, .sketch-variants) .icon-construction-fill { fill: var(--construction-edge); }
-:is(.tools, .sketch-variants) .icon-point { fill: var(--handle-edge); }
+:is(.tools, .sketch-variants) .icon-point { fill: var(--handle); }
 :is(.tools, .sketch-variants) .icon-selection-fill { fill: var(--selection); }
 :is(.tools, .sketch-variants) .icon-selection-stroke { stroke: var(--selection); }
 :is(.tools, .sketch-variants) .icon-selection-detail { fill: var(--highlight); }
@@ -710,8 +710,8 @@ dialog::backdrop {
 .sketch-dimension-input { padding: 4px; }
 .sketch-popup.sketch-dimension-input input { width: 12ch; min-height: 24px; height: 24px; padding: 2px 4px; border: 1px solid var(--field-border); border-radius: 2px; color: var(--foreground-strong); font-size: 12px; font-weight: 500; }
 .sketch-live-dimensions { position: absolute; inset: 0; pointer-events: none; }
-.sketch-live-dimensions > label { position: absolute; z-index: 2; display: flex; align-items: center; gap: 4px; transform: translate(-50%, -50%); padding: 3px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-background); color: var(--foreground); font-size: 12px; pointer-events: auto; }
-.sketch-live-dimensions input[id] { width: 12ch; min-width: 0; min-height: 24px; height: 24px; padding: 2px 4px; border: 1px solid var(--field-border); border-radius: 2px; color: var(--foreground-strong); font-size: 12px; font-weight: 500; }
+.sketch-cursor-symbol { position: fixed; z-index: 60; width: 16px; height: 16px; pointer-events: none; user-select: none; }
+.sketch-live-dimensions > input[id] { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: auto; width: 12ch; min-width: 0; min-height: 20px; height: 20px; padding: 1px 3px; border: 1px solid var(--field-border); border-radius: 2px; background: var(--field-background); color: var(--foreground-strong); font-size: 10px; font-weight: 500; }
 
 .sketch-geometry-mode { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
 .sketch-option-section { margin: 12px 0; }
@@ -726,3 +726,21 @@ dialog::backdrop {
 #sketch-highlight [data-highlight="partial"] { color: var(--partially-constrained); }
 #sketch-highlight [data-highlight="unconstrained"] { color: var(--unconstrained); }
 #tool-panel #sketch-status { padding: 6px 8px; border-radius: 3px; background: var(--hover-background); color: var(--foreground); }
+
+.sketch-text-controls { display: grid; gap: 8px; min-width: 0; }
+.sketch-text-controls textarea { resize: vertical; min-height: 88px; width: 100%; box-sizing: border-box; font: inherit; color: var(--foreground); background: var(--field-background); border: 1px solid var(--border); border-radius: 4px; padding: 6px; }
+.sketch-font-heading, .sketch-font-style, .sketch-text-align { display: flex; gap: 6px; align-items: center; }
+.sketch-font-heading > label:first-child { margin-right: auto; }
+.sketch-font-heading button, .sketch-font-import { font-size: 11px; padding: 2px 4px; }
+.sketch-font-import { cursor: pointer; }
+.sketch-font-import input { display: none; }
+#sketch-font-help { width: 17px; height: 17px; padding: 0; border-radius: 50%; }
+#tool-panel #sketch-font-family { width: 100%; max-width: none; }
+.sketch-font-style > label { flex: 1; min-width: 0; }
+.sketch-text-align { justify-content: space-between; flex-wrap: wrap; }
+.sketch-text-controls .sketch-icon-options svg { width: 18px; height: 18px; display: block; }
+
+#tool-panel .sketch-text-controls > label:first-child { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 4px; }
+#tool-panel .sketch-text-controls label { margin: 0; }
+
+.sketch-text-controls .icon-current-stroke { stroke: currentColor; }

@@ -6,7 +6,7 @@ import { dimensionLayout, formatDimension } from "./sketch-dimensions";
 import type { SketchProxy, SketchState } from "@pamatcad/sdk";
 import type { ThemeDefinition } from "./theme";
 export type SketchPick = {
-  kind: "geometry" | "dimension" | "constraint";
+  kind: "geometry" | "dimension" | "constraint" | "text";
   id: string;
 };
 export type SketchDisplayOptions = {
@@ -57,6 +57,9 @@ export class SketchDisplay extends T.Group {
   }
   set(state: SketchState, proxy: SketchProxy, selected: Set<string>, options: SketchDisplayOptions, theme: ThemeDefinition, hover?: string) {
     this.clearDisplay();
+    const textOwners = new Map(state.texts.flatMap(t => [...t.geometry.points, ...t.geometry.curves].map(r => [r.id, t.id] as const)));
+    selected = new Set([...selected, ...[...textOwners].filter(([, owner]) => selected.has(owner)).map(([id]) => id)]);
+    for (const text of state.texts) if (selected.has(text.id)) for (const ref of Object.values(text.frame ?? {})) selected.add(ref.id);
     const positions = new Map(proxy.points.map(p => [p.entity.id, new T.Vector3(...p.position)]));
     const entities = new Map(state.entities.map(e => [e.reference.id, e]));
     const linked = (id: string) => {
@@ -85,14 +88,18 @@ export class SketchDisplay extends T.Group {
         return [r.id, ...linked(r.id), ...(geometry?.type === "arc" ? [geometry.from, geometry.to] : [])];
       })));
     const freedoms = new Map(state.status.entities.map(e => [e.entity.id, e]));
+    const textFreedom = new Map(state.texts.filter(t => t.frame).map(t => [t.id, {
+      degreesOfFreedom: freedoms.get(t.frame!.left.id)?.degreesOfFreedom ?? 3,
+      unconstrainedDegreesOfFreedom: 3,
+    }]));
     const color = (id: string, projected: boolean) => {
-      if (selected.has(id) || id === hover) {
+      if (selected.has(id) || id === hover || textOwners.get(id) === hover && hover !== undefined) {
         return theme.colors.geometrySelected;
       }
       if (projected) {
         return theme.colors.foregroundMuted;
       }
-      const freedom = freedoms.get(id);
+      const freedom = textFreedom.get(textOwners.get(id) ?? id) ?? freedoms.get(id);
       const geometry = entities.get(id)?.geometry;
       const isFixed = fixed.has(id) || geometry?.type === "line" && linked(id).every(p => fixed.has(p));
       const status = isFixed || freedom?.degreesOfFreedom === 0 ? "constrained" : freedom && freedom.degreesOfFreedom < freedom.unconstrainedDegreesOfFreedom ? "partial" : "unconstrained";
@@ -110,7 +117,8 @@ export class SketchDisplay extends T.Group {
         // Keep native curve picking; both visible widths use CSS pixels on high-DPI screens.
         material.visible = false;
         line.computeLineDistances();
-        line.userData.pick = { kind: "geometry", id: curve.entity.id };
+        const owner = textOwners.get(curve.entity.id);
+        line.userData.pick = owner ? { kind: "text", id: owner } : { kind: "geometry", id: curve.entity.id };
         line.renderOrder = selected.has(curve.entity.id) ? 10.5 : 10;
         this.add(line);
         const segments = curve.points.slice(1).flatMap((p, i) => [...curve.points[i], ...p]);
@@ -127,6 +135,7 @@ export class SketchDisplay extends T.Group {
     }
     if (options.points) {
       for (const point of proxy.points) {
+        if (textOwners.has(point.entity.id)) continue;
         if (point.construction && !options.construction || point.projected && !options.projections) {
           continue;
         }
@@ -135,6 +144,14 @@ export class SketchDisplay extends T.Group {
         marker.renderOrder = selected.has(point.entity.id) ? 11.5 : 11;
         this.add(marker);
       }
+    }
+    if (options.points) for (const text of state.texts) {
+      if (text.parameters.construction && !options.construction) continue;
+      const [x, y] = text.parameters.origin;
+      const position = new T.Vector3(...proxy.frame.origin).addScaledVector(new T.Vector3(...proxy.frame.u), x).addScaledVector(new T.Vector3(...proxy.frame.v), y);
+      const marker = new T.Points(new T.BufferGeometry().setFromPoints([position]), new T.PointsMaterial({ color: color(text.id, false), size: selected.has(text.id) ? 14 : 7, map: this.pointTexture, alphaTest: 0.4, sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true, toneMapped: false }));
+      marker.userData.pick = { kind: "text", id: text.id }; marker.renderOrder = 10.9;
+      this.add(marker);
     }
     if (options.dimensions) {
       for (const dimension of state.dimensions) {

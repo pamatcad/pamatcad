@@ -59,7 +59,7 @@ export async function testSketchConstructors(page,sdk) {
     const { Viewport } = await import("/src/viewport.ts");
     const { lightTheme } = await import("/src/theme.ts");
     const core = new Core(editorTransport(() => {}));
-    const scene = await core.scene.create("Slot radius units", { length: "in", angle: "deg" });
+    const scene = await core.scene.create("Drawing dimension units", { length: "in", angle: "rad" });
     const host = document.createElement("div"), panel = document.createElement("div");
     host.style.cssText = "position:fixed;left:0;top:0;width:640px;height:480px";
     document.body.append(host, panel);
@@ -87,18 +87,26 @@ export async function testSketchConstructors(page,sdk) {
           radii: preview.entities.filter(e => e.geometry.type === "arc").map(e => e.geometry.radius), ready: tool.ready });
         tool.escape(); await idle();
       }
-      return samples;
+      tool.choose("arc");
+      for (const point of [[0, 0], [25.4, 0]]) {
+        tool.click({ point, picks: [], additive: false, client: [0, 0] }); await idle();
+      }
+      tool.move([0, 25.4]); await idle();
+      return { samples, radius: tool.input("sketch-radius").value, angle: tool.input("sketch-angle").value,
+        degrees: await tool.number("sketch-angle", "angle") };
     } finally {
       await tool.cancel(); tool.close(); viewport.orbit.dispose(); viewport.renderer.dispose();
       host.remove(); panel.remove(); await scene.close(); core.close();
     }
   }, sdk);
-  for (const seed of seeds) {
+  for (const seed of seeds.samples) {
     assert.equal(seed.ready, false); assert.equal(seed.radii.length, 2);
     seed.radii.forEach(radius => near(radius, Math.min(2 * seed.pixel, 1)));
-    assert.ok(Math.abs(Number(seed.text) * 25.4 - seed.radii[0]) <= 0.00005 * 25.4);
+    assert.match(seed.text, / in$/);
+    assert.ok(Math.abs(parseFloat(seed.text) * 25.4 - seed.radii[0]) <= 0.00005 * 25.4);
   }
-  assert.ok(seeds[1].radii[0] < seeds[0].radii[0], "Zoomed-in slot seeds stay small on screen");
+  assert.ok(seeds.samples[1].radii[0] < seeds.samples[0].radii[0], "Zoomed-in slot seeds stay small on screen");
+  assert.equal(seeds.radius, "1 in"); assert.equal(seeds.angle, "1.5708 rad"); near(seeds.degrees, 90);
   console.log("Sketch construction variants: angled rectangle, point/tangent circles, three-point arc, ellipse and slot variants passed");
 }
 
@@ -132,7 +140,8 @@ export async function testSketchDrawingStages(page) {
   });
   const near = (a,b) => assert.ok(Math.abs(a-b)<1e-5, `${a} != ${b}`);
   const choose = async (tool, name) => {
-    await page.locator(`#sketch-ribbon [data-tool="${tool}"]`).click();
+    const button = page.locator(`#sketch-ribbon [data-tool="${tool}"]`);
+    if (await button.getAttribute("aria-pressed") !== "true") await button.click();
     if (name) await page.getByRole("group", { name: "Tool variants" }).getByRole("button", { name, exact: true }).click();
     await idle();
     if (["rectangle","arc","slot"].includes(tool)) assert.ok(await page.locator(".sketch-variants button").evaluateAll(buttons => buttons.every(b => b.title && b.getAttribute("aria-label") === b.title && b.querySelector("svg .icon-point") && b.querySelector("svg [class]"))));
@@ -149,8 +158,10 @@ export async function testSketchDrawingStages(page) {
         extrude: style("#extrude .icon-surface-fill","fill") };
     });
     const originalColors=await iconColors();assert.notEqual(originalColors.point,originalColors.edge);
+    assert.equal(originalColors.point, await page.locator('[data-tool="move"] .icon-handle-fill').evaluate(e => getComputedStyle(e).fill));
+    assert.ok(await page.locator(".ribbon .icon-point, .sketch-variants .icon-point").evaluateAll(points => points.every(e => e.getAttribute("fill") === "#dcb58c")));
     assert.ok(await page.locator(".ribbon svg, .sketch-variants svg").evaluateAll(icons=>icons.length>25&&icons.every(svg=>[svg,...svg.querySelectorAll("[fill], [stroke]")].every(e=>!["fill","stroke"].some(a=>/^#/.test(e.getAttribute(a)||""))||e.classList.length))));
-    await page.evaluate(async()=>{const {editorTheme}=await import("/src/theme.ts");window.geometryTheme=editorTheme.definition;editorTheme.set({...editorTheme.definition,colors:{...editorTheme.definition.colors,handleEdge:"#bb3300",sketchEdge:"#123456",sketch:"#ccddee",surface:"#aabbcc"}});});
+    await page.evaluate(async()=>{const {editorTheme}=await import("/src/theme.ts");window.geometryTheme=editorTheme.definition;editorTheme.set({...editorTheme.definition,colors:{...editorTheme.definition.colors,handle:"#bb3300",sketchEdge:"#123456",sketch:"#ccddee",surface:"#aabbcc"}});});
     assert.deepEqual(await iconColors(),{point:"rgb(187, 51, 0)",edge:"rgb(18, 52, 86)",toolbarPoint:"rgb(187, 51, 0)",toolbarFill:"rgb(204, 221, 238)",extrude:"rgb(170, 187, 204)"});
     await page.evaluate(async()=>{(await import("/src/theme.ts")).editorTheme.set(window.geometryTheme);delete window.geometryTheme;});
     assert.deepEqual(await iconColors(),originalColors);
@@ -163,12 +174,15 @@ export async function testSketchDrawingStages(page) {
     await click([-5, 10]);
     assert.equal((await state()).tool, "arc", "Second click must not finish the arc");
     await move([-15, 20]);
-    near(Number(await page.locator("#sketch-radius").inputValue()), 10);
-    near(Number(await page.locator("#sketch-angle").inputValue()), 90);
+    assert.equal(await page.locator("#sketch-radius").inputValue(), "10 mm");
+    assert.equal(await page.locator("#sketch-angle").inputValue(), "90 deg");
+    assert.ok(await page.locator(".sketch-live-dimensions > input").evaluateAll(fields => fields.length === 4 && fields.every(f =>
+      f.getAttribute("aria-label") && !f.hasAttribute("title") && getComputedStyle(f).fontSize === "10px" && getComputedStyle(f).height === "20px")));
+    assert.equal(await page.locator(".sketch-live-dimensions label, .sketch-live-dimensions span").count(), 0);
     assert.equal((await state()).valid, true);
     // The final click differs from the last completed preview.
     await click([-20, 15]);
-    current = await state(); assert.equal(current.tool, "select");
+    current = await state(); assert.equal(current.tool, "arc");
     let arc = current.state.entities.find(e => e.geometry.type === "arc").geometry;
     near(arc.radius, 10); near((arc.end - arc.start) * 180 / Math.PI, 135);
     assert.equal(current.state.dimensions.length, 0, "An untyped angle stays undimensioned");
@@ -180,7 +194,7 @@ export async function testSketchDrawingStages(page) {
     await move([0, 0]); assert.equal((await state()).valid, true);
     await move([0, -20]); assert.equal((await state()).valid, true);
     await click([0, -20]);
-    current = await state(); assert.equal(current.tool, "select");
+    current = await state(); assert.equal(current.tool, "arc");
     arc = current.state.entities.find(e => e.geometry.type === "arc" && !beforeThree.entities.some(old => old.reference.id === e.reference.id)).geometry;
     near(arc.radius, 10); near((arc.end - arc.start) * 180 / Math.PI, 180);
     const arcPoints = current.state.entities.filter(e => [arc.from, arc.to].includes(e.reference.id)).map(e => e.geometry.position);
@@ -191,9 +205,15 @@ export async function testSketchDrawingStages(page) {
     await click([15, 10]); await click([20, 10]); await move([15, 15]);
     await page.locator("#sketch-radius").fill("12 / 2");
     await page.locator("#sketch-angle").fill("-120 / 2");
+    await page.waitForFunction(() => document.querySelector("#sketch-radius").value === "6 mm");
+    await page.locator("#sketch-radius").focus();
+    assert.equal(await page.locator("#sketch-radius").inputValue(), "12 / 2");
+    await page.waitForFunction(() => document.querySelector("#sketch-angle").value === "-60 deg");
+    await page.locator("#sketch-angle").focus();
+    assert.equal(await page.locator("#sketch-angle").inputValue(), "-120 / 2");
     await idle(); await click([-10, 15]);
     current = await state();
-    assert.equal(current.tool, "select", JSON.stringify(await page.evaluate(() => { const t=window.geometryCheck;return {error:t.get("sketch-error").textContent,points:t.points,dirty:[...t.dirty],focus:document.activeElement?.outerHTML}; })));
+    assert.equal(current.tool, "arc", JSON.stringify(await page.evaluate(() => { const t=window.geometryCheck;return {error:t.get("sketch-error").textContent,points:t.points,dirty:[...t.dirty],focus:document.activeElement?.outerHTML}; })));
     assert.equal(current.state.dimensions.length, 2);
     near(current.state.dimensions.find(d => d.kind === "radius").computed.value, 6);
     near(current.state.dimensions.find(d => d.kind === "angle").computed.value, -60);
@@ -206,6 +226,7 @@ export async function testSketchDrawingStages(page) {
     const seeded=await page.evaluate(async()=>{const t=window.geometryCheck,s=await t.sketch.state({preview:true});return {radii:s.entities.filter(e=>e.geometry.type==="arc"&&!t.state.entities.some(old=>old.reference.id===e.reference.id)).map(e=>e.geometry.radius),pixel:t.viewport.pixelLength,ready:t.ready};});
     assert.equal(seeded.radii.length,2);assert.ok(seeded.radii.every(r=>r>0&&r<=2*seeded.pixel&&r<0.3));assert.equal(seeded.ready,false);
     await move([15, 8]);
+    assert.equal(await page.locator("#sketch-radius").inputValue(), "3 mm");
     const preview = await page.evaluate(() => window.geometryCheck.sketch.state({ preview: true }));
     let caps = preview.entities.filter(e => e.geometry.type === "arc");
     // Read only additions relative to the committed sketch.
@@ -215,7 +236,7 @@ export async function testSketchDrawingStages(page) {
     const centers = caps.map(e => preview.entities.find(p => p.reference.id === e.geometry.center).geometry.position).sort((a,b)=>a[0]-b[0]);
     near(centers[0][0], -7); near(centers[1][0], 7);
     await move([15, 9]); await click([15, 9]);
-    current = await state(); assert.equal(current.tool, "select");
+    current = await state(); assert.equal(current.tool, "slot");
     const newCaps = current.state.entities.filter(e => e.geometry.type === "arc" && !committedIds.has(e.reference.id));
     newCaps.forEach(e => near(e.geometry.radius, 4));
     const newCenters = newCaps.map(e => current.state.entities.find(p => p.reference.id === e.geometry.center).geometry.position).sort((a,b)=>a[0]-b[0]);
@@ -226,7 +247,7 @@ export async function testSketchDrawingStages(page) {
     await click([-10, -5]); await click([10, -5]);
     assert.deepEqual((await state()).state, beforeCenters);
     await move([0, -2]); await page.locator("#sketch-radius").fill("8 / 2"); await idle(); await click([0, -20]);
-    current = await state(); assert.equal(current.tool, "select");
+    current = await state(); assert.equal(current.tool, "slot");
     caps = current.state.entities.filter(e => e.geometry.type === "arc" && !beforeCenters.entities.some(old => old.reference.id === e.reference.id));
     assert.equal(caps.length, 2); caps.forEach(e => near(e.geometry.radius, 4));
     const capCenters = caps.map(e => current.state.entities.find(p => p.reference.id === e.geometry.center).geometry.position).sort((a,b)=>a[0]-b[0]);
@@ -238,7 +259,7 @@ export async function testSketchDrawingStages(page) {
     assert.equal((await state()).tool, "slot", "Centered slots also wait for radius");
     assert.deepEqual((await state()).state, beforeCentered);
     await move([15, 19]); await click([15, 19]);
-    current = await state(); assert.equal(current.tool, "select");
+    current = await state(); assert.equal(current.tool, "slot");
     assert.ok(current.state.entities.some(e => !beforeCentered.entities.some(old => old.reference.id === e.reference.id) && e.construction && e.geometry.type === "point" && Math.hypot(e.geometry.position[0],e.geometry.position[1]-15)<1e-5));
 
     await page.getByRole("button", { name: "Snap to geometry", exact: true }).click();
@@ -268,6 +289,69 @@ export async function testSketchDrawingStages(page) {
     assert.deepEqual((await state()).state, beforeInvalid);
     await choose("arc", "Three points");
     await click([-10, 0]); await click([10, 0]); await move([0, 10]);
+    await page.keyboard.press("Escape"); await idle();
+    assert.deepEqual((await state()).state, beforeInvalid);
+
+    await choose("rectangle", "Three points");
+    await click([-8, 8]); await click([6, 16]); await move([12, 5]);
+    const compactFields = await page.locator(".sketch-live-dimensions > input:visible").evaluateAll(fields => fields.map(f => ({
+      name: f.getAttribute("aria-label"), value: f.value, width: f.getBoundingClientRect().width, height: f.getBoundingClientRect().height,
+    })));
+    assert.deepEqual(compactFields.map(f => f.name), ["Width", "Height"]);
+    assert.ok(compactFields.every(f => / mm$/.test(f.value) && f.height === 20 && f.width < 90));
+    await page.screenshot({ path: "/private/tmp/pamatcad-compact-drawing-inputs.png" });
+    await page.keyboard.press("Escape"); await idle();
+
+    await choose("circle");
+    await click([-10, -10]); await move([-6, -10]);
+    const radius = page.locator("#sketch-radius");
+    assert.equal(await radius.inputValue(), "4 mm");
+    await radius.fill("10 / 3"); await idle();
+    await radius.evaluate(f => f.blur());
+    await page.waitForFunction(() => document.querySelector("#sketch-radius").value === "3.3333 mm");
+    near(await page.evaluate(() => window.geometryCheck.number("sketch-radius")), 10 / 3);
+    await radius.focus(); assert.equal(await radius.inputValue(), "10 / 3");
+    await radius.fill("2 deg"); await idle(); await radius.evaluate(f => f.blur());
+    assert.equal((await state()).valid, false);
+    assert.equal(await radius.inputValue(), "2 deg", "Invalid formulas remain editable");
+    await radius.fill("8 / 2"); await idle();
+    // Hold only the blur's evaluation; a newer edit must survive its late response.
+    await page.evaluate(() => {
+      const scene = window.geometryCheck.scene, evaluate = scene.evaluateFormula;
+      scene.evaluateFormula = async function (...args) {
+        scene.evaluateFormula = evaluate;
+        const result = await evaluate.apply(this, args);
+        await new Promise(resolve => { window.releaseField = resolve; });
+        return result;
+      };
+      window.geometryCheck.input("sketch-radius").blur();
+    });
+    await page.waitForFunction(() => !!window.releaseField);
+    await radius.fill("12 / 2"); await idle();
+    await page.evaluate(() => { window.releaseField(); delete window.releaseField; });
+    assert.equal(await radius.inputValue(), "12 / 2");
+    await radius.evaluate(f => f.blur());
+    await page.waitForFunction(() => document.querySelector("#sketch-radius").value === "6 mm");
+    await page.keyboard.press("Escape"); await idle();
+
+    await choose("arc", "Center, point and angle");
+    await click([-10, 0]); await click([0, 0]); await move([-10, 10]);
+    await page.locator("#sketch-angle").fill("180 / 2"); await idle();
+    await page.evaluate(() => {
+      const scene = window.geometryCheck.scene, evaluate = scene.evaluateFormula;
+      scene.evaluateFormula = async function (...args) {
+        scene.evaluateFormula = evaluate;
+        const result = await evaluate.apply(this, args);
+        await new Promise(resolve => { window.releaseField = resolve; });
+        return result;
+      };
+      window.geometryCheck.input("sketch-angle").blur();
+    });
+    await page.waitForFunction(() => !!window.releaseField);
+    await choose("circle");
+    await choose("arc", "Center, point and angle");
+    await page.evaluate(() => { window.releaseField(); delete window.releaseField; });
+    assert.equal(await page.locator("#sketch-angle").inputValue(), "0 deg", "A late blur cannot overwrite a new construction");
     await page.keyboard.press("Escape"); await idle();
     assert.deepEqual((await state()).state, beforeInvalid);
     console.log("Sketch variants: icons, arc stages/formulas, slot tips/centers/radius, helpers, duplicate ribbon constraints and Escape passed");

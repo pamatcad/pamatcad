@@ -80,3 +80,25 @@ await sketch.remove([projection.id]);
 Project faces, edges, or vertices. `body.vertices.all()` returns exact vertex references and coordinates without tessellation; body proxies also include them. Projections are read-only and retain cached geometry if their source is lost. Repair them with `projections.update`, or change the support with `support.update(planeOrFace)`. Read the current support from `state().sketch.plane`.
 
 See [Sketch editing](../../../doc/api/command/sketch/edit/spec.md) for the operation contract and tests.
+
+## Editable text
+
+```js
+const text = await sketch.primitives.add("text", {
+  text: "First line\nSecond line", origin: [0, 0], size: "10 mm",
+  horizontal: "center", vertical: "top",
+});
+await sketch.texts.update(text.id, { text: "Revised text" }, { preview: true });
+await scene.discardPreview();
+await sketch.texts.update(text.id, { size: "20 mm / 2" });
+const { frame } = await sketch.texts.get(text.id);
+await sketch.constraints.add("coincident", { points: [frame.center, sketch.origin] });
+await sketch.texts.update(text.id, { text: "A longer label" }); // remains centered
+const outlines = await sketch.texts.explode(text.id);
+```
+
+`texts.get(id)`, `texts.all()` and `state().texts` expose retained text parameters and owned outlines. Closed glyph outlines supply regions before conversion. Conversion keeps exact geometry and region references while releasing ordinary editable curves. Remove a text object with `remove([text.id])`.
+
+Straight text also exposes a typographic construction `frame`. Its named corner, edge, diagonal and center references survive text changes. Constrain these to align the text; font layout controls width/height, and the solver controls placement/rotation. The frame contributes no regions. Drag its center to move the text; independent helper edits require conversion, which retains helpers and external constraints. Guideline text has `frame: null`.
+
+Roboto is bundled. Supply `fontBase64` and an optional `fontIndex` for another font or collection; `fontFamily` is a display label. Weight and italic use actual font faces or supported variation axes. Font discovery belongs to the editor runtime; the core receives font data. Text updates atomically merge supplied fields, retaining omitted values; null clears optional font/guide fields. They retain the size expression and computed value, and the same object ID. See the [text contract](../../../doc/api/command/sketch/edit/spec.md#topology-and-references) for outline identity rules.

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>Tangent</title>
+  <defs><path id="symbol" d="M2 13h12M12 8a4 4 0 1 1-8 0 4 4 0 1 1 8 0"/></defs>
+  <use class="cursor-halo" href="#symbol" stroke="#fff" stroke-width="3"/>
+  <use class="cursor-line" href="#symbol" stroke="#000" stroke-width="1"/>
+</svg>

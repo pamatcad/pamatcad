@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>Offset</title>
+  <defs><path id="symbol" d="M2 14V2h12M6 14V6h8"/></defs>
+  <use class="cursor-halo" href="#symbol" stroke="#fff" stroke-width="3"/>
+  <use class="cursor-line" href="#symbol" stroke="#000" stroke-width="1"/>
+</svg>

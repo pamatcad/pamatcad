@@ -30,6 +30,7 @@ impl Sketch {
                 geometry,
                 construction,
                 projected: false,
+                allow_collapse: false,
             },
         );
         reference

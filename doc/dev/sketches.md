@@ -4,13 +4,15 @@ The [UI specification](../ui/sketches.md), [command contract](../api/command/ske
 
 ## Responsibilities
 
-- `src/core/src/sketch/`: stable entities, compound constructors, constraints, dimensions, projections, and region identities. Rectangles and slots contain ordinary curves. Text is shaped into editable outline curves, initially fixed as a group.
+- `src/core/src/sketch/`: stable entities, compound constructors, constraints, dimensions, projections, and region identities. Rectangles and slots contain ordinary curves. Text objects own exact outline curves for regions; conversion releases these as ordinary editable geometry.
 - `src/core/src/engine/sketching.rs`: transactional working copies, dependency validation, preview overlays, Finish/Cancel, and timeline replay. Failed edits publish nothing. Finished edits replay downstream commands through the shared modeling interface and preserve surviving feature/body IDs.
 - `native/sketch/`: PlaneGCS adapter. The shared formula parser produces an expression tree; its derivative bytecode becomes solver equations, including driven measurements referenced by driving formulas. Fixed variables are excluded from the unknown set. Residuals are checked after solving. The Jacobian nullspace supplies total freedom and the rank of each entity’s restricted freedom, including constituent points.
 - `native/occt/sketch.cpp`: exact conic/B-spline edges, splitting, planar regions, projection, offsets, fillets, and text-contour normalization. Tessellation occurs only for explicit display requests. Regions retain source-edge provenance; multiple fragments of one source edge contribute to its extrusion face query.
 - `apps/editor/src/tools/sketch.ts`: the working sketch controller. `sketch-geometry.ts` resolves interactive construction points into primitive parameters; geometric constraints remain in the core. Templates and SVG icons are separate assets. The viewport owns picking and display, using semantic theme colors.
 
 Entity IDs increase monotonically within a sketch; deleted IDs are not reused. Region keys derive from oriented source boundaries. Indistinguishable regions report ambiguity instead of choosing by position. Display indices are never used as persistent sketch IDs.
+
+Straight-text frames use five shared points and six construction lines. Shaped advances define horizontal bounds; font ascender/descender and line spacing define vertical bounds. Seven intrinsic equations fix size and rectangular shape, leaving translation and rotation free. After solving, the rigid frame pose transforms exact glyph control points and refreshes their internal fixed values. Content rebuilds replace glyphs while retaining frame references; conversion removes ownership and intrinsic equations. Empty text has zero width; its collapsed construction edges are sampled directly and remain valid after conversion. Ordinary geometry retains its degeneracy checks.
 
 ## Constraint domains
 
@@ -40,7 +42,7 @@ Split/rounding return replacement curves and explicitly list removed constraints
 
 ## Dependencies and verification
 
-CMake downloads the pinned PlaneGCS, Eigen and Boost sources in `native/sketch/CMakeLists.txt`. The same adapter compiles for native and WASM. Rustybuzz/ttf-parser versions are locked by Cargo. Bundled Roboto and its OFL license are in `native/sketch/fonts/`; callers can supply another OpenType/TrueType font as base64.
+CMake downloads the pinned PlaneGCS, Eigen and Boost sources in `native/sketch/CMakeLists.txt`. The same adapter compiles for native and WASM. Rustybuzz/ttf-parser versions are locked by Cargo. Bundled Roboto and its OFL license are in `native/sketch/fonts/`; callers can supply another OpenType/TrueType font or collection as base64 with a face index. Editable text retains these bytes and its evaluated size formula.
 
 ```sh
 npm run test:api

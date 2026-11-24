@@ -55,6 +55,10 @@ pub struct SketchEntity {
     pub geometry: SketchGeometry,
     pub construction: bool,
     pub projected: bool,
+    // Typographic frame edges may collapse for empty text, including after conversion.
+    #[serde(skip)]
+    #[ts(skip)]
+    pub(crate) allow_collapse: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -201,6 +205,7 @@ pub struct SketchState {
     pub revision: u64,
     pub auto_recompute: bool,
     pub projections: Vec<SketchProjection>,
+    pub texts: Vec<SketchText>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -474,6 +479,13 @@ pub struct TextParameters {
     #[ts(optional)]
     pub font_base64: Option<String>,
     #[ts(optional)]
+    pub font_index: Option<u32>,
+    #[ts(optional)]
+    pub font_family: Option<String>,
+    #[serde(default)]
+    #[ts(optional, as = "Option<_>")]
+    pub italic: bool,
+    #[ts(optional)]
     pub weight: Option<f32>,
     #[serde(default)]
     #[ts(optional, as = "Option<_>")]
@@ -486,6 +498,115 @@ pub struct TextParameters {
     #[serde(default)]
     #[ts(optional, as = "Option<_>")]
     pub construction: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SketchText {
+    pub id: String,
+    pub parameters: TextParameters,
+    pub geometry: GeometryData,
+    pub frame: Option<SketchTextFrame>,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub(crate) layout: [[f64; 2]; 2],
+    #[serde(skip)]
+    #[ts(skip)]
+    pub(crate) angle: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SketchTextFrame {
+    pub bottom_left: SketchEntityRef,
+    pub bottom_right: SketchEntityRef,
+    pub top_right: SketchEntityRef,
+    pub top_left: SketchEntityRef,
+    pub center: SketchEntityRef,
+    pub bottom: SketchEntityRef,
+    pub right: SketchEntityRef,
+    pub top: SketchEntityRef,
+    pub left: SketchEntityRef,
+    pub diagonal1: SketchEntityRef,
+    pub diagonal2: SketchEntityRef,
+}
+
+// Missing fields preserve the current value; null explicitly clears an optional font/guide field.
+fn text_update_value<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TextUpdateParameters {
+    #[ts(optional)]
+    pub text: Option<String>,
+    #[ts(optional)]
+    pub origin: Option<[f64; 2]>,
+    #[ts(optional)]
+    pub size: Option<Formula<LengthUnit>>,
+    #[serde(
+        default,
+        deserialize_with = "text_update_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub font_base64: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "text_update_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub font_index: Option<Option<u32>>,
+    #[serde(
+        default,
+        deserialize_with = "text_update_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub font_family: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "text_update_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub weight: Option<Option<f32>>,
+    #[ts(optional)]
+    pub italic: Option<bool>,
+    #[ts(optional)]
+    pub horizontal: Option<TextHorizontalAlign>,
+    #[ts(optional)]
+    pub vertical: Option<TextVerticalAlign>,
+    #[serde(
+        default,
+        deserialize_with = "text_update_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub guide: Option<Option<SketchEntityRef>>,
+    #[ts(optional)]
+    pub construction: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSketchText {
+    pub sketch: SketchRef,
+    pub id: String,
+    pub parameters: TextUpdateParameters,
+    #[ts(optional)]
+    pub preview: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExplodeSketchText {
+    pub sketch: SketchRef,
+    pub id: String,
 }
 
 pub fn declarations() -> Vec<String> {
@@ -530,6 +651,11 @@ pub fn declarations() -> Vec<String> {
         TextHorizontalAlign::decl(),
         TextVerticalAlign::decl(),
         TextParameters::decl(),
+        SketchText::decl(),
+        SketchTextFrame::decl(),
+        TextUpdateParameters::decl(),
+        UpdateSketchText::decl(),
+        ExplodeSketchText::decl(),
         SketchCurveEdit::decl(),
         ModifySketchCurves::decl(),
         SketchEditResult::decl(),

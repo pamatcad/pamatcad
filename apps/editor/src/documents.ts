@@ -131,10 +131,14 @@ export function initDocumentTabs(actions: {
   };
   return {
     render(documents: { id: string; name: string }[], active: string | undefined, busy: boolean) {
-      clearDrag();
+      const groups = [...tabs.querySelectorAll<HTMLElement>(".document-tab-group")];
+      const structureChanged = groups.length !== documents.length || documents.some(({ id, name }, i) =>
+        groups[i]?.dataset.tabId !== id || groups[i]?.querySelector<HTMLButtonElement>('[role="tab"]')?.title !== name);
+      const activeChanged = tabs.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.dataset.document !== active;
+      if (structureChanged || activeChanged || busy) clearDrag();
       const hadFocus = tabs.contains(document.activeElement);
       const focused = tabs.querySelector<HTMLButtonElement>(":focus")?.dataset.document;
-      tabs.replaceChildren(...documents.map(({ id, name }) => {
+      if (structureChanged) tabs.replaceChildren(...documents.map(({ id, name }) => {
         const group = document.createElement("div");
         group.className = "document-tab-group";
         group.dataset.tabId = id;
@@ -162,9 +166,19 @@ export function initDocumentTabs(actions: {
         return group;
       }));
       const buttons = [...tabs.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+      for (const tab of buttons) {
+        const selected = tab.dataset.document === active;
+        const group = tab.parentElement!;
+        group.dataset.active = String(selected);
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        if (tab.disabled !== busy) tab.disabled = busy;
+        const close = group.querySelector<HTMLButtonElement>(".close-document")!;
+        if (close.disabled !== busy) close.disabled = busy;
+      }
       const activeButton = buttons.find((tab) => tab.dataset.document === active);
-      if (hadFocus) (buttons.find((tab) => tab.dataset.document === focused) ?? activeButton)?.focus({ preventScroll: true });
-      if (!preserveScroll) activeButton?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (structureChanged && hadFocus) (buttons.find((tab) => tab.dataset.document === focused) ?? activeButton)?.focus({ preventScroll: true });
+      if (!preserveScroll && (structureChanged || activeChanged)) activeButton?.scrollIntoView({ block: "nearest", inline: "nearest" });
       const viewport = document.getElementById("viewport")!;
       if (active) viewport.setAttribute("aria-labelledby", "document-tab-" + active);
       else viewport.removeAttribute("aria-labelledby");

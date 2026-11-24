@@ -100,8 +100,8 @@ try {
   // Keep the second corner on the canvas when the tool panel's spacing changes.
   const secondX = Math.min(0.7, (toolBounds.x - bounds.x - 16) / bounds.width);
   await page.mouse.move(bounds.x + secondX * bounds.width, bounds.y + 0.6 * bounds.height);
-  const width = Number(await page.locator("#width").inputValue());
-  const height = Number(await page.locator("#height").inputValue());
+  const width = parseFloat(await page.locator("#width").inputValue());
+  const height = parseFloat(await page.locator("#height").inputValue());
   await clickAt(secondX, 0.6);
   assert.ok(Math.abs(width * height) > 1);
   await page.getByRole("button", { name: "Finish sketch" }).click();

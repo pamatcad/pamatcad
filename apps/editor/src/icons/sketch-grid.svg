@@ -1,4 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <title>Snap to grid</title>
-  <path class="icon-current-stroke" d="M4 10h24M4 22h24M10 4v24M22 4v24" fill="none" stroke="currentColor" stroke-width="2"/><circle class="icon-point" cx="22" cy="10" r="3" fill="#815a36"/>
+  <path class="icon-current-stroke" d="M4 10h24M4 22h24M10 4v24M22 4v24" fill="none" stroke="currentColor" stroke-width="2"/><circle class="icon-point" cx="22" cy="10" r="3" fill="#dcb58c"/>
 </svg>

@@ -48,7 +48,7 @@ Open the URL printed by Vite. To deploy the production build, serve `build/web/`
 
 ### Standalone
 
-Run `npm run build:desktop` with the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/) installed. On macOS, open `apps/editor/src-tauri/target/release/bundle/macos/PamatCAD.app`. This builds a locally ad-hoc signed application. The editor sends commands directly to the native engine.
+Run `npm run build:desktop` with the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/) installed. On macOS, open `apps/editor/src-tauri/target/release/bundle/macos/PamatCAD.app`. This builds a locally ad-hoc signed application. The editor sends commands directly to the native engine. Installed fonts are discovered through the OS using `font-kit`; Linux builds also require the Fontconfig and FreeType development packages.
 
 ### UI tests
 

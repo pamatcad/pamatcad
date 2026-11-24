@@ -70,6 +70,10 @@ impl Sketch {
                 "Transform requires finite values and a positive scale",
             ));
         }
+        for reference in &input.entities {
+            self.ensure_text_outline_editable(&reference.id)?;
+            self.ensure_text_frame_editable(&reference.id)?;
+        }
         let ids = self.selected_entities(&input.entities)?;
         if !input.copy
             && ids
@@ -352,6 +356,8 @@ impl Sketch {
     ) -> Result<SketchEditResult> {
         for r in references {
             self.check_reference(r)?;
+            self.ensure_text_outline_editable(&r.id)?;
+            self.ensure_text_frame_editable(&r.id)?;
             if self.entities[&r.id].projected && operation != 1 {
                 return Err(invalid("Projected curves are read-only"));
             }

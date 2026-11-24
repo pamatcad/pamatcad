@@ -70,6 +70,7 @@ pub struct Sketch {
     pub next_id: u64,
     pub saved: Option<Box<Sketch>>,
     pub projections: BTreeMap<String, SketchProjection>,
+    pub texts: BTreeMap<String, SketchText>,
 }
 
 impl Sketch {
@@ -101,6 +102,7 @@ impl Sketch {
             next_id: 0,
             saved: None,
             projections: BTreeMap::new(),
+            texts: BTreeMap::new(),
         };
         let origin = sketch.entity_ref("origin");
         sketch.entities.insert(
@@ -110,6 +112,7 @@ impl Sketch {
                 geometry: SketchGeometry::Point { position: [0., 0.] },
                 construction: true,
                 projected: false,
+                allow_collapse: false,
             },
         );
         sketch.constraints.insert(
@@ -189,7 +192,7 @@ impl Sketch {
             constraints: self
                 .constraints
                 .values()
-                .filter(|c| c.id != "origin-fixed")
+                .filter(|c| c.id != "origin-fixed" && self.text_owner(&c.id).is_none())
                 .cloned()
                 .collect(),
             dimensions: self.dimensions.values().cloned().collect(),
@@ -197,6 +200,7 @@ impl Sketch {
             revision: self.revision,
             auto_recompute: self.auto_recompute,
             projections: self.projections.values().cloned().collect(),
+            texts: self.texts.values().cloned().collect(),
         }
     }
     pub fn solve(
@@ -204,7 +208,11 @@ impl Sketch {
         units: SceneUnits,
         external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
     ) -> Result<()> {
-        solver::solve(self, units, external, &[])
+        solver::solve(self, units, external, &[])?;
+        if self.refresh_texts(units, external)? {
+            solver::solve(self, units, external, &[])?;
+        }
+        Ok(())
     }
     pub fn solve_drag(
         &mut self,
@@ -212,7 +220,11 @@ impl Sketch {
         external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
         targets: &[DragGoal],
     ) -> Result<()> {
-        solver::solve(self, units, external, targets)
+        solver::solve(self, units, external, targets)?;
+        if self.refresh_texts(units, external)? {
+            solver::solve(self, units, external, &[])?;
+        }
+        Ok(())
     }
     pub fn matching_constraint(
         &self,
@@ -221,6 +233,7 @@ impl Sketch {
     ) -> Result<Option<SketchConstraint>> {
         for r in parameters.points.iter().chain(&parameters.curves) {
             self.check_reference(r)?;
+            self.ensure_text_outline_editable(&r.id)?;
         }
         // Current constraint kinds are unordered within each reference role.
         // Keep points and curves separate, and preserve the stored input order.
@@ -282,6 +295,15 @@ impl Sketch {
         }
     }
     pub fn validate_dimension(&self, kind: DimensionKind, p: &DimensionParameters) -> Result<()> {
+        for reference in p
+            .points
+            .iter()
+            .chain(&p.curves)
+            .chain(p.line.iter())
+            .chain(p.curve.iter())
+        {
+            self.ensure_text_outline_editable(&reference.id)?;
+        }
         let invalid = |message: &str| CoreError::new(ErrorCode::InvalidParameter, message);
         if p.annotation
             .as_ref()
@@ -320,7 +342,9 @@ impl Sketch {
                 SketchGeometry::Line { from, to } => {
                     let a = self.point_position(from)?;
                     let b = self.point_position(to)?;
-                    if (a[0] - b[0]).hypot(a[1] - b[1]) <= LINEAR_TOLERANCE {
+                    if (a[0] - b[0]).hypot(a[1] - b[1]) <= LINEAR_TOLERANCE
+                        && !(e.construction && e.allow_collapse)
+                    {
                         return Err(CoreError::new(
                             ErrorCode::InvalidParameter,
                             "Line endpoints must differ",

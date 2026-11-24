@@ -80,7 +80,7 @@ export async function testSketchAppearance(page) {
     assert.deepEqual(result.selectedPixel, [213, 94, 0, 255], "Selected geometry retains its color over the region fill");
     assert.deepEqual(result.formats, ["1.2346", "10000.1235", "2", "0", "12.3457 mm", "2.3457 rad", "0.001 in", "width / 3", "20 / 2"]);
     assert.ok(result.darkPixels > 20, "Dimension numerals have dark pixels on their white label background");
-    assert.deepEqual(result.field, { text: "12.3457", value: 12.345678901 });
+    assert.deepEqual(result.field, { text: "12.3457 mm", value: 12.345678901 });
     assert.deepEqual(result.focus, ["none", "none", "none"]);
     await page.mouse.move(5, 5);
     await page.screenshot({ path: "/private/tmp/pamatcad-sketch-appearance.png" });
