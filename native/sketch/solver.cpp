@@ -3,6 +3,7 @@
 #include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <stdexcept>
 #include <vector>
@@ -65,16 +66,37 @@ public:
         setTag(tag);
     }
     double error() override { return scale*evaluate(nullptr).value; }
-    double grad(double* p) override { return scale*evaluate(p).derivative; }
+    double grad(double* p) override {
+        if (std::find(pvec.begin(), pvec.end(), p) == pvec.end()) return 0.;
+        return scale*evaluate(p).derivative;
+    }
 };
 }
 
 extern "C" int pamat_sketch_solve(double* values, size_t count, size_t geometry_count, const uint8_t* fixed, const uint8_t* preferred,
     const PamatInstruction* instructions, const PamatEquation* equations, size_t equation_count, size_t permanent_count,
-    const PamatDragTarget* drag, size_t drag_count,
+    const PamatDragTarget* drag, size_t drag_count, bool dragging,
     int32_t* dof, uint8_t* movable, const size_t* group_indices, const PamatVariableGroup* groups, size_t group_count, int32_t* group_dof, int32_t* diagnostic_tags, size_t* diagnostic_count,
-    char* error, size_t error_size) {
+    char* error, size_t error_size, PamatSolveProfile* profile) {
     try {
+        using Clock = std::chrono::steady_clock;
+        auto started = profile ? Clock::now() : Clock::time_point{};
+        const auto elapsed = [&]() {
+            const auto now = Clock::now();
+            const double ms = std::chrono::duration<double, std::milli>(now - started).count();
+            started = now;
+            return ms;
+        };
+        const auto solve = [&](GCS::System& solver, GCS::VEC_pD& unknowns) {
+            if (profile) profile->prepare_ms += elapsed();
+            solver.declareUnknowns(unknowns);
+            solver.initSolution();
+            if (profile) profile->diagnose_ms += elapsed();
+            const int result = solver.solve();
+            solver.applySolution();
+            if (profile) profile->solve_ms += elapsed();
+            return result;
+        };
         GCS::System system;
         system.debugMode = GCS::NoDebug;
         system.maxIter = 200;
@@ -89,7 +111,7 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, size_t geometry_
         std::vector<size_t> active;
         for (size_t i=0; i<geometry_count; ++i) if(!fixed[i]) { parameters.push_back(values+i); active.push_back(i); }
         int status = GCS::Success;
-        if (drag_count) {
+        if (dragging) {
             // The permanent equations below also supply the final residual/DOF checks.
             // Drag targets and position preferences exist only in these temporary systems.
             std::vector<double> original(values, values + count);
@@ -104,6 +126,7 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, size_t geometry_
                 targeted[drag[i].x] = targeted[drag[i].y] = true;
             }
             const auto attempt = [&](bool pin, bool preserve, bool holdPreferred = false) {
+                if (profile) ++profile->attempts;
                 std::copy(seed.begin(), seed.end(), values);
                 for (size_t axis = 0; axis < indices.size(); ++axis) if (pin) {
                     const size_t i = indices[axis];
@@ -133,8 +156,7 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, size_t geometry_
                 if (!pin) for (size_t axis = 0; axis < indices.size(); ++axis) {
                     move.addConstraintEqual(values + indices[axis], target.data() + axis, GCS::DefaultTemporaryConstraint, false);
                 }
-                const int result = unknowns.empty() ? GCS::Success : move.solve(unknowns);
-                if (!unknowns.empty()) move.applySolution();
+                const int result = unknowns.empty() ? GCS::Success : solve(move, unknowns);
                 if (result != GCS::Success && result != GCS::Converged) return false;
                 for (auto* constraint : relations) {
                     const double error = constraint->error();
@@ -146,7 +168,14 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, size_t geometry_
             // constraints prevent that, find an attainable cursor position, then retain it
             // while minimizing the remaining movement. Preferences never weaken geometry.
             const bool hasPreferred = std::any_of(preferred, preferred + count, [](uint8_t p) { return p != 0; });
-            if (!(hasPreferred && attempt(true, true, true)) && !attempt(true, true)) {
+            // With no cursor in this component, an already valid input has the
+            // exact minimum movement (zero). Keep its bits rather than introduce
+            // numerical drift. Residuals and freedom are still recomputed below.
+            const bool unchanged = !drag_count && std::all_of(constraints.begin(), constraints.end(), [](auto* relation) {
+                const double residual = relation->error();
+                return std::isfinite(residual) && std::abs(residual) <= 1e-7;
+            });
+            if (!unchanged && !(hasPreferred && attempt(true, true, true)) && !attempt(true, true)) {
                 if (!attempt(false, false)) throw std::runtime_error("Could not solve sketch drag");
                 for (size_t axis = 0; axis < indices.size(); ++axis) target[axis] = values[indices[axis]];
                 // Diagnose the pinned system at the feasible solution, while retaining
@@ -155,20 +184,21 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, size_t geometry_
                 if (!attempt(true, true)) throw std::runtime_error("Could not preserve sketch drag target");
             }
         } else {
-            status = equation_count && !active.empty() ? system.solve(parameters) : GCS::Success;
-            if (equation_count && !active.empty()) system.applySolution();
+            status = equation_count && !active.empty() ? solve(system, parameters) : GCS::Success;
         }
         GCS::VEC_I conflicts;
         system.getConflicting(conflicts);
         size_t capacity = *diagnostic_count;
         *diagnostic_count = std::min(capacity, conflicts.size());
         std::copy_n(conflicts.begin(), *diagnostic_count, diagnostic_tags);
+        if (profile) profile->prepare_ms += elapsed();
         Eigen::MatrixXd jacobian(permanent_count, active.size());
         double residual = 0.;
         for (size_t i=0; i<permanent_count; ++i) {
             residual = std::max(residual,std::abs(constraints[i]->error()));
             for (size_t j=0; j<active.size(); ++j) jacobian(i,j)=constraints[i]->grad(values+active[j]);
         }
+        if (profile) profile->jacobian_ms += elapsed();
         std::fill_n(movable,count,0);
         for(auto i:active)movable[i]=1;
         *dof = static_cast<int32_t>(active.size());
@@ -202,6 +232,7 @@ extern "C" int pamat_sketch_solve(double* values, size_t count, size_t geometry_
                 group_dof[g]=static_cast<int32_t>((singular.array()>1e-7).count());
             }
         }
+        if (profile) profile->freedom_ms += elapsed();
         // A solver convergence flag alone does not guarantee satisfied constraints.
         if (!std::isfinite(residual) || residual > 1e-7) {
             std::snprintf(error,error_size,"Sketch constraints conflict or did not converge (residual %.9g, status %d)",residual,status);

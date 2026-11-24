@@ -15,7 +15,8 @@
   background: var(--panel-background);
   box-shadow: 0 3px 14px color-mix(in srgb, var(--shadow) calc(var(--shadow-opacity) * 100%), transparent);
 }
-#web-menu .menu-items button {
+#web-menu .menu-items button,
+#web-menu .menu-items summary {
   display: block;
   width: 100%;
   padding: 3px 8px;
@@ -23,23 +24,21 @@
   text-align: left;
   white-space: nowrap;
 }
+#web-menu .menu-items summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+#web-menu .menu-items .menu-items {
+  top: -5px;
+  left: 100%;
+}
 #about a {
   color: var(--on-accent);
 }
 #about .about-actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   margin-top: 18px;
-}
-#about .secondary {
-  color: var(--foreground);
-  background: var(--field-background);
-  border-color: var(--field-border);
-}
-#about .secondary:hover {
-  background: var(--hover-background);
-}
-#about .secondary:active:not(:disabled) {
-  background: var(--active-background);
 }

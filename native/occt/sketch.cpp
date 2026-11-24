@@ -225,13 +225,24 @@ extern "C" int pamat_sketch_modify(const double* frame,const PamatSketchCurve* c
             char detail[1024];if(pamat_sketch_regions(frame,curves,count,data,receive,&cells,detail,sizeof(detail)))throw std::runtime_error(detail);
             std::vector<std::pair<gp_Pnt,gp_Pnt>> segments;
             for(const auto& e:edges){BRepAdaptor_Curve c(e);GCPnts_QuasiUniformDeflection sample(c,0.0001);if(!sample.IsDone())throw std::runtime_error("Could not classify text contours");for(int i=1;i<sample.NbPoints();++i)segments.emplace_back(sample.Value(i).Transformed(local),sample.Value(i+1).Transformed(local));}
-            TopoDS_Shape result;
+            NCollection_List<TopoDS_Shape> filled;
             for(const auto& cell:cells.faces){auto face=TopoDS::Face(cell->value);double u0,u1,v0,v1;BRepTools::UVBounds(face,u0,u1,v0,v1);gp_Pnt2d inside;bool found=false;
                 for(int grid:{3,7,17,37}){for(int i=0;i<grid&&!found;++i)for(int j=0;j<grid&&!found;++j){gp_Pnt2d p(u0+(u1-u0)*(i+0.5)/grid,v0+(v1-v0)*(j+0.5)/grid);BRepClass_FaceClassifier test(face,p,1e-8);if(test.State()==TopAbs_IN){inside=p;found=true;}}if(found)break;}
                 if(!found)continue;int winding=0;for(const auto&[a,b]:segments){double cross=(b.X()-a.X())*(inside.Y()-a.Y())-(inside.X()-a.X())*(b.Y()-a.Y());if(a.Y()<=inside.Y()&&b.Y()>inside.Y()&&cross>0.)++winding;if(a.Y()>inside.Y()&&b.Y()<=inside.Y()&&cross<0.)--winding;}
-                if(!winding)continue;if(result.IsNull())result=face;else{BRepAlgoAPI_Fuse merge(result,face);if(!merge.IsDone())throw std::runtime_error("Could not combine text contours");result=merge.Shape();}
+                if(winding)filled.Append(face);
             }
-            if(result.IsNull())return;ShapeUpgrade_UnifySameDomain unified(result,true,true,false);unified.Build();emit(unified.Shape(),count);
+            if(filled.IsEmpty())return;
+            TopoDS_Shape result=filled.First();
+            if(filled.Size()>1){
+                // Normalize all filled cells together instead of repeatedly
+                // intersecting an ever-growing union for each glyph region.
+                NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(filled.First());
+                for(auto it=filled.begin();it!=filled.end();++it)if(it!=filled.begin())tools.Append(*it);
+                BRepAlgoAPI_Fuse merge;merge.SetArguments(arguments);merge.SetTools(tools);merge.SetNonDestructive(true);merge.Build();
+                if(!merge.IsDone())throw std::runtime_error("Could not combine text contours");
+                result=merge.Shape();
+            }
+            ShapeUpgrade_UnifySameDomain unified(result,true,true,false);unified.Build();emit(unified.Shape(),count);
         }else throw std::invalid_argument("Unknown sketch edit");
     },error,error_size);
 }

@@ -10,6 +10,7 @@ import { testLoadingScreen } from "./loading.mjs";
 import { testDocumentTabs } from "./document-tabs.mjs";
 import { testExtrudeEditor } from "./extrude.mjs";
 import { testToolInputs } from "./tool-inputs.mjs";
+import { testScreenshots } from "./screenshots.mjs";
 
 const root = resolve("build/web");
 const types = {
@@ -39,7 +40,9 @@ try {
     executablePath: process.env.CHROME_BIN,
     args: ["--enable-unsafe-swiftshader"],
   });
-  if (process.env.PAMATCAD_EDITOR_TEST === "sketch") {
+  if (process.env.PAMATCAD_EDITOR_TEST === "screenshots") {
+    await testScreenshots(browser, "http://127.0.0.1:" + server.address().port);
+  } else if (process.env.PAMATCAD_EDITOR_TEST === "sketch") {
     await testSketchEditor(browser, "http://127.0.0.1:" + server.address().port);
   } else {
   const page = await browser.newPage({ viewport: { width: 1280, height: 840 } });
@@ -217,6 +220,7 @@ try {
   await testDocumentTabs(browser, "http://127.0.0.1:" + server.address().port);
   await testExtrudeEditor(browser, "http://127.0.0.1:" + server.address().port);
   await testToolInputs(browser);
+  await testScreenshots(browser, "http://127.0.0.1:" + server.address().port);
   await testSketchEditor(browser, "http://127.0.0.1:" + server.address().port);
   }
 } finally {

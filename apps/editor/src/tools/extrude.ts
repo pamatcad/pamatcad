@@ -153,7 +153,7 @@ export class ExtrudeTool {
       this.panel.querySelector<HTMLElement>("#" + slot + "-items")!.textContent = this.inputs[slot].map((item) => {
         if (item.kind === "region") {
           const sketch = this.sketches.get(item.ref.sketchId)!;
-          return `Region ${sketch.regions.findIndex((r) => r.region.id === item.ref.id) + 1} · Sketch ${[...this.sketches.keys()].indexOf(item.ref.sketchId) + 1}`;
+          return `Region ${(sketch.regions ?? []).findIndex((r) => r.region.id === item.ref.id) + 1} · Sketch ${[...this.sketches.keys()].indexOf(item.ref.sketchId) + 1}`;
         }
         if (item.kind === "face") return `Face ${"faceId" in item.ref ? item.ref.faceId : ""} · Body ${[...this.bodies.keys()].indexOf(item.ref.bodyId) + 1}`;
         return item.kind === "body" ? `Body ${[...this.bodies.keys()].indexOf(item.id) + 1}` : "";
@@ -189,7 +189,7 @@ export class ExtrudeTool {
       profile = regions;
       const proxy = this.sketches.get(regions[0].sketchId)!;
       this.frame = proxy.frame;
-      for (const region of regions) points.push(...proxy.regions.find((r) => r.region.id === region.id)!.boundary);
+      for (const region of regions) points.push(...(proxy.regions ?? []).find((r) => r.region.id === region.id)!.boundary);
     } else {
       const faces = selected as Extract<SelectionItem, { kind: "face" }>[];
       profile = faces.map((item) => item.ref);

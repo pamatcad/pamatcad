@@ -129,7 +129,14 @@ impl Engine {
                 Ok(Response::SketchCreate(data))
             }
             Request::SketchGetProxy(query) => Ok(Response::SketchGetProxy(
-                self.view_sketch(session, &query)?.proxy()?,
+                self.view_sketch(
+                    session,
+                    &SketchViewQuery {
+                        sketch: query.sketch,
+                        preview: query.preview,
+                    },
+                )?
+                .proxy(query.regions.unwrap_or(true))?,
             )),
             Request::PrimitiveAdd(mut input) => {
                 if let Primitive::Text(p) = &mut input.primitive {

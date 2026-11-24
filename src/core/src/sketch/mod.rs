@@ -14,6 +14,7 @@ use crate::{
 };
 use regions::Region;
 use std::collections::BTreeMap;
+use std::{cell::RefCell, rc::Rc};
 
 pub const LINEAR_TOLERANCE: f64 = 1e-7;
 
@@ -71,6 +72,9 @@ pub struct Sketch {
     pub saved: Option<Box<Sketch>>,
     pub projections: BTreeMap<String, SketchProjection>,
     pub texts: BTreeMap<String, SketchText>,
+    solver_cache: solver::Cache,
+    region_cache: RefCell<Option<Rc<regions::Cached>>>,
+    curve_cache: RefCell<BTreeMap<String, Rc<display::CachedCurve>>>,
 }
 
 impl Sketch {
@@ -103,6 +107,9 @@ impl Sketch {
             saved: None,
             projections: BTreeMap::new(),
             texts: BTreeMap::new(),
+            solver_cache: solver::Cache::default(),
+            region_cache: RefCell::default(),
+            curve_cache: RefCell::default(),
         };
         let origin = sketch.entity_ref("origin");
         sketch.entities.insert(
@@ -373,26 +380,32 @@ impl Sketch {
         Ok(())
     }
 
-    pub fn proxy(&self) -> Result<SketchProxy> {
-        let evaluated;
-        let source = if self.data.completed {
-            &self.regions
+    pub fn proxy(&self, include_regions: bool) -> Result<SketchProxy> {
+        let regions = if include_regions {
+            let evaluated;
+            let source = if self.data.completed {
+                &self.regions
+            } else {
+                evaluated = regions::evaluate(self)?;
+                &evaluated
+            };
+            Some(
+                source
+                    .iter()
+                    .map(|region| {
+                        let Boundary::Profile(profile) = &region.boundary;
+                        let loops = profile.loops()?;
+                        Ok(SketchRegionProxy {
+                            region: region.reference.clone(),
+                            boundary: loops.first().cloned().unwrap_or_default(),
+                            holes: loops.into_iter().skip(1).collect(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            )
         } else {
-            evaluated = regions::evaluate(self)?;
-            &evaluated
+            None
         };
-        let regions = source
-            .iter()
-            .map(|region| {
-                let Boundary::Profile(profile) = &region.boundary;
-                let loops = profile.loops()?;
-                Ok(SketchRegionProxy {
-                    region: region.reference.clone(),
-                    boundary: loops.first().cloned().unwrap_or_default(),
-                    holes: loops.into_iter().skip(1).collect(),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
         Ok(SketchProxy {
             sketch: SketchRef {
                 scene_id: self.data.scene_id.clone(),

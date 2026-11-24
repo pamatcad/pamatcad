@@ -77,6 +77,41 @@ async fn memory_footprint() -> Option<memory::Footprint> {
         .flatten()
 }
 
+#[tauri::command]
+async fn save_screenshot(window: tauri::WebviewWindow, filename: String, bytes: Vec<u8>) -> Result<bool, String> {
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("Screenshot is not a PNG image".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(not(feature = "editor-smoke"))]
+        let path = {
+            use tauri_plugin_dialog::DialogExt;
+            let path = window.dialog().file()
+                .set_parent(&window)
+                .set_file_name(&filename)
+                .add_filter("PNG image", &["png"])
+                .blocking_save_file();
+            let Some(path) = path else { return Ok(false); };
+            path.into_path().map_err(|e| e.to_string())?
+        };
+        // The smoke build substitutes only the picker; PNG bytes still cross IPC and reach disk.
+        #[cfg(feature = "editor-smoke")]
+        let path = {
+            let _ = window;
+            std::env::temp_dir().join(filename)
+        };
+        std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+        #[cfg(feature = "editor-smoke")]
+        {
+            if std::fs::read(&path).map_err(|e| e.to_string())? != bytes {
+                return Err("Saved screenshot bytes differ".into());
+            }
+            println!("Screenshot PNG saved: {}", path.display());
+        }
+        Ok(true)
+    }).await.map_err(|e| e.to_string())?
+}
+
 #[cfg(feature = "editor-smoke")]
 #[tauri::command]
 fn click_pop_out(window: tauri::WebviewWindow) -> tauri::Result<()> {
@@ -93,25 +128,28 @@ fn finish_smoke(app: tauri::AppHandle, success: bool, report: String) {
 }
 
 fn main() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     #[cfg(feature = "editor-smoke")]
     let builder = builder
-        .invoke_handler(tauri::generate_handler![list_fonts, load_font, execute, close_output, memory_footprint, show_main_window, open_project, click_pop_out, finish_smoke])
+        .invoke_handler(tauri::generate_handler![list_fonts, load_font, execute, close_output, memory_footprint, show_main_window, open_project, save_screenshot, click_pop_out, finish_smoke])
         .on_page_load(|webview, payload| {
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished {
                 let fixture = include_str!("../../../../tests/editor/rectangle.js");
                 let dock = include_str!("../../../../tests/editor/output.js");
                 let documents = include_str!("../../../../tests/editor/documents.js");
+                let screenshots = include_str!("../../../../tests/editor/screenshots.js");
                 webview.eval(format!(r#"{fixture}
                     {dock}
                     {documents}
+                    {screenshots}
                     testRectangleEditor().then(async result => {{
+                      const screenshots = await testScreenshotEditor();
                       await testOutputDock();
                       const fonts = await window.__TAURI_INTERNALS__.invoke('list_fonts');
                       if (!fonts.length) throw new Error('No native fonts were listed');
                       const font = await window.__TAURI_INTERNALS__.invoke('load_font', {{id: fonts[0].id}});
                       if (!font.fontBase64 || !Number.isInteger(font.fontIndex)) throw new Error('Native font bytes/face index missing');
-                      return {{...result, ...(await testDocumentEditor()), installedFonts: fonts.length}};
+                      return {{...result, ...(await testDocumentEditor()), screenshots, installedFonts: fonts.length}};
                     }}).then(
                       result => window.__TAURI_INTERNALS__.invoke('finish_smoke', {{success:true, report:JSON.stringify(result)}}),
                       error => window.__TAURI_INTERNALS__.invoke('finish_smoke', {{success:false, report:String(error)}})
@@ -126,7 +164,8 @@ fn main() {
         close_output,
         memory_footprint,
         show_main_window,
-        open_project
+        open_project,
+        save_screenshot
     ]);
     builder
         .manage(Host::default())
@@ -183,6 +222,12 @@ fn main() {
                 .text("reset-ui", "Reset UI")
                 .text("about", "About")
                 .build()?;
+            let screenshots = SubmenuBuilder::new(app, "Capture screenshot")
+                .text("screenshot-app", "Full app")
+                .text("screenshot-viewport-ui", "Viewport with UI")
+                .text("screenshot-viewport", "Viewport without UI")
+                .build()?;
+            let tools = SubmenuBuilder::new(app, "Tools").item(&screenshots).build()?;
             let menu = MenuBuilder::new(app);
             #[cfg(target_os = "macos")]
             let menu = {
@@ -203,11 +248,12 @@ fn main() {
                 .paste()
                 .select_all()
                 .build()?;
-            menu.items(&[&file, &edit, &help]).build()
+            menu.items(&[&file, &edit, &tools, &help]).build()
         })
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
-            if matches!(id, "new" | "reset-ui" | "about" | "app-about") {
+            if matches!(id, "new" | "reset-ui" | "about" | "app-about" |
+                "screenshot-app" | "screenshot-viewport-ui" | "screenshot-viewport") {
                 let _ = app.emit("editor-menu", if id == "app-about" { "about" } else { id });
             }
         })

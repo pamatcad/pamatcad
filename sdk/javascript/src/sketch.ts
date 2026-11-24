@@ -1,6 +1,6 @@
 import type { CircleData, CircleParameters, RectangleData, RectangleParameters, SketchData, SketchRef, SketchSupport,
   TextUpdateParameters, SketchEntityRef, Primitive, GeometryData, ConstraintKind, ConstraintParameters, DimensionKind, DimensionParameters,
-  UpdateDimension, SketchSettings, ProjectionSource, TransformSketchGeometry, SketchCurveEdit } from "./generated/protocol.js";
+  UpdateDimension, SketchSettings, ProjectionSource, TransformSketchGeometry, SketchCurveEdit, SketchProxy } from "./generated/protocol.js";
 import type { Transport } from "./transport.js";
 
 type PrimitiveParameters<K extends Primitive["type"]> = Extract<Primitive, { type: K }>["parameters"];
@@ -92,5 +92,8 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
       : "position" in position ? { sketch: this.reference, curve: entity, position: position.position }
       : { sketch: this.reference, line: entity, ...position });
   }
-  getProxy(options: { preview?: boolean } = {}) { return this.transport.request("sketch.getProxy", { sketch: this.reference, ...options }); }
+  getProxy(options?: { preview?: boolean; regions?: true }): Promise<SketchProxy & { regions: NonNullable<SketchProxy["regions"]> }>;
+  getProxy(options: { preview?: boolean; regions: false }): Promise<SketchProxy & { regions: null }>;
+  getProxy(options: { preview?: boolean; regions?: boolean }): Promise<SketchProxy>;
+  getProxy(options: { preview?: boolean; regions?: boolean } = {}) { return this.transport.request("sketch.getProxy", { sketch: this.reference, ...options }); }
 }

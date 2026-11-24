@@ -1,11 +1,12 @@
 {
   "name": "@pamatcad/editor",
-  "version": "0.1.0",
+  "version": "0.0.0-preview",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@pamatcad/sdk": "0.1.0",
+    "@pamatcad/sdk": "0.0.0-preview",
     "@tauri-apps/api": "^2.10.0",
+    "html-to-image": "1.11.13",
     "three": "^0.185.0"
   },
   "devDependencies": {

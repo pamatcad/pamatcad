@@ -1,6 +1,6 @@
 {
   "name": "pamatcad",
-  "version": "0.1.0",
+  "version": "0.0.0-preview",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -11,6 +11,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "version:sync": "node tools/version.mjs",
+    "version:check": "node tools/version.mjs --check",
     "build:core": "cargo build --locked -p pamatcad-host",
     "generate:protocol": "cargo run --locked --quiet -p pamatcad-host -- bindings --output sdk/javascript/src/generated/protocol.ts",
     "build:sdk": "npm run generate:protocol && npm run build --workspace @pamatcad/sdk",

@@ -5,7 +5,9 @@ use crate::{
     sketch::Sketch,
 };
 use std::{
+    cell::OnceCell,
     ffi::{c_char, c_void, CStr},
+    ops::Bound::{Included, Unbounded},
     ptr::NonNull,
     rc::Rc,
 };
@@ -20,6 +22,7 @@ pub(crate) struct Profile {
     pub shape: Rc<Shape>,
     pub edges: Vec<String>,
     pub signature: String,
+    loops: Rc<OnceCell<Vec<Vec<[f64; 3]>>>>,
 }
 extern "C" {
     fn pamat_sketch_profile_proxy(
@@ -72,6 +75,7 @@ pub(crate) fn regions(sketch: &Sketch) -> Result<Vec<Profile>> {
             )),
             edges,
             signature: signature.join("/"),
+            loops: Rc::new(OnceCell::new()),
         });
     }
     let frame = [
@@ -128,6 +132,9 @@ pub(crate) fn regions(sketch: &Sketch) -> Result<Vec<Profile>> {
 
 impl Profile {
     pub fn loops(&self) -> Result<Vec<Vec<[f64; 3]>>> {
+        if let Some(loops) = self.loops.get() {
+            return Ok(loops.clone());
+        }
         extern "C" fn receive(context: *mut c_void, points: *const f64, count: usize) {
             let output = unsafe { &mut *context.cast::<Vec<Vec<[f64; 3]>>>() };
             let points = unsafe { std::slice::from_raw_parts(points, count * 3) };
@@ -152,6 +159,7 @@ impl Profile {
                     .into_owned(),
             ));
         }
+        let _ = self.loops.set(output.clone());
         Ok(output)
     }
 }
@@ -210,8 +218,9 @@ fn encode(sketch: &Sketch, selected: Option<&str>) -> Result<(Vec<Curve>, Vec<f6
     let mut curves = vec![];
     let mut data = vec![];
     let mut ids = vec![];
-    for (id, e) in &sketch.entities {
-        if selected.is_some_and(|s| s != id) || selected.is_none() && e.construction {
+    let bounds = selected.map_or((Unbounded, Unbounded), |id| (Included(id), Included(id)));
+    for (id, e) in sketch.entities.range::<str, _>(bounds) {
+        if selected.is_none() && e.construction {
             continue;
         }
         let start = data.len();
@@ -278,6 +287,38 @@ fn encode(sketch: &Sketch, selected: Option<&str>) -> Result<(Vec<Curve>, Vec<f6
         ids.push(id.clone());
     }
     Ok((curves, data, ids))
+}
+
+// Exact, collision-free input key. Referenced point coordinates, curve parameters,
+// construction inclusion, source identities and the support frame all participate.
+pub(crate) fn geometry_key(sketch: &Sketch, selected: Option<&str>) -> Result<Vec<u8>> {
+    let (curves, data, ids) = encode(sketch, selected)?;
+    let mut key = vec![];
+    key.extend((curves.len() as u64).to_le_bytes());
+    for id in [&sketch.data.scene_id, &sketch.data.id]
+        .into_iter()
+        .chain(ids.iter())
+    {
+        key.extend((id.len() as u64).to_le_bytes());
+        key.extend(id.as_bytes());
+    }
+    for curve in curves {
+        key.extend(curve.kind.to_le_bytes());
+        key.extend((curve.count as u64).to_le_bytes());
+    }
+    for value in [
+        sketch.frame.origin,
+        sketch.frame.u,
+        sketch.frame.v,
+        sketch.frame.normal,
+    ]
+    .into_iter()
+    .flatten()
+    .chain(data)
+    {
+        key.extend(value.to_bits().to_le_bytes());
+    }
+    Ok(key)
 }
 extern "C" {
     fn pamat_sketch_curve_proxy(

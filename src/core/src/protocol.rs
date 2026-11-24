@@ -61,7 +61,7 @@ pub struct SketchRegionProxy {
 pub struct SketchProxy {
     pub sketch: SketchRef,
     pub frame: PlaneFrame,
-    pub regions: Vec<SketchRegionProxy>,
+    pub regions: Option<Vec<SketchRegionProxy>>,
     pub curves: Vec<SketchCurveProxy>,
     pub points: Vec<SketchPointProxy>,
 }
@@ -655,6 +655,16 @@ pub struct SketchViewQuery {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
+pub struct SketchProxyQuery {
+    pub sketch: SketchRef,
+    #[ts(optional)]
+    pub preview: Option<bool>,
+    #[ts(optional)]
+    pub regions: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 pub struct SketchQuery {
     pub sketch: SketchRef,
 }
@@ -870,7 +880,7 @@ api! {
     SketchModifyCurves(ModifySketchCurves) -> SketchEditResult = "sketch.curves.modify",
     RegionOnly(SketchQuery) -> RegionRef = "sketch.regions.only",
     RegionsAll(SketchQuery) -> Vec<RegionRef> = "sketch.regions.all",
-    SketchGetProxy(SketchViewQuery) -> SketchProxy = "sketch.getProxy",
+    SketchGetProxy(SketchProxyQuery) -> SketchProxy = "sketch.getProxy",
     TimelineList(SceneQuery) -> Vec<TimelineEntry> = "scene.timeline.list",
     SolidExtrude(ModelingRequest<Extrude>) -> ExtrudeResult = "solid.extrude",
     ExtrudeFacesAll(ExtrudeFaceQuery) -> Vec<FaceRef> = "solid.extrude.faces.all",
@@ -967,6 +977,7 @@ pub fn typescript() -> String {
         AddPrimitive::decl(),
         SketchQuery::decl(),
         SketchViewQuery::decl(),
+        SketchProxyQuery::decl(),
         Extrude::decl(),
         ModelingRequest::<Extrude>::decl(),
         EdgeRef::decl(),

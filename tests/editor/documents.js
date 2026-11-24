@@ -63,6 +63,8 @@ async function testDocumentEditor() {
       find("about-versions").textContent.includes("OCCT"), "About should include both versions");
     check(find("about").querySelector("a").href === "https://github.com/pamatcad/pamatcad",
       "About should link to the project");
+    check(!find("about").textContent.includes("Editor controls") && !find("help"),
+      "About should not contain navigation instructions");
     find("about").close();
 
     const originalDocuments = tabs().map((tab) => tab.dataset.document);

@@ -4,10 +4,14 @@ import { parseArgs } from "node:util";
 const { values } = parseArgs({ options: {
   runtime: { type: "string", default: "native" },
   "test-name-pattern": { type: "string" },
+  "solver-profile": { type: "boolean", default: false },
 } });
 const runtime = values.runtime;
 if (runtime !== "native" && runtime !== "wasm") throw new Error("Performance runtime must be native or wasm");
 const env = { ...process.env, PAMATCAD_TEST_RUNTIME: runtime };
+if (values["solver-profile"] && runtime !== "native") throw new Error("Internal solver profiling currently requires the native runtime");
+if (values["solver-profile"]) env.PAMATCAD_SKETCH_PROFILE = "1";
+else delete env.PAMATCAD_SKETCH_PROFILE;
 delete env.PAMATCAD_TEST_REPORT_DIR;
 
 async function run(command, args) {

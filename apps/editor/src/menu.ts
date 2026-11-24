@@ -1,9 +1,10 @@
 import "./menu.css";
+import type { ScreenshotMode } from "./screenshot";
 
 declare const __PAMATCAD_VERSION__: string;
 declare const __OCCT_VERSION__: string;
 
-export function initMenu(actions: { newScene: () => void; resetUi: () => void; about?: never }) {
+export function initMenu(actions: { newScene: () => void; resetUi: () => void; screenshot: (mode: ScreenshotMode) => Promise<void> }) {
   const native = import.meta.env.MODE === "desktop";
   const nav = document.querySelector<HTMLElement>("#web-menu")!;
   nav.innerHTML = `
@@ -11,6 +12,19 @@ export function initMenu(actions: { newScene: () => void; resetUi: () => void; a
       <summary aria-controls="file-menu-items" aria-expanded="false">File</summary>
       <div class="menu-items" id="file-menu-items">
         <button id="menu-new" type="button" data-action="new">New scene</button>
+      </div>
+    </details>
+    <details>
+      <summary aria-controls="tools-menu-items" aria-expanded="false">Tools</summary>
+      <div class="menu-items" id="tools-menu-items">
+        <details>
+          <summary aria-controls="screenshot-menu-items" aria-expanded="false">Capture screenshot <span aria-hidden="true">›</span></summary>
+          <div class="menu-items" id="screenshot-menu-items">
+            <button type="button" data-action="screenshot-app">Full app</button>
+            <button type="button" data-action="screenshot-viewport-ui">Viewport with UI</button>
+            <button type="button" data-action="screenshot-viewport">Viewport without UI</button>
+          </div>
+        </details>
       </div>
     </details>
     <details>
@@ -22,6 +36,9 @@ export function initMenu(actions: { newScene: () => void; resetUi: () => void; a
     </details>`;
   nav.hidden = native;
   const menus = [...nav.querySelectorAll("details")];
+  const topMenus = [...nav.querySelectorAll<HTMLDetailsElement>(":scope > details")];
+  const captures = [...nav.querySelectorAll<HTMLButtonElement>('[data-action^="screenshot-"]')];
+  let capturing = false;
   const newScene = nav.querySelector<HTMLButtonElement>("#menu-new")!;
   const resetUi = nav.querySelector<HTMLButtonElement>("#menu-reset-ui")!;
   const about = document.createElement("dialog");
@@ -33,7 +50,6 @@ export function initMenu(actions: { newScene: () => void; resetUi: () => void; a
     <p><a href="https://github.com/pamatcad/pamatcad" target="_blank" rel="noopener noreferrer">PamatCAD on GitHub</a></p>
     <p class="error" id="about-error" role="status" hidden></p>
     <div class="about-actions">
-      <button type="button" class="secondary">Editor controls</button>
       <form method="dialog"><button autofocus>Close</button></form>
     </div>`;
   about.querySelector("#about-versions")!.textContent = `PamatCAD ${__PAMATCAD_VERSION__} · OCCT ${__OCCT_VERSION__}`;
@@ -42,10 +58,6 @@ export function initMenu(actions: { newScene: () => void; resetUi: () => void; a
     if (event.key === "Escape") event.stopPropagation();
   });
   const error = about.querySelector<HTMLElement>("#about-error")!;
-  about.querySelector<HTMLButtonElement>(".secondary")!.onclick = () => {
-    about.close();
-    document.querySelector<HTMLDialogElement>("#help")!.showModal();
-  };
   if (native) {
     about.querySelector<HTMLAnchorElement>("a")!.onclick = async (event) => {
       event.preventDefault();
@@ -64,6 +76,15 @@ export function initMenu(actions: { newScene: () => void; resetUi: () => void; a
     closeMenus();
     if (id === "new" && !newScene.disabled) actions.newScene();
     if (id === "reset-ui" && !resetUi.disabled) actions.resetUi();
+    const mode = id.slice("screenshot-".length);
+    if (id.startsWith("screenshot-") && ["app", "viewport-ui", "viewport"].includes(mode) && !capturing) {
+      capturing = true;
+      captures.forEach(item => { item.disabled = true; });
+      void actions.screenshot(mode as ScreenshotMode).finally(() => {
+        capturing = false;
+        captures.forEach(item => { item.disabled = false; });
+      });
+    }
     if (id === "about" && !about.open) {
       error.hidden = true;
       about.showModal();
@@ -75,7 +96,10 @@ export function initMenu(actions: { newScene: () => void; resetUi: () => void; a
   for (const menu of menus) {
     menu.addEventListener("toggle", () => {
       menu.querySelector("summary")!.setAttribute("aria-expanded", String(menu.open));
-      if (menu.open) for (const other of menus) if (other !== menu) other.open = false;
+      if (menu.open) for (const other of menus) {
+        if (other !== menu && other.parentElement === menu.parentElement) other.open = false;
+      }
+      else for (const child of menu.querySelectorAll("details")) child.open = false;
     });
   }
   document.addEventListener("pointerdown", (event) => {
@@ -89,24 +113,37 @@ export function initMenu(actions: { newScene: () => void; resetUi: () => void; a
     const menu = event.target.closest("details");
     if (!menu) return;
     const summary = menu.querySelector("summary")!;
-    const buttons = [...menu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+    const buttons = [...menu.querySelectorAll<HTMLElement>(":scope > .menu-items > button:not(:disabled), :scope > .menu-items > details > summary")];
+    const parent = menu.parentElement?.closest("details");
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      closeMenus();
+      if (parent && !menu.open) {
+        parent.open = false;
+        parent.querySelector("summary")!.focus();
+        return;
+      }
+      if (parent) menu.open = false;
+      else closeMenus();
       summary.focus();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       menu.open = true;
-      const current = buttons.indexOf(event.target as HTMLButtonElement);
+      const current = buttons.indexOf(event.target);
       const next = current < 0
         ? event.key === "ArrowDown" ? 0 : buttons.length - 1
         : (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
       buttons[next]?.focus();
     } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
+      if (parent) {
+        menu.open = event.key === "ArrowRight";
+        if (menu.open) buttons[0]?.focus();
+        else summary.focus();
+        return;
+      }
       const offset = event.key === "ArrowLeft" ? -1 : 1;
-      const next = menus[(menus.indexOf(menu) + offset + menus.length) % menus.length];
+      const next = topMenus[(topMenus.indexOf(menu) + offset + topMenus.length) % topMenus.length];
       const wasOpen = menu.open;
       closeMenus();
       next.open = wasOpen;

@@ -62,6 +62,9 @@ export async function testSketchUpdates(page) {
         return result;
       };
       c.display = t.display;
+      c.proxies = [];
+      c.proxy = t.hooks.proxy;
+      t.hooks.proxy = proxy => { c.proxies.push(structuredClone(proxy)); c.proxy(proxy); };
       t.display = function (...args) {
         if (args[0] && args[0] !== this.state) c.snapshots.push(structuredClone(args[0]));
         return c.display.apply(this, args);
@@ -102,6 +105,9 @@ export async function testSketchUpdates(page) {
     await waitReply("sketch.primitives.add");
     let current = await state();
     assert.equal(current.snapshots.length, 1, "Completed intermediate preview is displayed during movement");
+    assert.ok(current.requests.filter(r => r.method === "sketch.getProxy").every(r => r.params.regions === false));
+    assert.equal(await page.evaluate(() => window.sketchUpdates.proxies.at(-1).regions), null);
+    assert.equal(await page.evaluate(() => window.sketchUpdates.tool.viewport.sketches.children.length), 0, "Live updates clear stale region fills");
     assert.equal(current.valid, false);
     assert.equal(current.disabled, true);
     const additions = current.requests.filter(r => r.method === "sketch.primitives.add");
@@ -124,6 +130,7 @@ export async function testSketchUpdates(page) {
     current = await state();
     assert.equal(current.tool, "rectangle");
     assert.equal(current.ready, true); assert.equal(current.disabled, false);
+    assert.equal(await page.evaluate(() => window.sketchUpdates.tool.proxy.regions.length), 1, "Commit restores exact regions");
     assert.equal(current.requests.filter(r => r.method === "sketch.primitives.add").length, 2);
     assert.ok(current.state.entities.some(e => e.geometry.type === "point" && Math.hypot(e.geometry.position[0] - 5, e.geometry.position[1] + 10) < 1e-5));
     const committed = current.state;
@@ -143,6 +150,7 @@ export async function testSketchUpdates(page) {
     assert.equal(current.snapshots.length, shown);
     assert.deepEqual(current.state, committed);
     assert.equal(current.tool, "line");
+    assert.equal(await page.evaluate(() => window.sketchUpdates.proxies.at(-1).regions.length), 1, "An obsolete preview cannot replace restored fills");
 
     // Suspending and resuming the same draft rejects old responses and regenerates its latest preview.
     await page.mouse.click(...await screen([-10, -15]));
@@ -190,6 +198,7 @@ export async function testSketchUpdates(page) {
       const c = window.sketchUpdates;
       if (c.transport) c.transport.request = c.request;
       if (c.display) c.tool.display = c.display;
+      if (c.proxy) c.tool.hooks.proxy = c.proxy;
       if (c.changed) c.tool.hooks.changed = c.changed;
       if (c.timeout) window.setTimeout = c.timeout;
       c.hold = false; c.replies.splice(0).forEach(r => r.resolve());

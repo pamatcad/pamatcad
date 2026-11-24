@@ -722,7 +722,7 @@ export class Viewport {
   }
   setSketches(records: Map<string, SketchProxy>) {
     discard(this.sketches);
-    for (const [id, proxy] of records) for (const region of proxy.regions) {
+    for (const [id, proxy] of records) for (const region of proxy.regions ?? []) {
       const origin = new T.Vector3(...proxy.frame.origin), u = new T.Vector3(...proxy.frame.u), v = new T.Vector3(...proxy.frame.v);
       const points = region.boundary.map((point) => {
         const p = new T.Vector3(...point).sub(origin);
@@ -808,38 +808,76 @@ export class Viewport {
     this.setVisibility(this.hidden);
   }
 
+  captureScreenshot({ includeUi }: { includeUi: boolean }): HTMLCanvasElement {
+    const ratio = this.renderer.getPixelRatio();
+    const width = this.host.clientWidth, height = this.host.clientHeight;
+    const gl = this.renderer.getContext();
+    const limit = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE));
+    if (!width || !height || width * devicePixelRatio > limit || height * devicePixelRatio > limit) {
+      throw new Error("The viewport is too large or empty to capture at native resolution.");
+    }
+    try {
+      this.renderer.setPixelRatio(devicePixelRatio);
+      this.renderFrame(includeUi);
+      const source = this.renderer.domElement;
+      const image = document.createElement("canvas");
+      const bounds = this.host.getBoundingClientRect();
+      image.width = Math.floor(bounds.width * devicePixelRatio);
+      image.height = Math.floor(bounds.height * devicePixelRatio);
+      const context = image.getContext("2d");
+      if (!context) throw new Error("Could not create the screenshot canvas.");
+      // Copy synchronously before WebGL's drawing buffer is discarded.
+      context.drawImage(source, 0, 0);
+      return image;
+    } finally {
+      this.renderer.setPixelRatio(ratio);
+      this.renderFrame();
+    }
+  }
+
   private render() {
     if (this.renderPending) return;
     this.renderPending = true;
     requestAnimationFrame(() => {
-      const w = this.host.clientWidth, h = this.host.clientHeight;
       this.renderPending = false;
-      if (!w || !h) return;
-      this.camera.updateMatrixWorld();
-      // One eighth of the shorter viewport dimension, measured at the origin.
-      // Perspective foreshortening remains natural; zoom and pan change only world scale.
-      const depth = -new T.Vector3().applyMatrix4(this.camera.matrixWorldInverse).z;
-      const pixel = this.camera instanceof T.PerspectiveCamera
-        ? 2 * Math.max(this.camera.near, depth) * Math.tan(T.MathUtils.degToRad(this.camera.fov / 2)) / this.camera.zoom / h
-        : this.pixelLength;
-      const planePixels = Math.min(w, h) / 8;
-      this.construction.scale.setScalar(pixel * planePixels);
-      for (const plane of this.construction.children) for (const label of plane.children) if (label instanceof T.Sprite) {
-        label.scale.set(40 / planePixels, 20 / planePixels, 1);
-      }
-      this.construction.updateMatrixWorld(true);
-      this.handles?.update();
-      this.sketchDisplay.updateScale(this.pixelLength,this.camera,w,h);
-      if (this.hoverPointer) this.setHover(this.pick(this.hoverPointer));
-      this.renderer.setViewport(0, 0, w, h);
-      this.renderer.setClearColor(this.theme.colors.background);
-      this.renderer.clear();
-      this.renderer.render(this.scene, this.camera);
-      this.gizmoCamera.quaternion.copy(this.camera.quaternion);
-      this.gizmoCamera.position.set(0, 0, 5).applyQuaternion(this.camera.quaternion);
-      this.renderer.clearDepth();
-      this.renderer.setViewport(w - gizmoSize, h - gizmoSize, gizmoSize, gizmoSize);
-      this.renderer.render(this.gizmo, this.gizmoCamera);
+      this.renderFrame();
     });
+  }
+
+  private renderFrame(includeUi = true) {
+    const w = this.host.clientWidth, h = this.host.clientHeight;
+    if (!w || !h) return;
+    this.camera.updateMatrixWorld();
+    // One eighth of the shorter viewport dimension, measured at the origin.
+    // Perspective foreshortening remains natural; zoom and pan change only world scale.
+    const depth = -new T.Vector3().applyMatrix4(this.camera.matrixWorldInverse).z;
+    const pixel = this.camera instanceof T.PerspectiveCamera
+      ? 2 * Math.max(this.camera.near, depth) * Math.tan(T.MathUtils.degToRad(this.camera.fov / 2)) / this.camera.zoom / h
+      : this.pixelLength;
+    const planePixels = Math.min(w, h) / 8;
+    this.construction.scale.setScalar(pixel * planePixels);
+    for (const plane of this.construction.children) for (const label of plane.children) if (label instanceof T.Sprite) {
+      label.scale.set(40 / planePixels, 20 / planePixels, 1);
+    }
+    this.construction.updateMatrixWorld(true);
+    this.handles?.update();
+    this.sketchDisplay.updateScale(this.pixelLength,this.camera,w,h);
+    if (this.hoverPointer) this.setHover(this.pick(this.hoverPointer));
+    this.renderer.setViewport(0, 0, w, h);
+    this.renderer.setClearColor(this.theme.colors.background);
+    this.renderer.clear();
+    const handlesVisible = this.handles.group.visible;
+    try {
+      if (!includeUi) this.handles.group.visible = false;
+      this.renderer.render(this.scene, this.camera);
+    } finally {
+      this.handles.group.visible = handlesVisible;
+    }
+    if (!includeUi) return;
+    this.gizmoCamera.quaternion.copy(this.camera.quaternion);
+    this.gizmoCamera.position.set(0, 0, 5).applyQuaternion(this.camera.quaternion);
+    this.renderer.clearDepth();
+    this.renderer.setViewport(w - gizmoSize, h - gizmoSize, gizmoSize, gizmoSize);
+    this.renderer.render(this.gizmo, this.gizmoCamera);
   }
 }

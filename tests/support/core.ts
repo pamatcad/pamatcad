@@ -5,7 +5,7 @@ import type { TestContext } from "node:test";
 import { captureReportScene } from "./report.js";
 import { Core, type Scene } from "@pamatcad/sdk";
 
-export async function startCore(t: TestContext, sceneName: string, profile: "debug" | "release" = "debug"): Promise<{ core: Core; scene: Scene; url: string }> {
+export async function startCore(t: TestContext, sceneName: string, profile: "debug" | "release" = "debug", onDiagnostic?: (line: string) => void): Promise<{ core: Core; scene: Scene; url: string }> {
   if (process.env.PAMATCAD_TEST_RUNTIME === "wasm") return (await import("./wasm.js")).startWasmCore(t, sceneName);
   const executable = resolve("target", profile, process.platform === "win32" ? "pamatcad.exe" : "pamatcad");
   const child = spawn(executable, ["serve", "--transport", "ws", "--listen", "127.0.0.1:0"], {
@@ -15,6 +15,8 @@ export async function startCore(t: TestContext, sceneName: string, profile: "deb
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (text: string) => { diagnostics = (diagnostics + text).slice(-16_384); });
   const lines = createInterface({ input: child.stdout });
+  const diagnosticLines = onDiagnostic ? createInterface({ input: child.stderr }) : undefined;
+  if (onDiagnostic) diagnosticLines!.on("line", onDiagnostic);
   let core: Core | undefined;
   let scene: Scene | undefined;
 
@@ -26,6 +28,7 @@ export async function startCore(t: TestContext, sceneName: string, profile: "deb
     } finally {
       core?.close();
       lines.close();
+      diagnosticLines?.close();
       if (child.pid && child.exitCode === null && child.signalCode === null) {
         await new Promise<void>((resolve) => {
           const force = setTimeout(() => child.kill("SIGKILL"), 2_000);

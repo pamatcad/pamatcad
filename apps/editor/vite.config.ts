@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { startupTheme } from "./startup-theme";
 
-const version = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+const version = readFileSync(new URL("../../VERSION", import.meta.url), "utf8").trim();
 const dependencies = readFileSync(new URL("../../native/occt/dependencies.cmake", import.meta.url), "utf8");
 const occtVersion = dependencies.match(/set\(PAMATCAD_OCCT_VERSION\s+([^\s)]+)\)/)?.[1];
 if (!occtVersion) throw new Error("Missing OCCT version in native/occt/dependencies.cmake");

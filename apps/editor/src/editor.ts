@@ -11,6 +11,7 @@ import { initSceneBrowser, type BrowserTab, type TreeNode } from "./scene-browse
 import { editorTheme } from "./theme";
 import { initStatusLine } from "./status-line";
 import { initMenu } from "./menu";
+import { captureScreenshot, saveScreenshot } from "./screenshot";
 import { initDocumentTabs } from "./documents";
 import { resetUiSettings } from "./ui-settings";
 import { selectionOwner, changeSelection, type SelectionItem } from "./selection";
@@ -353,7 +354,7 @@ async function closeDocument(id: string) {
 function changeVisibility(id: string, visible: boolean) {
   const doc = activeDocument;
   if (!doc || busy || doc.tool === "sketch") return;
-  const regions = [...doc.sketches.values()].flatMap((s) => s.regions);
+  const regions = [...doc.sketches.values()].flatMap((s) => s.regions ?? []);
   const owner = regions.find((r) => r.region.id === id)?.region.sketchId ?? id;
   const visit = (node: TreeNode, inherited = false) => {
     const change = inherited || node.id === owner;
@@ -604,7 +605,7 @@ export async function startEditor() {
       if (doc.proxies.has(id)) select({ kind: "body", id }, additive);
       else if (doc.sketches.has(id)) select({ kind: "sketch", id }, additive);
       else {
-        const region = [...doc.sketches.values()].flatMap((sketch) => sketch.regions).find((r) => r.region.id === id);
+        const region = [...doc.sketches.values()].flatMap((sketch) => sketch.regions ?? []).find((r) => r.region.id === id);
         if (region) select({ kind: "region", ref: region.region }, additive);
         else if (Object.values(doc.scene.construction.builtin.planes).some((plane) => plane.id === id)) select({ kind: "plane", id }, additive);
       }
@@ -614,7 +615,15 @@ export async function startEditor() {
   });
   documentTabs = initDocumentTabs({ activate: activateDocument, close: (id) => { void closeDocument(id); }, create: () => { void newScene(); }, reorder: reorderDocument });
   await initOutputDock(runConsole, status);
-  menu = initMenu({ newScene: () => { void newScene(); }, resetUi: () => {
+  menu = initMenu({ newScene: () => { void newScene(); }, screenshot: async (mode) => {
+    try {
+      await saveScreenshot(await captureScreenshot(viewport, mode), mode);
+    } catch (error) {
+      const text = "Could not capture screenshot: " + message(error);
+      status(text);
+      appendOutput(text, true);
+    }
+  }, resetUi: () => {
     resetUiSettings();
     for (const doc of documents.values()) doc.objectTab = "Bodies";
     viewport.setCameraMode("orthographic");

@@ -39,6 +39,7 @@ export class SketchTool {
   private handleVersion = 0;
   private previewQueued = false;
   private updateRunning = false;
+  private regionsPending = false;
   private version = 0;
   private interaction = 0;
   private active = true;
@@ -274,7 +275,7 @@ export class SketchTool {
     if (!background) this.blockingCount++;
     this.hooks.changed(true);
     this.showError("");
-    const next = this.queue.then(action).then(() => reload ? this.reload() : this.display()).catch(e => this.showError(errorText(e))).finally(() => {
+    const next = this.queue.then(action).then(() => reload ? this.reload(!background) : this.display()).catch(e => this.showError(errorText(e))).finally(() => {
       this.pendingCount--;
       if (!background) this.blockingCount--;
       if (this.active) {
@@ -292,11 +293,21 @@ export class SketchTool {
       this.hooks.status(message);
     }
   }
-  private async reload() {
+  private async reload(regions = true) {
     if (!this.sketch) {
       return;
     }
-    const [state, proxy] = await Promise.all([this.sketch.state(), this.sketch.getProxy()]);
+    const sketch = this.sketch, interaction = this.interaction;
+    // Settle both reads before the next queued mutation can replace their source.
+    const results = await Promise.allSettled([sketch.state(), sketch.getProxy({ regions })]);
+    if (results[0].status === "rejected") throw results[0].reason;
+    if (results[1].status === "rejected") throw results[1].reason;
+    if (sketch !== this.sketch || interaction !== this.interaction || !this.active) {
+      this.regionsPending = true;
+      return;
+    }
+    const state = results[0].value, proxy = results[1].value;
+    this.regionsPending = !regions;
     this.state = state;
     this.proxy = proxy;
     if (!this.active) {
@@ -305,7 +316,6 @@ export class SketchTool {
     this.input("sketch-auto").checked = state.autoRecompute;
     this.get("sketch-recompute").hidden = state.autoRecompute;
     this.hooks.proxy(proxy);
-    this.display();
     this.references();
     this.selectionChanged();
   }
@@ -437,6 +447,7 @@ export class SketchTool {
     this.handles();
     this.updateCursor();
     this.hooks.changed(this.pending);
+    this.flushUpdates();
   }
   private updateCursor() {
     const symbol = !this.active || this.pickingSupport ? undefined : this.constraint ? "constraint-" + this.constraint : this.tool === "select" ? undefined : this.tool;
@@ -539,11 +550,18 @@ export class SketchTool {
   }
   private flushUpdates() {
     if (this.updateRunning || this.pending || !this.active || this.creating) return;
-    if (!this.dragQueued && !this.previewQueued) return;
+    if (!this.dragQueued && !this.previewQueued) {
+      if (this.regionsPending && !this.dragEntity && !this.points.length && !this.editingText) {
+        this.regionsPending = false;
+        void this.run(() => this.reload(), false, true);
+      }
+      return;
+    }
     const request = this.dragQueued;
     this.dragQueued = undefined;
     this.previewQueued = false;
     this.updateRunning = true;
+    if (request) this.regionsPending = true;
     const update = request ? this.run(() => this.state?.texts.some(t => t.id === request.entity.id)
       ? this.sketch!.texts.update(request.entity.id, { origin: request.position as Point })
       : this.sketch!.drag(request.entity, request.position), true, true) : this.preview();
@@ -861,7 +879,7 @@ export class SketchTool {
       }
       if (interaction !== this.interaction || !this.active || this.creating) return;
       // Both reads must settle before another update can replace the preview cache.
-      const results = await Promise.allSettled([this.sketch!.state({ preview: true }), this.sketch!.getProxy({ preview: true })]);
+      const results = await Promise.allSettled([this.sketch!.state({ preview: true }), this.sketch!.getProxy({ preview: true, regions: false })]);
       if (results[0].status === "rejected") throw results[0].reason;
       if (results[1].status === "rejected") throw results[1].reason;
       const state = results[0].value, proxy = results[1].value;
@@ -1364,6 +1382,7 @@ export class SketchTool {
       this.dragText = undefined;
       this.dragLine = undefined;
       this.hooks.changed(this.pending);
+      this.flushUpdates();
       if (canvas.hasPointerCapture(e.pointerId)) {
         canvas.releasePointerCapture(e.pointerId);
       }
@@ -1377,6 +1396,7 @@ export class SketchTool {
       this.dragLine = undefined;
       this.dragStart = undefined;
       this.hooks.changed(this.pending);
+      this.flushUpdates();
     };
     canvas.addEventListener("pointercancel", clearDrag, { signal });
     canvas.addEventListener("lostpointercapture", clearDrag, { signal });
@@ -1389,6 +1409,7 @@ export class SketchTool {
       }
     }
     this.updateCursor();
+    this.flushUpdates();
   }
   async finish() {
     if (this.editingText) throw new Error("Finish or cancel the text edit before finishing the sketch.");

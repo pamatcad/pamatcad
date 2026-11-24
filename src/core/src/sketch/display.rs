@@ -1,9 +1,12 @@
 use super::*;
+pub(super) struct CachedCurve {
+    key: Vec<u8>,
+    points: Vec<[f64; 3]>,
+}
 impl Sketch {
     pub fn curve_samples(&self, id: &str, _count: usize) -> Result<Vec<[f64; 2]>> {
         if let Some(SketchEntity {
             geometry: SketchGeometry::Line { from, to },
-            allow_collapse: true,
             ..
         }) = self.entities.get(id)
         {
@@ -22,24 +25,39 @@ impl Sketch {
             .collect())
     }
     pub fn display_curves(&self) -> Result<Vec<SketchCurveProxy>> {
-        self.entities
+        let previous = self.curve_cache.borrow();
+        let mut next = BTreeMap::new();
+        let curves = self
+            .entities
             .values()
             .filter(|e| !matches!(e.geometry, SketchGeometry::Point { .. }))
             .map(|e| {
+                let key = crate::kernel::sketch::geometry_key(self, Some(&e.reference.id))?;
+                let cached =
+                    if let Some(cached) = previous.get(&e.reference.id).filter(|c| c.key == key) {
+                        Rc::clone(cached)
+                    } else {
+                        let points = if let SketchGeometry::Line { from, to } = &e.geometry {
+                            vec![
+                                self.frame.point(self.point_position(from)?),
+                                self.frame.point(self.point_position(to)?),
+                            ]
+                        } else {
+                            crate::kernel::sketch::curve_samples(self, &e.reference.id)?
+                        };
+                        Rc::new(CachedCurve { key, points })
+                    };
+                next.insert(e.reference.id.clone(), Rc::clone(&cached));
                 Ok(SketchCurveProxy {
                     entity: e.reference.clone(),
-                    points: if e.allow_collapse {
-                        self.curve_samples(&e.reference.id, 0)?
-                            .into_iter()
-                            .map(|p| self.frame.point(p))
-                            .collect()
-                    } else {
-                        crate::kernel::sketch::curve_samples(self, &e.reference.id)?
-                    },
+                    points: cached.points.clone(),
                     construction: e.construction,
                     projected: e.projected,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()?;
+        drop(previous);
+        *self.curve_cache.borrow_mut() = next;
+        Ok(curves)
     }
 }

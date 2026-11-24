@@ -503,7 +503,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "pamatcad-core"
-version = "0.1.0"
+version = "0.0.0-preview"
 dependencies = [
  "base64",
  "cmake",
@@ -517,7 +517,7 @@ dependencies = [
 
 [[package]]
 name = "pamatcad-host"
-version = "0.1.0"
+version = "0.0.0-preview"
 dependencies = [
  "axum",
  "clap",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "pamatcad-wasm"
-version = "0.1.0"
+version = "0.0.0-preview"
 dependencies = [
  "pamatcad-core",
  "serde_json",

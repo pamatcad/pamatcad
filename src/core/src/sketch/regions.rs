@@ -13,10 +13,23 @@ pub struct Region {
 pub enum Boundary {
     Profile(Profile),
 }
+pub(super) struct Cached {
+    key: Vec<u8>,
+    regions: Vec<Region>,
+}
 pub fn evaluate(sketch: &Sketch) -> Result<Vec<Region>> {
+    let key = crate::kernel::sketch::geometry_key(sketch, None)?;
+    if let Some(cached) = sketch
+        .region_cache
+        .borrow()
+        .as_ref()
+        .filter(|c| c.key == key)
+    {
+        return Ok(cached.regions.clone());
+    }
     let profiles = crate::kernel::sketch::regions(sketch)?;
     let mut ids = std::collections::BTreeSet::new();
-    profiles
+    let regions = profiles
         .into_iter()
         .map(|profile| {
             let id = format!("region/{}", profile.signature);
@@ -35,5 +48,10 @@ pub fn evaluate(sketch: &Sketch) -> Result<Vec<Region>> {
                 boundary: Boundary::Profile(profile),
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    *sketch.region_cache.borrow_mut() = Some(std::rc::Rc::new(Cached {
+        key,
+        regions: regions.clone(),
+    }));
+    Ok(regions)
 }

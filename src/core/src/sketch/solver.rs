@@ -1,14 +1,30 @@
 use super::*;
 use crate::formula::{self, Expression as E, Instruction, Quantity};
 use std::{ffi::c_char, ops::Range};
+mod components;
+pub(super) use components::Cache;
 
 #[repr(C)]
+#[derive(Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SolveProfile {
+    prepare_ms: f64,
+    diagnose_ms: f64,
+    solve_ms: f64,
+    jacobian_ms: f64,
+    freedom_ms: f64,
+    attempts: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, PartialEq)]
 struct Equation {
     start: usize,
     count: usize,
     tag: i32,
 }
 #[repr(C)]
+#[derive(Clone, PartialEq)]
 struct VariableGroup {
     start: usize,
     count: usize,
@@ -32,6 +48,7 @@ extern "C" {
         permanent_count: usize,
         drag: *const DragTarget,
         drag_count: usize,
+        dragging: bool,
         dof: *mut i32,
         movable: *mut u8,
         group_indices: *const usize,
@@ -42,6 +59,7 @@ extern "C" {
         diagnostic_count: *mut usize,
         error: *mut c_char,
         error_size: usize,
+        profile: *mut SolveProfile,
     ) -> i32;
 }
 
@@ -470,6 +488,7 @@ pub(super) fn solve(
     external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
     drag: &[DragGoal],
 ) -> Result<()> {
+    let started = std::env::var_os("PAMATCAD_SKETCH_PROFILE").map(|_| std::time::Instant::now());
     let mut system = System::new(sketch);
     let mut targets = BTreeMap::new();
     let geometry_count = system.values.len();
@@ -755,11 +774,6 @@ pub(super) fn solve(
         });
     }
     let mut values = system.values.clone();
-    let mut movable = vec![0; values.len()];
-    let mut dof = 0;
-    let mut diagnostics = vec![0; equations.len()];
-    let mut diagnostic_count = diagnostics.len();
-    let mut error = [0u8; 1024];
     let mut group_indices = vec![];
     let mut groups = vec![];
     let mut freedom = vec![];
@@ -787,39 +801,40 @@ pub(super) fn solve(
         });
     }
     let mut group_dof = vec![0i32; groups.len()];
-    let result = unsafe {
-        pamat_sketch_solve(
-            values.as_mut_ptr(),
-            values.len(),
-            geometry_count,
-            fixed.as_ptr(),
-            preferred.as_ptr(),
-            instructions.as_ptr(),
-            equations.as_ptr(),
-            equations.len(),
-            permanent_count,
-            drag.as_ptr(),
-            drag.len(),
-            &mut dof,
-            movable.as_mut_ptr(),
-            group_indices.as_ptr(),
-            groups.as_ptr(),
-            groups.len(),
-            group_dof.as_mut_ptr(),
-            diagnostics.as_mut_ptr(),
-            &mut diagnostic_count,
-            error.as_mut_ptr().cast(),
-            error.len(),
-        )
-    };
-    if result != 0 {
-        return Err(CoreError::new(
-            ErrorCode::InvalidParameter,
-            String::from_utf8_lossy(
-                &error[..error.iter().position(|b| *b == 0).unwrap_or(error.len())],
-            )
-            .to_string(),
-        ));
+    let mut profile = SolveProfile::default();
+    let variable_ids: Vec<_> = system
+        .ranges
+        .iter()
+        .flat_map(|(id, range)| (0..range.len()).map(move |axis| (id.clone(), axis)))
+        .collect();
+    let build_ms = started.map(|s| s.elapsed().as_secs_f64() * 1000.);
+    let (dof, solver_cache, statistics) = components::solve(
+        &mut values,
+        geometry_count,
+        &fixed,
+        &preferred,
+        &instructions,
+        &equations,
+        permanent_count,
+        &drag,
+        &group_indices,
+        &groups,
+        &mut group_dof,
+        &variable_ids,
+        &sketch.solver_cache,
+        started.map(|_| &mut profile),
+    )?;
+    if let Some(started) = started {
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "event": "sketch.solve", "drag": !drag.is_empty(), "components": statistics.count,
+                "largestComponent": statistics.largest, "partitionMs": statistics.partition_ms,
+                "reusedComponents": statistics.reused,
+                "variables": values.len(), "equations": equations.len(),
+                "buildMs": build_ms, "native": profile, "totalMs": started.elapsed().as_secs_f64() * 1000.,
+            })
+        );
     }
     let computed = sketch
         .dimensions
@@ -887,6 +902,7 @@ pub(super) fn solve(
     };
     sketch.sync_text_frames()?;
     sketch.validate_geometry()?;
+    sketch.solver_cache = solver_cache;
     Ok(())
 }
 

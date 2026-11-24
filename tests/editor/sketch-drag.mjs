@@ -123,11 +123,16 @@ export async function testSketchDragging(page) {
     p = await screen(target); p[0] += 3;
     await page.mouse.move(...p); await page.mouse.down();
     await page.mouse.move(p[0] + 12, p[1] + 8); await idle();
+    assert.equal(await page.evaluate(() => window.dragCheck.tool.proxy.regions), null);
+    assert.equal(await page.evaluate(() => window.dragCheck.viewport.sketches.children.length), 0, "Held drags show geometry without stale fills");
     await page.mouse.move(...p); await idle();
     const returned = await page.evaluate(([x, y]) => window.dragCheck.viewport.point({ clientX: x, clientY: y }), p);
     near(await point(setup.bottomRight), returned);
     near(await point(setup.topLeft), [-25, 20]);
     await page.mouse.up(); await idle();
+
+    assert.equal(await page.evaluate(() => window.dragCheck.tool.proxy.regions.length), 1);
+    assert.equal(await page.evaluate(() => window.dragCheck.viewport.sketches.children.length), 1, "Release restores the final region fill");
 
     const edge = (axis, coordinate) => page.evaluate(({ axis, coordinate }) => {
       const state = window.dragCheck.tool.state;

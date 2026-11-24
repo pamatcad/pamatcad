@@ -1,6 +1,6 @@
 {
   "name": "@pamatcad/sdk",
-  "version": "0.1.0",
+  "version": "0.0.0-preview",
   "type": "module",
   "private": true,
   "files": ["dist"],
