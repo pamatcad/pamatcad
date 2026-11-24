@@ -23,6 +23,7 @@ Use these headings in order. Write `Open` beside a question that needs a decisio
 - State each contract rule once. When a section already covers a rule, edit that passage. Record current implementation coverage in History.
 - no test should be generated if it is not documented in the test cases, and no test case should be accepted if it contradicts the scope or intent, or uses undocumented inputs and parameters
 - new features should not break the consistency of the code, SDK, protocol, UI, or implementation 
+- Performance scenarios belong in the separate, opt-in `tests/performance/` suite. Run them only for performance investigations or optimization, not as routine feature validation or a requirement before completing a feature. See [Performance testing](performance.md).
 
 ## Workflow and artifacts
 

@@ -7,6 +7,7 @@ node_modules/
 /.idea/
 .DS_Store
 /reports/tests/
+/reports/performance/
 /apps/editor/src-tauri/target/
 /apps/editor/src-tauri/gen/
 /apps/editor/public/wasm/

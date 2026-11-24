@@ -21,6 +21,7 @@
     "pretest:api": "node -e \"require('node:fs').rmSync('tests/dist', { recursive: true, force: true })\"",
     "test:api": "npm run build && tsc -p tests && node tests/run.mjs",
     "test:sdk": "npm run test:api --",
+    "test:performance": "npm run build:sdk && tsc -p tests/tsconfig.performance.json && node tests/performance/run.mjs",
     "build:wasm": "node tools/editor/build-wasm.mjs",
     "build:web": "npm run build:sdk && npm run build:wasm && npm run web -w @pamatcad/editor",
     "build:desktop": "npm run build:sdk && npm run desktop -w @pamatcad/editor",
