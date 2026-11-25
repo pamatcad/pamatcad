@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Move</title>
-  <path class="icon-handle-fill icon-handle-edge" d="m16 2 5 6h-3v6h6v-3l6 5-6 5v-3h-6v6h3l-5 6-5-6h3v-6H8v3l-6-5 6-5v3h6V8h-3Z" fill="#dcb58c" stroke="#815a36" stroke-width="1.5"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>Move</title><path class="icon-handle-edge" d="M16 4v24M4 16h24m-16-8 4-4 4 4m-8 16 4 4 4-4M8 12l-4 4 4 4m16-8 4 4-4 4" stroke="#815a36"/></svg>

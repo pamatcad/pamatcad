@@ -1,0 +1,146 @@
+<div class="viz-dotted-background" id="extrude-draft-stage">
+<section id="extrude-draft" aria-label="Extrude window draft">
+  <header class="ex-header"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIgogICAgIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJ0aXRsZSI+CiAgPHRpdGxlIGlkPSJ0aXRsZSI+RXh0cnVkZTwvdGl0bGU+CiAgPGcgaWQ9InNvbGlkIj4KICAgIDxwYXRoIGNsYXNzPSJpY29uLXN1cmZhY2UtZmlsbCIgaWQ9ImxpdC1zaWRlIiBmaWxsPSIjY2VkM2Q1IiBkPSJNNCAxNSAxNiAyMXY5TDQgMjRaIi8+CiAgICA8cGF0aCBjbGFzcz0iaWNvbi1wcmV2aWV3LWZpbGwiIGlkPSJzaGFkZWQtc2lkZSIgZmlsbD0iI2FlYmVjMyIgZD0iTTE2IDIxIDI4IDE1djlsLTEyIDZaIi8+CiAgICA8cGF0aCBjbGFzcz0iaWNvbi1zb2xpZC1lZGdlIiBpZD0iZWRnZXMiIGQ9Ik00IDE1djlsMTIgNiAxMi02di05TTE2IDIxdjkiCiAgICAgICAgICBmaWxsPSJub25lIiBzdHJva2U9IiM2NTcyN2IiIHN0cm9rZS1vcGFjaXR5PSIxIiBzdHJva2Utd2lkdGg9IjEuNyIKICAgICAgICAgIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogICAgPHBhdGggY2xhc3M9Imljb24tc2VsZWN0aW9uLWZpbGwgaWNvbi1zZWxlY3Rpb24tZWRnZSIgaWQ9ImNhcCIgZmlsbD0iI2MwZDhjYyIgc3Ryb2tlPSIjNDg3NTYxIiBzdHJva2Utd2lkdGg9IjEuNyIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgZD0iTTE2IDkgMjggMTUgMTYgMjEgNCAxNVoiLz4KICA8L2c+CiAgPHBhdGggY2xhc3M9Imljb24taGFuZGxlLWZpbGwgaWNvbi1oYW5kbGUtZWRnZSIgaWQ9Im5vcm1hbC1hcnJvdyIgZmlsbD0iI2RjYjU4YyIgc3Ryb2tlPSIjODE1YTM2IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgZD0ibTE2IDIgNiA3aC0zLjV2OGgtNVY5SDEwWiIvPgo8L3N2Zz4K" alt="" width="24" height="24"><h2>Extrude</h2><button class="ex-collapse cursor-interaction" type="button" aria-label="Collapse Extrude window" aria-expanded="true"><i data-lucide="chevron-up" aria-hidden="true"></i></button></header>
+  <div class="ex-content">
+    <section class="ex-section" aria-labelledby="ex-profiles-title">
+      <h3 id="ex-profiles-title">Profiles</h3>
+      <div class="ex-pick-group"><button class="ex-pick cursor-interaction" type="button" data-pick="profiles" aria-expanded="false"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i><span class="ex-pick-label">1 region · Sketch 1</span><span class="ex-change">Change</span></button><button class="ex-clear cursor-interaction" data-clear="profiles" type="button" aria-label="Clear profiles"><i data-lucide="x" aria-hidden="true"></i></button></div>
+      <div class="ex-pick-options" data-options="profiles" hidden><label><input type="checkbox" data-profile="1" checked>Region 1 · Sketch 1</label><label><input type="checkbox" data-profile="2">Region 2 · Sketch 1</label></div>
+      <label class="ex-row"><span>Start</span><select id="ex-start"><option value="plane">Profile plane</option><option value="offset">Offset</option><option value="face">From a face</option></select></label>
+      <label class="ex-row" data-show="offset" hidden><span>Offset</span><input type="text" value="0 mm" aria-label="Start offset" spellcheck="false"></label>
+      <div class="ex-field" data-show="face" hidden><span class="ex-label">Starting face</span><div class="ex-pick-group"><button class="ex-pick cursor-interaction" type="button" data-pick="start" aria-expanded="false"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i><span class="ex-pick-label">Select a face…</span></button><button type="button" class="ex-clear cursor-interaction" data-clear="start" aria-label="Clear starting face" disabled><i data-lucide="x" aria-hidden="true"></i></button></div><div class="ex-pick-options" data-options="start" hidden><button type="button" class="cursor-interaction" data-sample="start">Face 1 · Body 1</button></div></div>
+    </section>
+    <section class="ex-section" aria-labelledby="ex-extent-title">
+      <h3 id="ex-extent-title">Extent</h3>
+      <div class="ex-segments" role="group" aria-label="Extrusion sides"><button type="button" class="cursor-interaction" data-side="one" aria-pressed="true">One side</button><button type="button" class="cursor-interaction" data-side="two" aria-pressed="false">Two sides</button><button type="button" class="cursor-interaction" data-side="symmetric" aria-pressed="false">Symmetric</button></div>
+      <label class="ex-row" data-show="symmetric" hidden><span>Length means</span><select id="ex-symmetric-length"><option>Total length</option><option>Half-length</option></select></label>
+      <div class="ex-side" data-side-fields="1">
+        <h4 data-show="two" hidden>Side 1</h4>
+        <label class="ex-row" data-show="end"><span>End condition</span><select id="ex-end1"><option value="distance">Distance</option><option value="all">Through all</option><option value="object">To object</option></select></label>
+        <label class="ex-row ex-length-row" data-show="length1"><span id="ex-length-label">Length</span><input type="text" id="ex-length1" value="30 mm / 2" aria-labelledby="ex-length-label" spellcheck="false"></label>
+        <div class="ex-field" data-show="limit1" hidden><span class="ex-label">Limiting body</span><div class="ex-pick-group"><button class="ex-pick cursor-interaction" type="button" data-pick="limit1" aria-expanded="false"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i><span class="ex-pick-label">Select a body…</span></button><button class="ex-clear cursor-interaction" type="button" data-clear="limit1" aria-label="Clear side 1 limiting body" disabled><i data-lucide="x" aria-hidden="true"></i></button></div><div class="ex-pick-options" data-options="limit1" hidden><button type="button" class="cursor-interaction" data-sample="limit1">Body 2</button></div><label class="ex-row"><span>Stop at</span><select aria-label="Side 1 stopping position"><option>Closest</option><option>Touch</option><option>Intersect</option><option>Farthest</option></select></label></div>
+        <label class="ex-row"><span>Taper angle</span><input type="text" value="0 deg" aria-label="Side 1 taper angle" spellcheck="false"></label>
+      </div>
+      <div class="ex-side ex-second" data-show="two" hidden>
+        <h4>Side 2</h4>
+        <label class="ex-row"><span>End condition</span><select id="ex-end2"><option value="distance">Distance</option><option value="all">Through all</option><option value="object">To object</option></select></label>
+        <label class="ex-row" data-show="length2"><span>Length</span><input type="text" value="10 mm" aria-label="Side 2 length" spellcheck="false"></label>
+        <div class="ex-field" data-show="limit2" hidden><span class="ex-label">Limiting body</span><div class="ex-pick-group"><button class="ex-pick cursor-interaction" type="button" data-pick="limit2" aria-expanded="false"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i><span class="ex-pick-label">Select a body…</span></button><button class="ex-clear cursor-interaction" type="button" data-clear="limit2" aria-label="Clear side 2 limiting body" disabled><i data-lucide="x" aria-hidden="true"></i></button></div><div class="ex-pick-options" data-options="limit2" hidden><button type="button" class="cursor-interaction" data-sample="limit2">Body 3</button></div><label class="ex-row"><span>Stop at</span><select aria-label="Side 2 stopping position"><option>Closest</option><option>Touch</option><option>Intersect</option><option>Farthest</option></select></label></div>
+        <label class="ex-row"><span>Taper angle</span><input type="text" value="0 deg" aria-label="Side 2 taper angle" spellcheck="false"></label>
+      </div>
+      <label class="ex-checkbox" data-show="reverse" hidden><input type="checkbox">Reverse extent direction</label>
+    </section>
+    <section class="ex-section" aria-labelledby="ex-result-title">
+      <h3 id="ex-result-title">Result</h3>
+      <label class="ex-row"><span>Operation</span><select id="ex-operation"><option value="auto">Auto — New body</option><option value="new">New body</option><option value="join">Join</option><option value="cut">Cut</option><option value="intersect">Intersect</option></select></label>
+      <label class="ex-row" data-show="targets"><span>Targets</span><select id="ex-target-scope"><option value="all">All bodies</option><option value="selected">Selected bodies</option></select></label>
+      <div class="ex-field" data-show="target-pick" hidden><div class="ex-pick-group"><button class="ex-pick cursor-interaction" type="button" data-pick="targets" aria-expanded="false"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i><span class="ex-pick-label">Select target bodies…</span></button><button class="ex-clear cursor-interaction" type="button" data-clear="targets" aria-label="Clear target bodies" disabled><i data-lucide="x" aria-hidden="true"></i></button></div><div class="ex-pick-options" data-options="targets" hidden><label><input type="checkbox" data-target="1">Body 1</label><label><input type="checkbox" data-target="2">Body 2</label></div></div>
+    </section>
+  </div>
+  <footer class="ex-footer"><div id="ex-feedback" aria-live="polite" hidden></div><div class="ex-actions"><button type="button" class="cursor-interaction" id="ex-cancel">Cancel</button><button type="button" class="ex-primary cursor-interaction" id="ex-apply">Apply</button></div></footer>
+</section>
+</div>
+<style>
+#extrude-draft-stage{padding:24px 8px;display:grid;place-items:start center}
+#extrude-draft{--ex-bg:light-dark(#fff,#20262b);--ex-text:light-dark(#39434b,#e3e9ed);--ex-muted:light-dark(#65727b,#aab8c2);--ex-border:light-dark(#d9dee2,#46535d);--ex-input:light-dark(#87939c,#71828f);--ex-blue:light-dark(#294f6d,#c5ddf0);--ex-active:light-dark(#e7f1f8,#283e50);--ex-primary:light-dark(#c5ddf0,#35566e);--ex-hover:light-dark(#f2f5f7,#2d373f);--ex-sage:light-dark(#487561,#a4c8b6);--ex-picked:light-dark(#f2f7f4,#273d33);--ex-error:light-dark(#964650,#eea5ae);--ex-height:32px;width:min(320px,100%);background:var(--ex-bg);color:var(--ex-text);border:1px solid var(--ex-border);border-radius:4px;box-shadow:0 4px 16px light-dark(#39434b15,#00000033);font:400 13px/20px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#extrude-draft *{box-sizing:border-box}
+#extrude-draft [hidden]{display:none!important}
+#extrude-draft button,#extrude-draft input,#extrude-draft select{font:inherit;color:inherit;min-width:0}
+#extrude-draft button{border:1px solid var(--ex-input);border-radius:3px;background:var(--ex-bg);padding:4px 10px;min-height:var(--ex-height)}
+#extrude-draft button:hover:not(:disabled){background:var(--ex-hover)}
+#extrude-draft button:disabled{opacity:.45}
+#extrude-draft .ex-header{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--ex-border)}
+#extrude-draft h2{margin:0;flex:1;font:600 14px/20px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#extrude-draft .ex-collapse{display:grid;place-items:center;border:0;padding:4px;min-height:28px;width:28px}
+#extrude-draft .ex-collapse svg{width:16px;height:16px}
+#extrude-draft .ex-content{padding:0 12px}
+#extrude-draft .ex-section{padding:14px 0;border-bottom:1px solid var(--ex-border)}
+#extrude-draft .ex-section:last-child{border-bottom:0}
+#extrude-draft h3{margin:0 0 10px;font:600 13px/20px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#extrude-draft h4{font:500 12px/18px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ex-muted);margin:12px 0 4px}
+#extrude-draft .ex-row{display:grid;grid-template-columns:90px minmax(0,1fr);align-items:center;gap:8px;margin-top:8px}
+#extrude-draft .ex-row>span{font-size:12px;line-height:18px}
+#extrude-draft select,#extrude-draft input[type=text]{width:100%;height:var(--ex-height);border:1px solid var(--ex-input);border-radius:3px;background:var(--ex-bg);padding:5px 8px;font-variant-numeric:tabular-nums}
+#extrude-draft select{padding-right:4px;font-size:12px}
+#extrude-draft input[type=text]{font-family:inherit;font-size:12px}
+#extrude-draft input[aria-invalid=true]{border-color:var(--ex-error)}
+#extrude-draft .ex-pick-group{display:flex;align-items:stretch;min-width:0}
+#extrude-draft .ex-pick{display:flex;gap:8px;align-items:center;flex:1;min-width:0;text-align:left;padding:7px 8px;border-radius:3px 0 0 3px;font-size:12px}
+#extrude-draft .ex-pick.has-selection{background:var(--ex-picked);border-color:var(--ex-sage);color:var(--ex-sage)}
+#extrude-draft .ex-pick[aria-expanded=true]{outline:2px solid var(--ex-blue);outline-offset:1px}
+#extrude-draft .ex-pick svg{width:16px;height:16px;flex-shrink:0}
+#extrude-draft .ex-pick-label{flex:1;overflow-wrap:anywhere}
+#extrude-draft .ex-change{font-size:12px}
+#extrude-draft .ex-clear{border-left:0;border-radius:0 3px 3px 0;padding:6px;min-width:30px;display:grid;place-items:center}
+#extrude-draft .ex-clear svg{width:14px;height:14px}
+#extrude-draft .ex-pick-options{border:1px solid var(--ex-input);border-radius:3px;margin-top:6px;padding:8px;display:grid;gap:8px;background:var(--ex-bg)}
+#extrude-draft .ex-pick-options label{display:flex;align-items:center;gap:8px;font-size:12px}
+#extrude-draft .ex-pick-options input{accent-color:var(--ex-blue)}
+#extrude-draft .ex-pick-options button{font-size:12px;text-align:left;border:0}
+#extrude-draft .ex-segments{display:flex;border:1px solid var(--ex-input);border-radius:3px;padding:2px;gap:2px}
+#extrude-draft .ex-segments button{flex:1;padding:3px 2px;border:1px solid transparent;font-size:12px;min-height:28px;line-height:18px}
+#extrude-draft .ex-segments button[aria-pressed=true]{background:var(--ex-active);color:var(--ex-blue);border-color:var(--ex-blue);font-weight:500}
+#extrude-draft .ex-field{margin-top:8px}
+#extrude-draft .ex-label{display:block;font-size:12px;margin:0 0 4px}
+#extrude-draft .ex-second{border-top:1px solid var(--ex-border);margin-top:12px}
+#extrude-draft .ex-checkbox{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px}
+#extrude-draft .ex-checkbox input{accent-color:var(--ex-blue)}
+#extrude-draft .ex-footer{padding:12px;border-top:1px solid var(--ex-border)}
+#extrude-draft .ex-actions{display:flex;gap:8px;justify-content:flex-end}
+#extrude-draft .ex-actions button{min-width:72px;font-weight:500}
+#extrude-draft .ex-primary{background:var(--ex-primary);border-color:var(--ex-blue);color:var(--ex-blue)}
+#extrude-draft .ex-primary:hover:not(:disabled){background:var(--ex-active)}
+#extrude-draft #ex-feedback{font-size:12px;line-height:18px;color:var(--ex-error);margin-bottom:10px}
+@media(max-width:350px){#extrude-draft-stage{padding:16px 0}#extrude-draft .ex-row{grid-template-columns:80px minmax(0,1fr)}#extrude-draft .ex-change{display:none}}
+@media(pointer:coarse){#extrude-draft{--ex-height:44px}#extrude-draft select,#extrude-draft input[type=text]{font-size:16px}#extrude-draft .ex-collapse,#extrude-draft .ex-segments button{min-height:44px}#extrude-draft .ex-clear{min-width:44px}}
+</style>
+<script>
+(()=>{
+  const root=document.getElementById('extrude-draft');
+  const q=s=>root.querySelector(s);const qa=s=>[...root.querySelectorAll(s)];
+  const selected={profiles:1,start:0,limit1:0,limit2:0,targets:0};
+  const placeholders={profiles:'Select profiles…',start:'Select a face…',limit1:'Select a body…',limit2:'Select a body…',targets:'Select target bodies…'};
+  const pickLabels={start:'Face 1 · Body 1',limit1:'Body 2',limit2:'Body 3'};
+  let sides='one';let collapsed=false;
+  function show(key,value){qa('[data-show="'+key+'"]').forEach(el=>el.hidden=!value);}
+  function refresh(){
+    const start=q('#ex-start').value;const op=q('#ex-operation').value;
+    const e1=sides==='symmetric'?'distance':q('#ex-end1').value;const e2=q('#ex-end2').value;
+    show('offset',start==='offset');show('face',start==='face');show('two',sides==='two');show('symmetric',sides==='symmetric');show('end',sides!=='symmetric');
+    show('length1',e1==='distance');show('length2',e2==='distance');show('limit1',e1==='object');show('limit2',e2==='object');show('reverse',sides!=='symmetric'&&(e1!=='distance'||sides==='two'&&e2!=='distance'));
+    show('targets',op!=='new');show('target-pick',op!=='new'&&q('#ex-target-scope').value==='selected');
+    q('#ex-length-label').textContent=sides==='symmetric'?q('#ex-symmetric-length').value:'Length';
+    qa('[data-side]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.side===sides)));
+    for(const [slot,count] of Object.entries(selected)){
+      const button=q('[data-pick="'+slot+'"]');let label=placeholders[slot];
+      if(count) label=slot==='profiles'?(count+' '+(count===1?'region':'regions')+' · Sketch 1'):slot==='targets'?(count+' '+(count===1?'body':'bodies')+' selected'):pickLabels[slot];
+      button.querySelector('.ex-pick-label').textContent=label;button.classList.toggle('has-selection',!!count);q('[data-clear="'+slot+'"]').disabled=!count;
+      const change=button.querySelector('.ex-change');if(change)change.hidden=!count;
+    }
+    let error='';
+    if(!selected.profiles) error='Select a sketch region or coplanar face.';
+    else if(start==='face'&&!selected.start) error='Select a starting face.';
+    else if(e1==='object'&&!selected.limit1) error='Select the limiting body for side 1.';
+    else if(sides==='two'&&e2==='object'&&!selected.limit2) error='Select the limiting body for side 2.';
+    else if(op!=='new'&&q('#ex-target-scope').value==='selected'&&!selected.targets) error='Select at least one target body.';
+    for(const input of qa('input[type=text]')){const invalid=input.getClientRects().length>0&&!input.value.trim();input.setAttribute('aria-invalid',String(invalid));if(invalid&&!error)error='Enter a value or formula in the highlighted field.';}
+    q('#ex-feedback').textContent=error;q('#ex-feedback').hidden=!error;q('#ex-apply').disabled=!!error;
+  }
+  function snapshot(){return {sides,start:q('#ex-start').value,result:q('#ex-operation').value};}
+  function persist(){window.openai?.setWidgetState?.({modelContent:snapshot(),privateContent:{}})?.catch(()=>{});}
+  qa('[data-side]').forEach(b=>b.addEventListener('click',()=>{sides=b.dataset.side;refresh();persist();}));
+  qa('select,input[type=text]').forEach(el=>el.addEventListener('input',()=>{if(el.id==='ex-operation'&&el.value!=='auto'){q('#ex-operation option[value=auto]').disabled=true;}refresh();persist();}));
+  qa('[data-pick]').forEach(b=>b.addEventListener('click',()=>{const list=q('[data-options="'+b.dataset.pick+'"]');const open=list.hidden;qa('[data-options]').forEach(x=>x.hidden=true);qa('[data-pick]').forEach(x=>x.setAttribute('aria-expanded','false'));list.hidden=!open;b.setAttribute('aria-expanded',String(open));}));
+  qa('[data-clear]').forEach(b=>b.addEventListener('click',()=>{const slot=b.dataset.clear;selected[slot]=0;if(slot==='profiles')qa('[data-profile]').forEach(x=>x.checked=false);if(slot==='targets')qa('[data-target]').forEach(x=>x.checked=false);refresh();}));
+  qa('[data-profile]').forEach(input=>input.addEventListener('change',()=>{selected.profiles=qa('[data-profile]:checked').length;refresh();}));
+  qa('[data-target]').forEach(input=>input.addEventListener('change',()=>{selected.targets=qa('[data-target]:checked').length;refresh();}));
+  qa('[data-sample]').forEach(b=>b.addEventListener('click',()=>{selected[b.dataset.sample]=1;q('[data-options="'+b.dataset.sample+'"]').hidden=true;q('[data-pick="'+b.dataset.sample+'"]').setAttribute('aria-expanded','false');refresh();}));
+  q('.ex-collapse').addEventListener('click',()=>{collapsed=!collapsed;q('.ex-content').hidden=collapsed;q('.ex-footer').hidden=collapsed;q('.ex-collapse').setAttribute('aria-expanded',String(!collapsed));q('.ex-collapse').setAttribute('aria-label',collapsed?'Expand Extrude window':'Collapse Extrude window');const icon=q('.ex-collapse svg');if(icon)icon.style.transform=collapsed?'rotate(180deg)':'';});
+  q('#ex-cancel').addEventListener('click',()=>{qa('[data-options]').forEach(x=>x.hidden=true);qa('[data-pick]').forEach(x=>x.setAttribute('aria-expanded','false'));});
+  q('#ex-apply').addEventListener('click',()=>{q('#ex-feedback').textContent='Layout preview only; no extrusion is applied.';q('#ex-feedback').hidden=false;});
+  function restore(state){const saved=state?.modelContent;if(!saved)return;if(['one','two','symmetric'].includes(saved.sides))sides=saved.sides;if(['plane','offset','face'].includes(saved.start))q('#ex-start').value=saved.start;if(['auto','new','join','cut','intersect'].includes(saved.result))q('#ex-operation').value=saved.result;refresh();}
+  refresh();restore(window.openai?.widgetState);window.addEventListener('openai:set_globals',e=>restore(e.detail?.globals?.widgetState));
+  const design={width:320,rowHeight:'32'};
+  if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{root.style.width='min('+design.width+'px,100%)';root.style.setProperty('--ex-height',design.rowHeight+'px');}});tweak.addSlider(design,'width',{label:'Window width',min:280,max:360,step:8,unit:'px'});tweak.addSelect(design,'rowHeight',{label:'Field height',options:[{label:'Compact · 28 px',value:'28'},{label:'Standard · 32 px',value:'32'}]});}
+})();
+</script>

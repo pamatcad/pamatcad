@@ -95,14 +95,14 @@ export async function testSketchPanel(page) {
     const toolChoices = {
       point: [], line: [], rectangle: ["Two corners", "Three points", "Centered"],
       circle: ["Center and radius", "Two points and radius", "Three points", "Two tangents and radius", "Three tangents"],
-      arc: ["Center, point and angle", "Three points"], ellipse: ["Center, width and height", "Rectangle"],
+      arc: ["Center, point and angle", "Three points"], ellipse: ["Center, width and height", "Rectangle", "Center, side point and radius"],
       slot: ["Three points", "Center and line", "Center to center"], spline: ["Fit points", "Control points"], text: [],
     };
     for (const [tool, choices] of Object.entries(toolChoices)) {
       await page.locator(`#sketch-ribbon [data-tool="${tool}"]`).click(); await idle();
       assert.equal(await page.locator("#sketch-tool-title").textContent(), tool[0].toUpperCase() + tool.slice(1));
       assert.ok(await page.locator("#sketch-tool-icon svg").isVisible(), tool + " has an icon");
-      assert.equal(await page.locator("#sketch-tool-empty").isVisible(), ["point", "line"].includes(tool));
+      assert.equal(await page.locator("#sketch-tool-empty").isVisible(), ["point", "line", "spline"].includes(tool));
       if (choices.length) {
         assert.deepEqual(await page.locator(".sketch-variants button").allInnerTexts(), choices);
         assert.equal(await page.locator(".sketch-variants button svg").count(), choices.length, tool + " has an icon for every drawing mode");
@@ -112,7 +112,7 @@ export async function testSketchPanel(page) {
           assert.equal(await page.locator('.sketch-variants [aria-pressed="true"]').getAttribute("aria-label"), name);
         }
       } else assert.ok(await page.locator(".sketch-variants").isHidden());
-      if (tool === "spline") assert.ok(await page.getByLabel("Closed", { exact: true }).isVisible());
+      if (tool === "spline") assert.equal(await page.getByLabel("Closed", { exact: true }).count(), 0);
     }
     assert.equal(await page.locator("#sketch-tool-empty").textContent(), "This tool has no configuration.");
     await page.locator('#sketch-ribbon [data-tool="text"]').click();
@@ -122,7 +122,7 @@ export async function testSketchPanel(page) {
     for (const [name, count] of [["Geometry mode", 2], ["Display", 6], ["Snap", 2], ["Highlight", 4]]) {
       const controls = page.getByRole("group", { name, exact: true }).getByRole("button");
       assert.equal(await controls.count(), count);
-      const bounds = await controls.evaluateAll(buttons => buttons.map(b => ({ top: b.getBoundingClientRect().top, title: b.title, mask: getComputedStyle(b.firstElementChild).maskImage })));
+      const bounds = await controls.evaluateAll(buttons => buttons.map(b => ({ top: b.getBoundingClientRect().top, title: b.dataset.tooltip, mask: getComputedStyle(b.firstElementChild).maskImage })));
       assert.ok(bounds.every(b => b.top === bounds[0].top && b.title && b.mask !== "none"), name + " icons have tooltips and occupy one row");
     }
     const normal = page.getByRole("button", { name: "Normal geometry", exact: true });

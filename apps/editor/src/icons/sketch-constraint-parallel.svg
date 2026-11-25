@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Parallel</title>
-  <path class="icon-edge" d="M4 21 20 5M12 27 28 11" stroke="#6588a3"/><path class="icon-selection-edge" d="m8 10 3 3m8 6 3 3" stroke="#487561" stroke-width="3"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#65727b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-solid-edge"><title>Parallel</title><path d="M5 24 18 6M14 26 27 8" class="icon-solid-edge" /></svg>

@@ -3,6 +3,8 @@
 #include <BOPAlgo_BuilderFace.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepGProp.hxx>
 #include <BRepBndLib.hxx>
@@ -29,6 +31,7 @@
 #include <cmath>
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 
 struct PamatSketchCurve { int32_t kind; size_t start, count; };
 using RegionSink = void (*)(void*, PamatShape*, const size_t*, const int32_t*, size_t);
@@ -271,7 +274,7 @@ static void emit_sketch_edge(const TopoDS_Edge& edge,const gp_Trsf& local,size_t
     for(int i=1;i<=spline->NbKnots();++i)for(int j=0;j<spline->Multiplicity(i);++j)data.push_back(spline->Knot(i));
     for(int i=1;i<=n;++i)data.push_back(spline->Weight(i));sink(context,source,4,data.data(),data.size());
 }
-extern "C" int pamat_sketch_modify(const double* frame,const PamatSketchCurve* curves,size_t count,const double* data,int operation,double value,CurveSink sink,void* context,char* error,size_t error_size){
+extern "C" int pamat_sketch_modify(const double* frame,const PamatSketchCurve* curves,size_t count,const double* data,int operation,double value,const double* position,CurveSink sink,void* context,char* error,size_t error_size){
     return checked([&]{
         SketchTiming timing(operation==3?"normalize":"modify",count);
         auto edges=make_sketch_edges(frame,curves,count,data);timing.mark("edges");if(edges.empty())throw std::invalid_argument("Select sketch curves");
@@ -280,6 +283,65 @@ extern "C" int pamat_sketch_modify(const double* frame,const PamatSketchCurve* c
         if(operation==0){
             BOPAlgo_Builder split;NCollection_List<TopoDS_Shape> arguments;for(const auto&e:edges)arguments.Append(e);split.SetArguments(arguments);split.SetNonDestructive(true);split.SetFuzzyValue(1e-7);split.Perform();if(split.HasErrors())throw std::runtime_error("Could not split sketch curves");
             for(size_t i=0;i<count;++i){const auto& parts=split.Modified(edges[i]);if(parts.Size()>1)for(const auto& e:parts)emit(e,i);}
+        }else if(operation==4){
+            if(!position||!std::isfinite(position[0])||!std::isfinite(position[1]))throw std::invalid_argument("Remove requires a finite sketch position");
+            std::vector<TopoDS_Edge> parts;
+            if(edges.size()>1){
+                BOPAlgo_Builder split;NCollection_List<TopoDS_Shape> arguments;
+                for(const auto& edge:edges)arguments.Append(edge);
+                split.SetArguments(arguments);split.SetNonDestructive(true);split.SetFuzzyValue(1e-7);split.Perform();
+                if(split.HasErrors())throw std::runtime_error("Could not intersect sketch curves for removal");
+                for(const auto& shape:split.Modified(edges[0])){
+                    TopTools_IndexedMapOfShape result;TopExp::MapShapes(shape,TopAbs_EDGE,result);
+                    for(const auto& edge:result)parts.push_back(TopoDS::Edge(edge));
+                }
+            }
+            if(parts.empty())parts.push_back(edges[0]);
+            BRepAdaptor_Curve original(edges[0]);
+            const auto seam=original.Value(original.FirstParameter());
+            const bool closed=seam.Distance(original.Value(original.LastParameter()))<1e-7;
+            bool seamBoundary=false;
+            const auto seamVertex=BRepBuilderAPI_MakeVertex(seam).Vertex();
+            if(closed)for(size_t i=1;i<edges.size();++i){
+                BRepExtrema_DistShapeShape distance(seamVertex,edges[i]);
+                if(!distance.IsDone())throw std::runtime_error("Could not classify a closed-curve seam");
+                if(distance.Value()<1e-7){seamBoundary=true;break;}
+            }
+            std::vector<std::vector<TopoDS_Edge>> chunks;
+            std::vector<TopoDS_Edge> acrossSeam;
+            for(const auto& edge:parts){
+                BRepAdaptor_Curve curve(edge);
+                if(closed&&!seamBoundary&&(curve.Value(curve.FirstParameter()).Distance(seam)<1e-7||curve.Value(curve.LastParameter()).Distance(seam)<1e-7))acrossSeam.push_back(edge);
+                else chunks.push_back({edge});
+            }
+            if(!acrossSeam.empty())chunks.push_back(acrossSeam);
+            const gp_Pnt origin(frame[0],frame[1],frame[2]);
+            const gp_Vec u(frame[3],frame[4],frame[5]),v(frame[6],frame[7],frame[8]);
+            const auto pick=BRepBuilderAPI_MakeVertex(origin.Translated(u*position[0]+v*position[1])).Vertex();
+            double nearest=std::numeric_limits<double>::infinity();size_t chosen=0;bool ambiguous=false;
+            for(size_t i=0;i<chunks.size();++i){
+                double distance=std::numeric_limits<double>::infinity();
+                for(const auto& edge:chunks[i]){
+                    BRepExtrema_DistShapeShape measure(pick,edge);
+                    if(!measure.IsDone())throw std::runtime_error("Could not locate the removal interval");
+                    distance=std::min(distance,measure.Value());
+                }
+                if(distance<nearest-1e-7){nearest=distance;chosen=i;ambiguous=false;}
+                else if(std::abs(distance-nearest)<=1e-7)ambiguous=true;
+            }
+            if(ambiguous)throw std::invalid_argument("Click away from an intersection to choose one removal interval");
+            // A marker removes the target even when every interval is discarded.
+            sink(context,0,0,data,0);
+            double first,last;auto geometry=BRep_Tool::Curve(edges[0],first,last);
+            for(size_t i=0;i<chunks.size();++i)if(i!=chosen){
+                const auto& chunk=chunks[i];
+                if(chunk.size()==2&&geometry->IsPeriodic()){
+                    BRepAdaptor_Curve a(chunk[0]),b(chunk[1]);
+                    auto joined=BRepBuilderAPI_MakeEdge(geometry,std::max(a.FirstParameter(),b.FirstParameter()),std::min(a.LastParameter(),b.LastParameter())+geometry->Period()).Edge();
+                    if(edges[0].Orientation()==TopAbs_REVERSED)joined.Reverse();
+                    emit(joined,0);
+                }else for(const auto& edge:chunk)emit(edge,0);
+            }
         }else if(operation==1){
             BRepBuilderAPI_MakeWire wire;NCollection_List<TopoDS_Shape> list;for(const auto&e:edges)list.Append(e);wire.Add(list);if(!wire.IsDone())throw std::invalid_argument("Offset requires connected curves");
             BRepOffsetAPI_MakeOffset offset(wire.Wire(),GeomAbs_Arc,false);offset.Perform(value);if(!offset.IsDone())throw std::runtime_error("Could not offset sketch curves");emit(offset.Shape(),count);

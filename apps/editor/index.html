@@ -27,7 +27,7 @@
     <section class="ribbon" aria-label="Solid workbench">
       <div class="workbench">
         <label for="workbench">Workbench</label
-        ><select id="workbench">
+        ><select id="workbench" data-tooltip="Workbench">
           <option value="solid">Solid</option>
           <option value="sketch">Sketch</option>
         </select>
@@ -35,8 +35,8 @@
       <div id="solid-ribbon" class="workbench-tools">
         <div class="tool-group">
           <div class="tools">
-            <button id="new-sketch" disabled><img src="./src/icons/sketch.svg" alt="" />New sketch</button>
-            <button id="extrude" disabled>
+            <button id="new-sketch" data-tooltip="New sketch" data-tooltip-command="sketch.create" disabled><img src="./src/icons/sketch.svg" alt="" />New sketch</button>
+            <button id="extrude" data-tooltip="Extrude" data-tooltip-command="solid.extrude" disabled>
               <img alt="" />Extrude
             </button>
           </div>
@@ -156,10 +156,10 @@
             Profiles
           </span>
           <div>
-            <button id="pick-profiles" type="button">
+            <button id="pick-profiles" data-tooltip="Select profiles" type="button">
               Select…
             </button>
-            <button id="clear-profiles" type="button" aria-label="Clear profiles">
+            <button id="clear-profiles" data-tooltip="Clear profiles" type="button" aria-label="Clear profiles">
               Clear
             </button>
           </div>
@@ -168,7 +168,7 @@
         </div>
         <label id="extrude-start-field">
           Start
-          <select id="extrude-start">
+          <select id="extrude-start" data-tooltip="Start">
             <option value="profilePlane">
               Profile plane
             </option>
@@ -184,7 +184,7 @@
           <span>
             Start offset
           </span>
-          <input id="offset" value="0" />
+          <input id="offset" data-tooltip="Start offset" value="0" />
         </input>
       </label>
       <div id="start-selection" class="geometry-input">
@@ -192,10 +192,10 @@
           Starting face
         </span>
         <div>
-          <button id="pick-start" type="button">
+          <button id="pick-start" data-tooltip="Select starting face" type="button">
             Select…
           </button>
-          <button id="clear-start" type="button" aria-label="Clear starting face">
+          <button id="clear-start" data-tooltip="Clear starting face" type="button" aria-label="Clear starting face">
             Clear
           </button>
         </div>
@@ -204,7 +204,7 @@
       </div>
       <label id="extrude-type-field">
         Sides
-        <select id="extrude-type">
+        <select id="extrude-type" data-tooltip="Sides">
           <option value="oneSide">
             One side
           </option>
@@ -218,11 +218,11 @@
       </label>
       <label id="extrude-direction-field">
         Reverse extent direction
-        <input id="extrude-reverse" type="checkbox" />
+        <input id="extrude-reverse" data-tooltip="Reverse extent direction" type="checkbox" />
       </label>
       <label id="symmetric-field">
         Length means
-        <select id="symmetric-length">
+        <select id="symmetric-length" data-tooltip="Length means">
           <option value="total">
             Total length
           </option>
@@ -237,7 +237,7 @@
         </legend>
         <label id="extent1-field">
           End condition
-          <select id="extent1">
+          <select id="extent1" data-tooltip="Side 1: end condition">
             <option value="length">
               Distance
             </option>
@@ -253,7 +253,7 @@
           <span>
             Length
           </span>
-          <input id="length" value="15" />
+          <input id="length" data-tooltip="Side 1: length" value="15" />
         </input>
       </label>
       <div id="limit1-selection">
@@ -262,10 +262,10 @@
             Limiting body
           </span>
           <div>
-            <button id="pick-limit1" type="button">
+            <button id="pick-limit1" data-tooltip="Side 1: select limiting body" type="button">
               Select…
             </button>
-            <button id="clear-limit1" type="button" aria-label="Clear limiting body">
+            <button id="clear-limit1" data-tooltip="Side 1: clear limiting body" type="button" aria-label="Clear limiting body">
               Clear
             </button>
           </div>
@@ -274,7 +274,7 @@
         </div>
         <label id="object-extent1-field">
           Stop at
-          <select id="object-extent1">
+          <select id="object-extent1" data-tooltip="Side 1: stop at">
             <option value="closest">
               Closest
             </option>
@@ -294,7 +294,7 @@
         <span>
           Taper angle
         </span>
-        <input id="taper1" value="0" />
+        <input id="taper1" data-tooltip="Side 1: taper angle" value="0" />
       </input>
     </label>
   </fieldset>
@@ -304,7 +304,7 @@
     </legend>
     <label id="extent2-field">
       End condition
-      <select id="extent2">
+      <select id="extent2" data-tooltip="Side 2: end condition">
         <option value="length">
           Distance
         </option>
@@ -320,7 +320,7 @@
       <span>
         Length
       </span>
-      <input id="length2" value="15" />
+      <input id="length2" data-tooltip="Side 2: length" value="15" />
     </input>
   </label>
   <div id="limit2-selection">
@@ -329,10 +329,10 @@
         Limiting body
       </span>
       <div>
-        <button id="pick-limit2" type="button">
+        <button id="pick-limit2" data-tooltip="Side 2: select limiting body" type="button">
           Select…
         </button>
-        <button id="clear-limit2" type="button" aria-label="Clear limiting body">
+        <button id="clear-limit2" data-tooltip="Side 2: clear limiting body" type="button" aria-label="Clear limiting body">
           Clear
         </button>
       </div>
@@ -341,7 +341,7 @@
     </div>
     <label id="object-extent2-field">
       Stop at
-      <select id="object-extent2">
+      <select id="object-extent2" data-tooltip="Side 2: stop at">
         <option value="closest">
           Closest
         </option>
@@ -361,13 +361,13 @@
     <span>
       Taper angle
     </span>
-    <input id="taper2" value="0" />
+    <input id="taper2" data-tooltip="Side 2: taper angle" value="0" />
   </input>
 </label>
 </fieldset>
 <label id="extrude-mode-field">
 Result
-<select id="extrude-mode">
+<select id="extrude-mode" data-tooltip="Result">
   <option value="auto">Auto — New</option>
   <option value="newBody">
     New body
@@ -384,7 +384,7 @@ Result
 <div id="targets-section">
 <label id="target-scope-field">
   Targets
-  <select id="target-scope">
+  <select id="target-scope" data-tooltip="Targets">
     <option value="all">
       All bodies
     </option>
@@ -399,10 +399,10 @@ Result
       Target bodies
     </span>
     <div>
-      <button id="pick-targets" type="button">
+      <button id="pick-targets" data-tooltip="Select target bodies" type="button">
         Select…
       </button>
-      <button id="clear-targets" type="button" aria-label="Clear target bodies">
+      <button id="clear-targets" data-tooltip="Clear target bodies" type="button" aria-label="Clear target bodies">
         Clear
       </button>
     </div>
@@ -415,10 +415,10 @@ Result
 </p>
 </div>
 <div class="actions">
-<button id="cancel">
+<button id="cancel" data-tooltip="Cancel">
 Cancel
 </button>
-<button id="apply">
+<button id="apply" data-tooltip="Apply">
 Apply
 </button>
 </div>

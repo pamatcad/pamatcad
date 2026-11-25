@@ -1,5 +1,5 @@
 use super::*;
-use crate::sketch::DragGoal;
+use crate::sketch::{DragGoal, LINEAR_TOLERANCE};
 fn invalid(message: &str) -> CoreError {
     CoreError::new(ErrorCode::InvalidParameter, message)
 }
@@ -488,6 +488,33 @@ impl Engine {
                 }
             }
             input.ids = ids;
+            sketch.spline_removal(&mut input.ids)?;
+            let endpoints = input
+                .ids
+                .iter()
+                .filter_map(|id| match &sketch.entities.get(id)?.geometry {
+                    SketchGeometry::Line { from, to } => Some([from.clone(), to.clone()]),
+                    _ => None,
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+            if !endpoints.is_empty() {
+                let remaining = sketch
+                    .entities
+                    .values()
+                    .filter(|e| {
+                        !input.ids.contains(&e.reference.id)
+                            && !matches!(e.geometry, SketchGeometry::Point { .. })
+                    })
+                    .map(|e| e.reference.clone())
+                    .collect::<Vec<_>>();
+                let used = sketch.selected_entities(&remaining)?;
+                for id in endpoints {
+                    if id != "origin" && !used.contains(&id) && !input.ids.contains(&id) {
+                        input.ids.push(id);
+                    }
+                }
+            }
             if input
                 .ids
                 .iter()
@@ -528,6 +555,14 @@ impl Engine {
                 sketch.fixed.remove(id);
                 sketch.bindings.remove(id);
             }
+            sketch.ellipse_axes.retain(|id, axes| {
+                for axis in axes {
+                    if axis.as_ref().is_some_and(|id| input.ids.contains(id)) {
+                        *axis = None;
+                    }
+                }
+                !input.ids.contains(id)
+            });
             sketch.constraints.retain(|_, c| {
                 !c.parameters
                     .points
@@ -572,7 +607,7 @@ impl Engine {
         if entity.projected {
             return Err(invalid("Projected geometry is read-only"));
         }
-        let targets = match (&input, &entity.geometry) {
+        let mut targets = match (&input, &entity.geometry) {
             (DragSketchGeometry::Point(input), SketchGeometry::Point { .. }) => {
                 vec![DragGoal::Point(input.point.id.clone(), input.position)]
             }
@@ -602,6 +637,39 @@ impl Engine {
             (DragSketchGeometry::Point(_), _) => return Err(invalid("Select a point to drag")),
             (DragSketchGeometry::Line { .. }, _) => return Err(invalid("Select a line to drag")),
         };
+        if let DragSketchGeometry::Point(input) = &input {
+            let nodes = sketch.spline_handles();
+            if let Some((_, handles)) = nodes.get(&input.point.id) {
+                let origin = sketch.point_position(&input.point.id)?;
+                for handle in handles {
+                    let position = sketch.point_position(&handle.id)?;
+                    targets.push(DragGoal::Point(
+                        handle.id.clone(),
+                        std::array::from_fn(|i| position[i] + input.position[i] - origin[i]),
+                    ));
+                }
+            } else if let Some((point, (_, handles))) = nodes.iter().find(|(_, (mode, handles))| {
+                *mode == SplineHandleMode::Aligned
+                    && handles.len() == 2
+                    && handles.contains(&input.point)
+            }) {
+                let center = sketch.point_position(point)?;
+                let other = handles.iter().find(|r| **r != input.point).unwrap();
+                let tip = sketch.point_position(&other.id)?;
+                let length = (tip[0] - center[0]).hypot(tip[1] - center[1]);
+                let direction = std::array::from_fn::<_, 2, _>(|i| input.position[i] - center[i]);
+                let distance = direction[0].hypot(direction[1]);
+                if distance > LINEAR_TOLERANCE {
+                    // Rotate the other handle without coupling the two lengths.
+                    // These remain drag goals; permanent constraints take priority.
+                    targets.push(DragGoal::Point(point.clone(), center));
+                    targets.push(DragGoal::Point(
+                        other.id.clone(),
+                        std::array::from_fn(|i| center[i] - direction[i] * length / distance),
+                    ));
+                }
+            }
+        }
         self.update_sketch_checked(
             0,
             false,
@@ -1043,6 +1111,7 @@ impl Engine {
         };
         let (operation, values) = match &input.operation {
             SketchCurveEdit::Split => (0, vec![0.]),
+            SketchCurveEdit::Remove { position } => (4, position.to_vec()),
             SketchCurveEdit::Offset {
                 distance1,
                 distance2,

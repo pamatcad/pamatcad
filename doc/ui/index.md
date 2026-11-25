@@ -6,6 +6,20 @@ UI should look the same on desktop and in browser. Mobile UI is not supported. D
 
 See [Default palette and visual style](default_palette.md) for colors, typography, icons and control sizes.
 
+## Tooltips
+
+All controls in the Solid and Sketch ribbons and the Sketch and Extrude tool windows use shared custom tooltips, including disabled buttons, fields, selectors, and window movement, resize and collapse controls. Command controls use the documented Name; without command information, retain their existing tooltip or concise label, such as “New sketch”. Canvas dimension inputs remain tooltip-free.
+
+Use the theme's graphite foreground as the tooltip background and its white background as text color: 12 px text, 18 px line height, 5 px vertical and 8 px horizontal padding, and 4 px corners, without animation. Show the name after 100 ms of hover; switching controls within 500 ms of a visible tooltip is immediate. Keyboard focus shows the name immediately.
+
+At 500 ms total hover or focus time on the same control, retain the name and add its Short Description and optional `illustration.svg`. Restart this timer for each new control; controls without additional information remain compact. Expanded tooltips are at most 320 px wide, with the illustration on a white inset at its original aspect ratio. Place tooltips 6 px below the control (below both rows in ribbons), flip above when necessary, and keep 8 px from window edges, including after expansion.
+
+The editor build reuses the [command documentation sources](../generation.md#additional-documentation) through the shared spec parser. `data-tooltip-command` identifies the documented command (for example `solid.extrude`); `data-tooltip` supplies the fallback label. Missing illustrations are omitted.
+
+Keep the tooltip visible while its control has keyboard focus or the pointer is over the control or tooltip; allow 100 ms to cross the gap. Dismiss on keypress (including Escape), pointer press, scrolling, window resize or blur, or removal/hiding of the control. Preserve existing shortcuts and field error descriptions. Use `role="tooltip"` and `aria-describedby`, with no duplicate native tooltip.
+
+Verify all four areas, disabled controls, 100/500 ms stages and immediate label switching, fallback labels and missing illustrations, cancellation before expansion, keyboard focus and Escape, expanded content near window edges, formula error descriptions, dynamically replaced variants, document switching, window collapse and resizing, and exclusion of canvas dimension inputs.
+
 ## Screen structure
 
 ### Header 

@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Equal</title>
-  <path class="icon-edge" d="M5 7h22M5 25h22" stroke="#6588a3"/><path class="icon-selection-fill icon-selection-edge" d="M11 13h10v2H11Zm0 5h10v2H11Z" fill="#c0d8cc" stroke="#487561" stroke-width="1.5"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#65727b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-solid-edge"><title>Equal</title><path d="M6 11h20M6 21h20" class="icon-solid-edge" /></svg>

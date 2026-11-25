@@ -5,23 +5,26 @@ export const variants = {
   rectangle: ["Two corners", "Three points", "Centered"],
   circle: ["Center and radius", "Two points and radius", "Three points", "Two tangents and radius", "Three tangents"],
   arc: ["Center, point and angle", "Three points"],
-  ellipse: ["Center, width and height", "Rectangle"],
+  ellipse: ["Center, width and height", "Rectangle", "Center, side point and radius"],
   slot: ["Three points", "Center and line", "Center to center"],
   spline: ["Fit points", "Control points"], text: ["Text"],
   dimension: ["Dimension"],
   project: ["Project"], offset: ["One sided", "Symmetric", "Independent"], rounding: ["Rounding"],
-  scale: ["Scale"], move: ["Move and rotate"], split: ["Split"],
+  scale: ["Scale"], move: ["Move and rotate"], split: ["Split"], remove: ["Remove"],
 } as const;
 export type SketchToolName = keyof typeof variants;
 export function drawingClicks(tool: SketchToolName, variant: number) {
   if (tool === "point" || tool === "text" || tool === "circle" && variant >= 3) return 1;
-  if (tool === "arc" || tool === "rectangle" && variant === 1 || tool === "circle" && [1, 2].includes(variant) || tool === "slot") return 3;
+  if (tool === "arc" || tool === "rectangle" && variant === 1 || tool === "circle" && [1, 2].includes(variant) || tool === "ellipse" && variant === 2 || tool === "slot") return 3;
   return 2;
 }
 export type DrawingFields = {
   width: number;
   height: number;
   radius: number;
+  radiusTyped?: boolean;
+  widthTyped?: boolean;
+  heightTyped?: boolean;
   angle: number;
   text: string;
   size: import("@pamatcad/sdk").Formula<import("@pamatcad/sdk").LengthUnit>;
@@ -32,7 +35,6 @@ export type DrawingFields = {
   fontBase64?: string;
   horizontal?: "left" | "center" | "right";
   vertical?: "baseline" | "bottom" | "middle" | "top";
-  closed: boolean;
 };
 export const distance = (a: Point, b: Point) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 export const bearing = (a: Point, b: Point) => Math.atan2(b[1] - a[1], b[0] - a[0]);
@@ -70,14 +72,16 @@ export function drawing(tool: SketchToolName, variant: number, points: Point[], 
     }
     case "circle": {
       let center = a, radius = points[1] ? distance(a, b) : f.radius;
-      if (variant === 1) {
+      if (variant === 1 || variant === 2 && f.radiusTyped) {
         radius = f.radius;
         const d = distance(a, b);
+        const offset = c && d ? ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / d : 0;
+        if (!f.radiusTyped) radius = c ? Math.hypot(d / 2, offset) : Math.max(radius, d / 2);
         if (!d || d > 2 * radius) {
           throw new Error("Radius must be at least half the distance between the points.");
         }
         const h = Math.sqrt(radius * radius - d * d / 4);
-        const side = c && (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0 ? -1 : 1;
+        const side = offset < 0 ? -1 : 1;
         center = [(a[0] + b[0]) / 2 - side * (b[1] - a[1]) * h / d, (a[1] + b[1]) / 2 + side * (b[0] - a[0]) * h / d];
       }
       else if (variant === 2) {
@@ -114,6 +118,12 @@ export function drawing(tool: SketchToolName, variant: number, points: Point[], 
     }
     case "ellipse": {
       let center = a, width = f.width, height = f.height;
+      if (variant === 2) {
+        const angle = bearing(a, b);
+        width = f.widthTyped ? f.width : 2 * distance(a, b);
+        height = f.heightTyped ? f.height : c ? 2 * Math.abs(-(c[0] - a[0]) * Math.sin(angle) + (c[1] - a[1]) * Math.cos(angle)) : f.height;
+        return { type: "ellipse", parameters: { center, major: Math.max(width, height) / 2, minor: Math.min(width, height) / 2, angle: degrees(angle) + (width >= height ? 0 : 90), construction } };
+      }
       if (points[1]) {
         width = Math.abs(b[0] - a[0]) * (variant === 0 ? 2 : 1);
         height = Math.abs(b[1] - a[1]) * (variant === 0 ? 2 : 1);
@@ -142,10 +152,8 @@ export function drawing(tool: SketchToolName, variant: number, points: Point[], 
     }
     case "spline": {
       const all = [...points];
-      if (f.closed && all.length > 2 && distance(all[0], all.at(-1)!) > 1e-8) {
-        all.push(all[0]);
-      }
-      return { type: "spline", parameters: { points: all, fit: variant === 0, closed: f.closed, construction } };
+      const closed = all.length > 2 && distance(all[0], all.at(-1)!) < 1e-7;
+      return { type: "spline", parameters: { points: all, fit: variant === 0, closed, construction } };
     }
     case "text": return { type: "text", parameters: { text: f.text, origin: a, size: f.size, weight: f.weight, fontBase64: f.fontBase64, fontIndex: f.fontIndex, fontFamily: f.fontFamily, italic: f.italic, horizontal: f.horizontal, vertical: f.vertical, guide: selected.find(e => e.geometry.type !== "point")?.reference, construction } };
     default: throw new Error("Choose a drawing tool.");

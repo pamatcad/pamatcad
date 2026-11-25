@@ -206,6 +206,47 @@ pub struct SketchState {
     pub auto_recompute: bool,
     pub projections: Vec<SketchProjection>,
     pub texts: Vec<SketchText>,
+    pub splines: Vec<SketchSpline>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SplineHandleMode {
+    Aligned,
+    Independent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SplineFitPoint {
+    pub point: SketchEntityRef,
+    pub incoming: Option<SketchEntityRef>,
+    pub outgoing: Option<SketchEntityRef>,
+    pub mode: SplineHandleMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SketchSpline {
+    pub curve: SketchEntityRef,
+    pub fit_points: Vec<SplineFitPoint>,
+    pub envelope: Vec<SketchEntityRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct JoinSplines {
+    pub sketch: SketchRef,
+    pub from: SketchEntityRef,
+    pub to: SketchEntityRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SetSplineHandleMode {
+    pub sketch: SketchRef,
+    pub point: SketchEntityRef,
+    pub mode: SplineHandleMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -276,6 +317,9 @@ pub struct SetConstruction {
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum SketchCurveEdit {
     Split,
+    Remove {
+        position: [f64; 2],
+    },
     Offset {
         distance1: Formula<LengthUnit>,
         #[ts(optional)]
@@ -627,6 +671,11 @@ pub fn declarations() -> Vec<String> {
         SketchSolveStatus::decl(),
         SketchEntityFreedom::decl(),
         SketchState::decl(),
+        SplineHandleMode::decl(),
+        SplineFitPoint::decl(),
+        SketchSpline::decl(),
+        JoinSplines::decl(),
+        SetSplineHandleMode::decl(),
         SketchFind::decl(),
         SketchSettings::decl(),
         AddConstraint::decl(),

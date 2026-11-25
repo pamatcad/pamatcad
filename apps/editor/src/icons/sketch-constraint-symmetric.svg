@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Symmetric</title>
-  <path class="icon-construction" d="M16 3v26" stroke="#81909b" stroke-dasharray="3 3"/><path class="icon-selection-edge" d="M7 16h18" stroke="#487561"/><g class="icon-selection-fill icon-selection-edge" fill="#c0d8cc" stroke="#487561"><circle cx="6" cy="16" r="3"/><circle cx="26" cy="16" r="3"/></g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#65727b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-solid-edge"><title>Symmetric</title><path d="m10 8-5 8 5 8m12-16 5 8-5 8" class="icon-solid-edge" /><path d="M16 4v24" stroke="#81909b" stroke-dasharray="3 4" class="icon-construction" /></svg>

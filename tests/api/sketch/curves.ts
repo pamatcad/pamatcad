@@ -42,17 +42,18 @@ test("closed fit splines interpolate their fit points and create exact extrusion
   const spline = await sketch.primitives.add("spline", { points: [[0, 0], [10, 0], [12, 8], [0, 10]], fit: true, closed: true });
   const proxy = await sketch.getProxy();
   assert.equal(proxy.regions.length, 1);
-  assert.equal(proxy.curves[0]!.entity.id, spline.curves[0]!.id);
+  assert.equal(proxy.curves.filter(c => !c.construction)[0]!.entity.id, spline.curves[0]!.id);
   await sketch.complete();
   const result = await core.solid.extrude(await sketch.regions.only(), { length1: 1 });
   assert.ok((await (await scene.bodies.get(result.newSolids[0]!.id)).properties()).volume.value > 90);
 });
-test("closed control splines retain endpoint coincidence when dragged", async (t) => {
+test("closed control splines retain their shared endpoint when dragged", async (t) => {
   const { core, scene } = await startCore(t, "control-spline");
   const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
   const spline = await sketch.primitives.add("spline", { points: [[0, 0], [10, 0], [12, 8], [0, 10]], closed: true });
   assert.equal(spline.points.length, 5);
-  assert.equal(spline.constraints.length, 1);
+  assert.equal(spline.constraints.length, 0);
+  assert.equal(spline.points[0]!.id, spline.points.at(-1)!.id);
   await sketch.drag(spline.points[0]!, [-2, -2]);
   await sketch.complete();
   const result = await core.solid.extrude(await sketch.regions.only(), { length1: 1 });
@@ -82,7 +83,7 @@ test("symmetry, line tangency and point-on-ellipse constraints solve perturbed i
   const ellipse = await sketch.primitives.add("ellipse", { center: [30, 0], major: 10, minor: 5 });
   await sketch.constraints.add("fix", { curves: ellipse.curves });
   const p = await sketch.primitives.add("point", { position: [40.1, 0.1] });
-  await sketch.constraints.add("pointOnCurve", { points: p.points, curves: ellipse.curves });
+  await sketch.constraints.add("pointOnCurve", { points: p.points, curves: [ellipse.curves[0]!] });
   const state = await sketch.state();
   const point = (id: string) => { const e = state.entities.find(e => e.reference.id === id)!; if (e.geometry.type !== "point") {
     assert.fail("Expected point");
@@ -153,4 +154,87 @@ test("slot midpoint translates and anchors its centerline without entering the p
   near((await (await scene.bodies.get(feature.newSolids[0]!.id)).properties()).volume.value, (120 + Math.PI * 9) * 2);
   await sketch.edit();
   assert.deepEqual((await sketch.state()).entities, state.entities);
+});
+
+test("ellipse axis lengths drive rotated geometry and retain one exact region", async t => {
+  const { core, scene } = await startCore(t, "ellipse-axis-dimensions");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const ellipse = await sketch.primitives.add("ellipse", { center: [3, 4], major: 10, minor: 5, angle: 35 });
+  assert.equal(ellipse.curves.length, 3); assert.equal(ellipse.points.length, 5);
+  await sketch.constraints.add("fix", { points: [ellipse.points[0]!] });
+  await sketch.dimensions.add("angle", { curve: ellipse.curves[0], value: "35 deg", mode: "driving" });
+  const width = await sketch.dimensions.add("length", { line: ellipse.curves[1], value: "24 mm", mode: "driving" });
+  await sketch.dimensions.add("length", { line: ellipse.curves[2], value: "8 mm", mode: "driving" });
+  let state = await sketch.state();
+  const shape = state.entities.find(e => e.reference.id === ellipse.id)!.geometry;
+  if (shape.type !== "ellipse") assert.fail("ellipse");
+  near(shape.major, 12); near(shape.minor, 4); near(shape.angle, 35 * Math.PI / 180);
+  for (const [i, length] of [24, 8].entries()) {
+    const axis = state.entities.find(e => e.reference.id === ellipse.curves[i + 1]!.id)!;
+    assert.ok(axis.construction); if (axis.geometry.type !== "line") assert.fail("axis");
+    const p = (id: string) => { const g = state.entities.find(e => e.reference.id === id)!.geometry; if (g.type !== "point") throw new Error("point"); return g.position; };
+    const a = p(axis.geometry.from), b = p(axis.geometry.to), angle = shape.angle + i * Math.PI / 2;
+    near((a[0] + b[0]) / 2, 3); near((a[1] + b[1]) / 2, 4);
+    near(b[0] - a[0], length * Math.cos(angle)); near(b[1] - a[1], length * Math.sin(angle));
+  }
+  for (let i = 0; i < 3; i++) { await sketch.recompute(); assert.deepEqual((await sketch.state()).entities, state.entities); }
+  await sketch.complete();
+  const feature = await core.solid.extrude(await sketch.regions.only(), { length1: 2 });
+  const body = await scene.bodies.get(feature.newSolids[0]!.id);
+  near((await body.properties()).volume.value, Math.PI * 96);
+  await sketch.edit(); await sketch.dimensions.update(width.id, { value: 30 }); await sketch.complete();
+  near((await body.properties()).volume.value, Math.PI * 120);
+});
+
+test("ellipse axes follow transforms and copies and remove deleted axis endpoints", async t => {
+  const { scene } = await startCore(t, "ellipse-axis-transform");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const ellipse = await sketch.primitives.add("ellipse", { center: [0, 0], major: 10, minor: 5 });
+  await sketch.transform({ entities: [ellipse.curves[0]!], translation: [4, 6], angle: 30, scale: 2 });
+  const before = await sketch.state();
+  await sketch.transform({ entities: [ellipse.curves[0]!], translation: [50, 0], copy: true });
+  const copied = (await sketch.state()).entities.filter(e => !before.entities.some(old => old.reference.id === e.reference.id));
+  assert.equal(copied.filter(e => e.geometry.type === "ellipse").length, 1);
+  assert.equal(copied.filter(e => e.geometry.type === "line" && e.construction).length, 2);
+  const axis = copied.find(e => e.geometry.type === "line")!;
+  await sketch.dimensions.add("length", { line: axis.reference, value: 50, mode: "driving" });
+  const repeated = await sketch.state(); await sketch.recompute(); assert.deepEqual((await sketch.state()).entities, repeated.entities);
+  await sketch.remove([ellipse.curves[1]!.id]);
+  const state = await sketch.state();
+  assert.ok(ellipse.points.slice(1, 3).every(r => !state.entities.some(e => e.reference.id === r.id)));
+  await sketch.remove([ellipse.curves[0]!.id]); await sketch.recompute();
+  assert.ok((await sketch.state()).entities.some(e => e.reference.id === ellipse.curves[2]!.id));
+  const splitEllipse = await sketch.primitives.add("ellipse", { center: [100, 0], major: 10, minor: 5 });
+  const split = await sketch.modifyCurves(splitEllipse.curves.slice(1), { type: "split" });
+  assert.equal(split.created.length, 4);
+  await sketch.recompute();
+  assert.ok((await sketch.state()).entities.some(e => e.reference.id === splitEllipse.id));
+});
+
+test("removing a line removes unused endpoints and preserves neighboring geometry", async t => {
+  const { scene } = await startCore(t, "line-endpoint-removal");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const first = await sketch.primitives.add("line", { from: [0, 0], to: [10, 0] });
+  const second = await sketch.primitives.add("line", { from: [10, 0], to: [10, 10] });
+  const joined = await sketch.constraints.add("coincident", { points: [first.points[1]!, second.points[0]!] });
+  const length = await sketch.dimensions.add("length", { line: first.curves[0], value: 10, mode: "driving" });
+  const standalone = await sketch.primitives.add("point", { position: [30, 30] });
+  await sketch.remove([first.curves[0]!.id]);
+  const state = await sketch.state(), proxy = await sketch.getProxy();
+  assert.ok(first.points.every(r => !state.entities.some(e => e.reference.id === r.id) && !proxy.points.some(p => p.entity.id === r.id)));
+  assert.ok(!state.constraints.some(c => c.id === joined.id));
+  assert.ok(!state.dimensions.some(d => d.id === length.id));
+  assert.ok([...second.points, ...second.curves, ...standalone.points].every(r => state.entities.some(e => e.reference.id === r.id)));
+  await sketch.complete(); await sketch.edit();
+  assert.deepEqual((await sketch.state()).entities, state.entities);
+  await sketch.remove([second.curves[0]!.id, ...second.points.map(p => p.id)]);
+  const after = await sketch.state();
+  assert.ok(second.points.every(r => !after.entities.some(e => e.reference.id === r.id)));
+  const slot = await sketch.primitives.add("slot", { from: [0, 0], to: [20, 0], radius: 2 });
+  const axis = (await sketch.state()).entities.find(e => e.reference.id === slot.curves[4]!.id)!.geometry;
+  if (axis.type !== "line") assert.fail("slot axis");
+  await sketch.remove([slot.curves[4]!.id]);
+  const remaining = await sketch.state();
+  assert.ok([axis.from, axis.to].every(id => remaining.entities.some(e => e.reference.id === id)));
+  await sketch.complete(); assert.equal((await sketch.regions.all()).length, 1);
 });

@@ -627,7 +627,42 @@ pub(super) fn solve(
             }
         }
     }
+    for (point, (mode, handles)) in sketch.spline_handles() {
+        if mode == SplineHandleMode::Aligned && handles.len() == 2 {
+            let center = system.point(&point)?;
+            let a = sub(system.point(&handles[0].id)?, center.clone());
+            let b = sub(system.point(&handles[1].id)?, center);
+            residuals.push((1, cross(a, b)));
+        }
+    }
     for (id, entity) in &sketch.entities {
+        if let Some(axes) = sketch.ellipse_axes.get(id) {
+            let center = system.center(id)?;
+            let vars = system.variables(id)?;
+            let c = vars[2].clone().cos();
+            let s = vars[2].clone().sin();
+            for (index, axis) in axes.iter().enumerate() {
+                let Some(axis) = axis else { continue };
+                let (from, to) = system.line(axis)?;
+                let direction = if index == 0 {
+                    [c.clone(), s.clone()]
+                } else {
+                    [s.clone().scale(-1.), c.clone()]
+                };
+                for (point, sign) in [(from, -1.), (to, 1.)] {
+                    for i in 0..2 {
+                        residuals.push((
+                            1,
+                            point[i].clone().sub(
+                                center[i]
+                                    .clone()
+                                    .add(direction[i].clone().mul(vars[index].clone()).scale(sign)),
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
         if let SketchGeometry::Arc {
             center, from, to, ..
         } = &entity.geometry
@@ -792,7 +827,31 @@ pub(super) fn solve(
             SketchGeometry::Line { .. } => 4,
             SketchGeometry::Circle { .. } => 3,
             SketchGeometry::Arc { .. } | SketchGeometry::Ellipse { .. } => 5,
-            SketchGeometry::Spline { points, .. } => points.len() * 2,
+            SketchGeometry::Spline { points, .. } => {
+                let mut variables = points
+                    .iter()
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>();
+                if let Some(spline) = sketch.splines.get(&entity.reference.id) {
+                    variables.extend(
+                        spline
+                            .fit_points
+                            .iter()
+                            .flat_map(|p| p.incoming.iter().chain(&p.outgoing))
+                            .map(|r| r.id.clone()),
+                    );
+                }
+                let aligned = sketch
+                    .spline_handles()
+                    .values()
+                    .filter(|(mode, handles)| {
+                        *mode == SplineHandleMode::Aligned
+                            && handles.len() == 2
+                            && handles.iter().all(|r| variables.contains(&r.id))
+                    })
+                    .count();
+                variables.len() * 2 - aligned
+            }
         };
         freedom.push(SketchEntityFreedom {
             entity: entity.reference.clone(),
@@ -927,6 +986,15 @@ pub(super) fn fixed_values(
             }
             SketchGeometry::Spline { points, .. } => {
                 ids.extend(points.iter().cloned());
+                if let Some(spline) = sketch.splines.get(&r.id) {
+                    ids.extend(
+                        spline
+                            .fit_points
+                            .iter()
+                            .flat_map(|p| p.incoming.iter().chain(&p.outgoing))
+                            .map(|r| r.id.clone()),
+                    );
+                }
             }
             _ => (),
         }

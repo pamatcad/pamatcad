@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Midpoint</title>
-  <path class="icon-edge" d="M4 12h24" stroke="#6588a3"/><g class="icon-fill icon-edge" fill="#c5ddf0" stroke="#6588a3"><circle cx="4" cy="12" r="2"/><circle cx="28" cy="12" r="2"/></g><path class="icon-selection-fill icon-selection-edge" d="m16 14 6 11H10Z" fill="#c0d8cc" stroke="#487561"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#65727b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-solid-edge"><title>Midpoint</title><path d="M5 12h22M5 9v6m22-6v6" class="icon-solid-edge" /><path d="m16 15 6 10H10Z" stroke="#65727b" class="icon-solid-edge" /></svg>

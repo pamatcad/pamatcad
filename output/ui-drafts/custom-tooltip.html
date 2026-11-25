@@ -1,0 +1,151 @@
+<div id="pamatcad-tooltip-preview" class="viz-dotted-background">
+  <div class="pc-preview" aria-label="PamatCAD tooltip preview">
+    <div class="pc-ribbon">
+      <div class="pc-group">
+        <div class="pc-tools" role="toolbar" aria-label="Geometry">
+          <button type="button" class="cursor-interaction" aria-label="Line" data-tip="Line"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjx0aXRsZT5MaW5lPC90aXRsZT48cGF0aCBjbGFzcz0iaWNvbi1lZGdlIiBkPSJNNSAyNyAyNyA1IiBzdHJva2U9IiM2NTg4YTMiLz48L3N2Zz4=" alt=""></button>
+          <button type="button" class="cursor-interaction" aria-label="Rectangle" data-tip="Rectangle"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjx0aXRsZT5SZWN0YW5nbGU8L3RpdGxlPjxyZWN0IGNsYXNzPSJpY29uLWVkZ2UiIHg9IjUiIHk9IjgiIHdpZHRoPSIyMiIgaGVpZ2h0PSIxNiIgcng9IjAiIHN0cm9rZT0iIzY1ODhhMyIvPjwvc3ZnPg==" alt=""></button>
+          <button type="button" class="cursor-interaction" aria-label="Circle" data-tip="Circle" aria-describedby="pc-tooltip"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjx0aXRsZT5DaXJjbGU8L3RpdGxlPjxjaXJjbGUgY2xhc3M9Imljb24tZWRnZSIgY3g9IjE2IiBjeT0iMTYiIHI9IjEwIiBzdHJva2U9IiM2NTg4YTMiLz48L3N2Zz4=" alt=""></button>
+          <button type="button" class="cursor-interaction" aria-label="Arc" data-tip="Arc"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjx0aXRsZT5BcmM8L3RpdGxlPjxwYXRoIGNsYXNzPSJpY29uLWVkZ2UiIGQ9Ik01IDI1QzUgNiAyNyA2IDI3IDI1IiBzdHJva2U9IiM2NTg4YTMiLz48L3N2Zz4=" alt=""></button>
+        </div>
+        <span class="pc-caption">Geometry</span>
+      </div>
+    </div>
+    <div id="pc-tooltip" role="tooltip">Circle</div>
+  </div>
+</div>
+<style>
+  #pamatcad-tooltip-preview {
+    padding: 36px 24px;
+    display: flex;
+    justify-content: center;
+  }
+  #pamatcad-tooltip-preview .pc-preview {
+    --pc-surface: light-dark(#ffffff, #242a30);
+    --pc-text: light-dark(#39434b, #e4e9ed);
+    --pc-muted: light-dark(#65727b, #aebac3);
+    --pc-border: light-dark(#d9dee2, #45515b);
+    --pc-tip-background: light-dark(#39434b, #edf1f3);
+    --pc-tip-text: light-dark(#ffffff, #242a30);
+    font: 13px/20px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    position: relative;
+    background: var(--pc-surface);
+    color: var(--pc-text);
+    border: 1px solid var(--pc-border);
+    border-radius: 4px;
+    width: 440px;
+    max-width: 100%;
+    height: 176px;
+  }
+  #pamatcad-tooltip-preview .pc-ribbon {
+    display: flex;
+    padding: 16px;
+    border-bottom: 1px solid var(--pc-border);
+  }
+  #pamatcad-tooltip-preview .pc-group {
+    padding-right: 16px;
+    border-right: 1px solid var(--pc-border);
+  }
+  #pamatcad-tooltip-preview .pc-tools { display: flex; gap: 4px; }
+  #pamatcad-tooltip-preview button {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 32px;
+    padding: 4px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+  }
+  #pamatcad-tooltip-preview button:focus-visible { outline: 2px solid #6588a3; outline-offset: 2px; }
+  #pamatcad-tooltip-preview img { width: 24px; height: 24px; display: block; }
+  #pamatcad-tooltip-preview .pc-caption { display: block; margin-top: 8px; padding-left: 8px; font-size: 12px; color: var(--pc-muted); }
+  #pamatcad-tooltip-preview #pc-tooltip {
+    position: absolute;
+    z-index: 2;
+    width: max-content;
+    max-width: calc(100% - 16px);
+    padding: 5px 8px;
+    border-radius: 4px;
+    background: var(--pc-tip-background);
+    color: var(--pc-tip-text);
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 400;
+  }
+  #pamatcad-tooltip-preview #pc-tooltip[hidden] { display: none; }
+  @media (pointer: coarse) {
+    #pamatcad-tooltip-preview button { width: 44px; height: 44px; }
+  }
+  @media (max-width: 380px) {
+    #pamatcad-tooltip-preview { padding: 28px 12px; }
+  }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('pamatcad-tooltip-preview');
+  const preview = root.querySelector('.pc-preview');
+  const tooltip = root.querySelector('#pc-tooltip');
+  const buttons = [...root.querySelectorAll('[data-tip]')];
+  const settings = { delay: 150 };
+  let active = buttons[2];
+  let timer;
+  let lastClosed = -Infinity;
+  let demonstration = true;
+
+  const position = () => {
+    if (!active || tooltip.hidden) return;
+    const control = active.getBoundingClientRect();
+    const container = preview.getBoundingClientRect();
+    tooltip.style.left = Math.max(8, Math.min(control.left - container.left + control.width / 2 - tooltip.offsetWidth / 2, preview.clientWidth - tooltip.offsetWidth - 8)) + 'px';
+    tooltip.style.top = (control.bottom - container.top + 6) + 'px';
+  };
+  const hide = () => {
+    clearTimeout(timer);
+    tooltip.hidden = true;
+    if (active) active.removeAttribute('aria-describedby');
+    lastClosed = performance.now();
+  };
+  const show = (button) => {
+    if (active && active !== button) active.removeAttribute('aria-describedby');
+    active = button;
+    tooltip.textContent = button.dataset.tip;
+    button.setAttribute('aria-describedby', tooltip.id);
+    tooltip.hidden = false;
+    position();
+  };
+  buttons.forEach(button => {
+    button.addEventListener('pointerenter', () => {
+      clearTimeout(timer);
+      if (demonstration) {
+        demonstration = false;
+        hide();
+        lastClosed = -Infinity;
+      }
+      const warm = !tooltip.hidden || performance.now() - lastClosed < 500;
+      timer = setTimeout(() => show(button), warm ? 0 : settings.delay);
+    });
+    button.addEventListener('pointerleave', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!tooltip.matches(':hover') && !button.matches(':focus-visible')) hide();
+      }, 100);
+    });
+    button.addEventListener('focus', () => { demonstration = false; clearTimeout(timer); show(button); });
+    button.addEventListener('blur', hide);
+    button.addEventListener('click', () => { demonstration = false; clearTimeout(timer); show(button); });
+  });
+  tooltip.addEventListener('pointerenter', () => clearTimeout(timer));
+  tooltip.addEventListener('pointerleave', () => {
+    if (!active.matches(':hover') && !active.matches(':focus-visible')) hide();
+  });
+  root.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
+  new ResizeObserver(position).observe(preview);
+  position();
+  if (globalThis.Tweak) {
+    const tweak = new Tweak({ container: preview });
+    tweak.addSlider(settings, 'delay', { label: 'Hover delay', min: 0, max: 500, step: 25, unit: 'ms' });
+  }
+})();
+</script>

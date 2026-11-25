@@ -6,7 +6,7 @@ export type Workbench = "solid" | "sketch";
 const icons = import.meta.glob<string>("./icons/sketch-*.svg", { query: "?raw", import: "default", eager: true });
 const geometry: SketchToolName[] = ["point", "line", "rectangle", "circle", "arc", "ellipse", "slot", "spline", "text"];
 const constraints: ConstraintKind[] = ["equal", "coincident", "fix", "concentric", "midpoint", "parallel", "perpendicular", "tangent", "horizontal", "vertical", "symmetric", "collinear", "pointOnCurve"];
-const editing: SketchToolName[] = ["dimension", "project", "offset", "split", "rounding", "scale", "move"];
+const editing: SketchToolName[] = ["dimension", "project", "offset", "split", "rounding", "scale", "move", "remove"];
 const title = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
 
 export function initRibbon(root: HTMLElement, changeWorkbench: (value: Workbench) => void, currentSketch: () => SketchTool | undefined) {
@@ -26,8 +26,8 @@ export function initRibbon(root: HTMLElement, changeWorkbench: (value: Workbench
     for (const name of names) {
       const button = document.createElement("button");
       button.type = "button";
-      button.title = title(name);
-      button.setAttribute("aria-label", button.title);
+      button.dataset.tooltip = title(name);
+      button.setAttribute("aria-label", button.dataset.tooltip);
       const iconName = label === "Constraints" ? "constraint-" + name.replace(/[A-Z]/g, c => "-" + c.toLowerCase()) : name;
       button.innerHTML = icons[`./icons/sketch-${iconName}.svg`];
       button.querySelector("svg")!.setAttribute("aria-hidden", "true");

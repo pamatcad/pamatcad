@@ -262,6 +262,9 @@ impl Engine {
                     let mut entities = input.entities.clone();
                     for reference in &entities {
                         s.ensure_text_frame_editable(&reference.id)?;
+                        if !input.construction {
+                            s.ensure_spline_helper_editable(&reference.id)?;
+                        }
                     }
                     let owners = entities
                         .iter()
@@ -279,7 +282,7 @@ impl Engine {
                         );
                     }
                     for id in s.selected_entities(&entities)? {
-                        if id != "origin" {
+                        if id != "origin" && !s.spline_helper(&id) {
                             s.entities.get_mut(&id).unwrap().construction = input.construction;
                         }
                     }
@@ -291,6 +294,20 @@ impl Engine {
             }
             Request::SketchProject(input) => {
                 self.project_geometry(input).map(Response::SketchProject)
+            }
+            Request::SketchSplineJoin(input) => {
+                self.update_sketch(&input.sketch, |s| s.join_splines(&input.from, &input.to))?;
+                Ok(Response::SketchSplineJoin(
+                    self.sketch(&input.sketch)?.state(),
+                ))
+            }
+            Request::SketchSplineHandleMode(input) => {
+                self.update_sketch(&input.sketch, |s| {
+                    s.set_spline_handle_mode(&input.point, input.mode)
+                })?;
+                Ok(Response::SketchSplineHandleMode(
+                    self.sketch(&input.sketch)?.state(),
+                ))
             }
             Request::SketchSupportUpdate(input) => self
                 .update_sketch_support(input)

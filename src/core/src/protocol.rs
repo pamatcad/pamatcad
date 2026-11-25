@@ -877,6 +877,8 @@ api! {
     SketchSupportUpdate(UpdateSketchSupport) -> SketchState = "sketch.support.update",
     SketchTransform(TransformSketchGeometry) -> Vec<SketchEntityRef> = "sketch.transform",
     SketchConstruction(SetConstruction) -> SketchState = "sketch.construction",
+    SketchSplineJoin(JoinSplines) -> SketchState = "sketch.splines.join",
+    SketchSplineHandleMode(SetSplineHandleMode) -> SketchState = "sketch.splines.setHandleMode",
     SketchModifyCurves(ModifySketchCurves) -> SketchEditResult = "sketch.curves.modify",
     RegionOnly(SketchQuery) -> RegionRef = "sketch.regions.only",
     RegionsAll(SketchQuery) -> Vec<RegionRef> = "sketch.regions.all",

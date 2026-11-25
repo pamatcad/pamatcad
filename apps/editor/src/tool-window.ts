@@ -17,8 +17,8 @@ export function initToolWindow(panel: HTMLElement, changed: (state: ToolWindowSt
     panel.classList.toggle("tool-window-collapsed", !!state.collapsed);
     const toggle = panel.querySelector<HTMLButtonElement>(".tool-window-toggle");
     if (toggle) {
-      toggle.title = state.collapsed ? "Expand tool window" : "Collapse tool window";
-      toggle.setAttribute("aria-label", toggle.title);
+      toggle.dataset.tooltip = state.collapsed ? "Expand tool window" : "Collapse tool window";
+      toggle.setAttribute("aria-label", toggle.dataset.tooltip);
       toggle.setAttribute("aria-expanded", String(!state.collapsed));
     }
     panel.style.width = state.size ? Math.min(viewport.clientWidth, state.size.width) + "px" : "";
@@ -96,6 +96,7 @@ export function initToolWindow(panel: HTMLElement, changed: (state: ToolWindowSt
       state = { ...next, position: next?.position && { ...next.position }, size: next?.size && { ...next.size } };
       const heading = panel.querySelector<HTMLElement>(":scope > h2");
       if (heading) {
+        heading.dataset.tooltip = "Move tool window (drag or arrow keys)";
         const header = document.createElement("div");
         header.className = "tool-window-header";
         const toggle = document.createElement("button");
@@ -114,11 +115,12 @@ export function initToolWindow(panel: HTMLElement, changed: (state: ToolWindowSt
           const handle = document.createElement("div");
           handle.className = "tool-window-resize";
           handle.dataset.edge = edge;
+          handle.dataset.tooltip = "Resize tool window";
           if (edge === "se") {
             handle.tabIndex = 0;
             handle.setAttribute("role", "group");
             handle.setAttribute("aria-label", "Resize tool window");
-            handle.title = "Resize tool window (arrow keys)";
+            handle.dataset.tooltip = "Resize tool window (arrow keys)";
           } else handle.setAttribute("aria-hidden", "true");
           panel.append(handle);
         }

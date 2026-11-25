@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Coincident</title>
-  <path class="icon-edge" d="M4 6 16 16 28 26" stroke="#6588a3"/><circle class="icon-selection-fill icon-selection-edge" cx="16" cy="16" r="5" fill="#c0d8cc" stroke="#487561"/><circle class="icon-selection-detail" cx="16" cy="16" r="1.5" fill="#487561" stroke="none"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#65727b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-solid-edge"><title>Coincident</title><path d="M5 6 16 24 27 6" class="icon-solid-edge" /><circle cx="16" cy="24" r="3" fill="#65727b" stroke="#65727b" class="icon-solid-edge icon-solid-edge-fill" /></svg>

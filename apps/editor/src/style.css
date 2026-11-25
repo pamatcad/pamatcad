@@ -64,6 +64,33 @@ button:active:not(:disabled) {
 [hidden] {
   display: none !important;
 }
+.ui-tooltip {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.ui-tooltip-expanded { width: 320px; }
+.ui-tooltip-expanded .ui-tooltip-name { font-weight: 500; }
+.ui-tooltip-description { margin: 8px 0 0; }
+.ui-tooltip-illustration {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--background);
+}
+/* Decorative SVG titles must not create a second, native tooltip. */
+[data-tooltip] svg { pointer-events: none; }
 .menubar {
   display: flex;
   align-items: center;
@@ -716,6 +743,7 @@ dialog::backdrop {
 :is(.tools, .sketch-variants, .sketch-tool-heading) .icon-surface-stroke { stroke: var(--surface); }
 :is(.tools, .sketch-variants, .sketch-tool-heading) .icon-solid-edge-fill { fill: var(--edge); }
 :is(.tools, .sketch-variants, .sketch-tool-heading) .icon-solid-edge { stroke: var(--edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-geometry-highlight { stroke: var(--geometry-highlight); }
 :is(.tools, .sketch-variants, .sketch-tool-heading) .icon-foreground-fill { fill: var(--foreground); }
 :is(.tools, .sketch-variants, .sketch-tool-heading) .icon-foreground { stroke: var(--foreground); }
 :is(.tools, .sketch-variants, .sketch-tool-heading) .icon-preview-fill { fill: var(--preview); }

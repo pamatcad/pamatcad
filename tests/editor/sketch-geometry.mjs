@@ -20,16 +20,19 @@ export async function testSketchConstructors(page,sdk) {
       const feature=await core.solid.extrude(await sketch.regions.only(),{length1:1});
       const angledArea=(await (await scene.bodies.get(feature.newSolids[0].id)).properties()).volume.value;
       const tangent=await scene.sketches.create(scene.construction.builtin.planes.xy);
-      const x=await tangent.primitives.add("line",{from:[0,0],to:[20,0]});
-      const y=await tangent.primitives.add("line",{from:[0,20],to:[0,0]});
-      const z=await tangent.primitives.add("line",{from:[20,0],to:[0,20]});
+      const x=await tangent.primitives.add("line",{from:[0,0],to:[20,0],construction:true});
+      const y=await tangent.primitives.add("line",{from:[0,20],to:[0,0],construction:true});
+      const z=await tangent.primitives.add("line",{from:[20,0],to:[0,20],construction:true});
       const state=await tangent.state();const curves=[x,y,z].map(l=>state.entities.find(e=>e.reference.id===l.curves[0].id));
       const tangent2=make("circle",3,[[4,4]],{...fields,radius:5},curves.slice(0,2),state);
       const tangent3=make("circle",4,[[5,5]],{...fields,radius:5},curves,state);
       const added=await tangent.primitives.add("circle",tangent3.parameters);
       await tangent.constraints.add("fix",{curves:[...x.curves,...y.curves,...z.curves]});
       for(const line of [x,y,z])await tangent.constraints.add("tangent",{curves:[line.curves[0],added.curves[0]]});
-      return {circle2:circle2.parameters,circle3:circle3.parameters,arc3:arc3.parameters,angledArea,tangent2:tangent2.parameters,tangent3:tangent3.parameters,
+      await tangent.complete();
+      const solid=await core.solid.extrude(await tangent.regions.only(),{length1:2});
+      const tangentVolume=(await (await scene.bodies.get(solid.newSolids[0].id)).properties()).volume.value;
+      return {circle2:circle2.parameters,circle3:circle3.parameters,arc3:arc3.parameters,angledArea,tangentVolume,tangent2:tangent2.parameters,tangent3:tangent3.parameters,
         ellipseCenter:make("ellipse",0,[[5,10],[15,15]]).parameters,ellipseRectangle:make("ellipse",1,[[0,0],[20,10]]).parameters,
         slot3:make("slot",0,[[0,0],[20,0],[20,5]]).parameters,slotCenter:make("slot",1,[[10,0],[20,0]],{...fields,radius:5}).parameters,
         slotCenters:make("slot",2,[[0,0],[20,0]],{...fields,radius:5}).parameters,
@@ -45,6 +48,7 @@ export async function testSketchConstructors(page,sdk) {
   near(results.arc3.radius,10);near(results.arc3.end-results.arc3.start,180);
   near(results.tangent2.center[0],5);near(results.tangent2.center[1],5);
   near(results.tangent3.diameter/2,20-10*Math.sqrt(2));
+  near(results.tangentVolume,2*Math.PI*(20-10*Math.sqrt(2))**2);
   assert.deepEqual(results.ellipseCenter.center,[5,10]);assert.equal(results.ellipseCenter.major,10);assert.equal(results.ellipseCenter.minor,5);
   assert.deepEqual(results.ellipseRectangle.center,[10,5]);
   assert.deepEqual(results.slot3.from,[5,0]);assert.deepEqual(results.slot3.to,[15,0]);assert.equal(results.slot3.radius,5);
@@ -144,7 +148,7 @@ export async function testSketchDrawingStages(page) {
     if (await button.getAttribute("aria-pressed") !== "true") await button.click();
     if (name) await page.getByRole("group", { name: "Tool variants" }).getByRole("button", { name, exact: true }).click();
     await idle();
-    if (["rectangle","circle","arc","ellipse","slot","spline"].includes(tool)) assert.ok(await page.locator(".sketch-variants button").evaluateAll(buttons => buttons.every(b => b.title && b.getAttribute("aria-label") === b.title && b.querySelector("svg .icon-point") && b.querySelector("svg [class]"))));
+    if (["rectangle","circle","arc","ellipse","slot","spline"].includes(tool)) assert.ok(await page.locator(".sketch-variants button").evaluateAll(buttons => buttons.every(b => b.dataset.tooltip && b.getAttribute("aria-label") === b.dataset.tooltip && b.querySelector("svg .icon-point") && b.querySelector("svg [class]"))));
     assert.equal(await page.locator('.sketch-variants [aria-pressed="true"]').count(), 1);
   };
   try {
@@ -364,4 +368,136 @@ export async function testSketchDrawingStages(page) {
     await page.locator("#cancel").click();
     await page.waitForFunction(() => document.querySelector("#new-sketch") && !document.querySelector("#new-sketch").disabled);
   }
+}
+
+export async function testSketchDrawingFixes(page) {
+  await page.getByText("File", { exact: true }).click(); await page.locator("#menu-new").click();
+  await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+  await page.evaluate(async () => {
+    const { SketchTool } = await import("/src/tools/sketch.ts"), start = SketchTool.prototype.start;
+    SketchTool.prototype.start = function (...args) { window.drawingFixes = this; return start.apply(this, args); };
+    document.querySelector("#new-sketch").click(); SketchTool.prototype.start = start;
+  });
+  await page.evaluate(() => chooseSketchPlane("XY"));
+  const idle = () => page.waitForFunction(() => { const t = window.drawingFixes; return t.state && !t.pending && !t.updateRunning && !t.creating && !t.viewport.renderPending; });
+  const screen = xy => page.evaluate(xy => {
+    const t = window.drawingFixes, v = t.viewport, f = t.state.frame, r = document.querySelector("#model-canvas").getBoundingClientRect();
+    v.camera.updateMatrixWorld();
+    const p = v.camera.position.clone().fromArray(f.origin).addScaledVector(v.camera.position.clone().fromArray(f.u), xy[0]).addScaledVector(v.camera.position.clone().fromArray(f.v), xy[1]).project(v.camera);
+    return [r.x + (p.x + 1) * r.width / 2, r.y + (1 - p.y) * r.height / 2];
+  }, xy);
+  const click = async xy => { await page.mouse.click(...await screen(xy)); await idle(); };
+  const move = async xy => { await page.mouse.move(...await screen(xy)); await idle(); };
+  const choose = async (tool, mode) => { await page.keyboard.press("Escape"); await page.locator(`[data-tool="${tool}"]`).click(); if (mode) await page.getByRole("group", { name: "Tool variants" }).getByRole("button", { name: mode, exact: true }).click(); await idle(); };
+  const state = () => page.evaluate(() => window.drawingFixes.state);
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-5, `${a} != ${b}`);
+  try {
+    await idle(); await page.getByRole("button", { name: "Snap to geometry", exact: true }).click();
+    await choose("line");
+    assert.equal(await page.locator("#sketch-tool-empty").textContent(), "Enter to finish, Esc to exit");
+    const empty = await state();
+    await click([-25, -20]); await move([-15, -20]);
+    assert.ok(await page.evaluate(async () => (await window.drawingFixes.sketch.state({ preview: true })).entities.some(e => e.geometry.type === "line")));
+    await page.locator("#width").fill("12 mm"); await idle();
+    await page.keyboard.press("Escape"); await idle();
+    assert.deepEqual((await state()).entities, empty.entities);
+    assert.equal(await page.evaluate(() => window.drawingFixes.tool), "select");
+    assert.equal(await page.evaluate(async () => { try { await window.drawingFixes.sketch.state({ preview: true }); return false; } catch (e) { return e.details?.code === "PREVIEW_UNAVAILABLE"; } }), true);
+    await choose("line");
+    await click([-25, -20]); await click([-15, -20]); await click([-15, -10]);
+    let s = await state(), lines = s.entities.filter(e => e.geometry.type === "line");
+    assert.equal(lines.length, 2);
+    assert.ok(s.constraints.some(c => c.kind === "coincident" && c.parameters.points.some(p => p.id === lines[0].geometry.to) && c.parameters.points.some(p => p.id === lines[1].geometry.from)));
+    await page.evaluate(() => {
+      const primitives = window.drawingFixes.sketch.primitives, add = primitives.add;
+      primitives.add = async function (...args) {
+        primitives.add = add;
+        const result = await add.apply(this, args);
+        await new Promise(resolve => { window.releaseLinePreview = resolve; });
+        return result;
+      };
+    });
+    await page.mouse.move(...await screen([-5, -10]));
+    await page.waitForFunction(() => !!window.releaseLinePreview);
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => { window.releaseLinePreview(); delete window.releaseLinePreview; }); await idle();
+    assert.deepEqual((await state()).entities, s.entities);
+    assert.equal(await page.evaluate(async () => { try { await window.drawingFixes.sketch.state({ preview: true }); return false; } catch (e) { return e.details?.code === "PREVIEW_UNAVAILABLE"; } }), true);
+    await choose("line"); await click([-15, -10]);
+    await move([-5, -10]); await page.locator("#model-canvas").press("Enter"); await idle();
+    assert.equal((await state()).entities.filter(e => e.geometry.type === "line").length, 2);
+    assert.equal(await page.evaluate(() => window.drawingFixes.tool), "line");
+    await click([-25, -5]); await move([-20, -5]); await page.locator("#width").fill("7 mm"); await page.locator("#width").press("Enter"); await idle();
+    assert.equal(await page.evaluate(() => window.drawingFixes.points.length), 0);
+    near((await state()).dimensions[0].computed.value, 7);
+    await page.keyboard.press("Escape"); await click([-20, -20]); await page.keyboard.press("Delete"); await idle();
+    s = await state(); assert.ok([lines[0].geometry.from, lines[0].geometry.to].every(id => !s.entities.some(e => e.reference.id === id)));
+    assert.ok([lines[1].reference.id, lines[1].geometry.from, lines[1].geometry.to].every(id => s.entities.some(e => e.reference.id === id)));
+
+    await choose("circle", "Two points and radius");
+    await click([-8, 8]); await click([2, 8]); await move([-3, 12]);
+    const radius1 = Number.parseFloat(await page.locator("#sketch-radius").inputValue());
+    await move([-3, 16]);
+    const radius2 = Number.parseFloat(await page.locator("#sketch-radius").inputValue());
+    assert.ok(radius2 > radius1 + 1, "Third cursor position changes the radius");
+    await page.locator("#sketch-radius").fill("10 mm"); await move([-3, 17]); await click([-3, 17]);
+    near((await state()).entities.find(e => e.geometry.type === "circle").geometry.radius, 10);
+
+    await choose("circle", "Three points"); await click([10, -15]); await click([20, -15]);
+    assert.ok(await page.locator("#sketch-radius").isVisible());
+    await move([15, -8]); await page.locator("#sketch-radius").fill("8 mm"); await click([15, -8]);
+    s = await state(); near(s.entities.filter(e => e.geometry.type === "circle").at(-1).geometry.radius, 8);
+    await choose("circle", "Three points"); await click([-20, 15]); await click([-10, 15]);
+    await page.locator("#sketch-radius").fill("2 mm"); await click([-15, 20]);
+    assert.match(await page.locator("#sketch-error").textContent(), /radius/i);
+    await page.locator("#sketch-radius").fill("6 mm"); await click([-12, 22]);
+    assert.equal((await state()).entities.filter(e => e.geometry.type === "circle").length, 3);
+
+    const refs = await page.evaluate(async () => {
+      const t = window.drawingFixes, s = t.sketch;
+      const a = await s.primitives.add("line", { from: [0, 0], to: [20, 0], construction: true });
+      const b = await s.primitives.add("line", { from: [0, 0], to: [0, 20], construction: true });
+      const c = await s.primitives.add("line", { from: [20, 0], to: [0, 20], construction: true });
+      await s.constraints.add("fix", { curves: [...a.curves, ...b.curves, ...c.curves] }); await t.reload();
+      return [a.curves[0], b.curves[0], c.curves[0]];
+    });
+    await choose("circle", "Two tangents and radius"); await click([10, 0]); await click([0, 10]); await move([4, 4]);
+    assert.equal(await page.locator("#sketch-radius-label").isVisible(), false);
+    assert.ok(await page.locator(".sketch-live-dimensions > #sketch-radius").isVisible());
+    await page.locator("#sketch-radius").fill("3 mm"); await move([3, 3]); await click([3, 3]);
+    s = await state(); let circle = s.entities.filter(e => e.geometry.type === "circle").at(-1);
+    near(circle.geometry.radius, 3);
+    assert.equal(s.constraints.filter(c => c.kind === "tangent" && c.parameters.curves.some(r => r.id === circle.reference.id)).length, 2);
+    await choose("circle", "Three tangents"); await click([10, 0]); await click([0, 10]); await click([10, 10]); await move([6, 6]); await click([6, 6]);
+    s = await state(); circle = s.entities.filter(e => e.geometry.type === "circle").at(-1);
+    near(circle.geometry.radius, 20 - 10 * Math.sqrt(2));
+    assert.equal(s.constraints.filter(c => c.kind === "tangent" && c.parameters.curves.some(r => r.id === circle.reference.id)).length, 3);
+
+    await page.keyboard.press("Escape");
+    await page.evaluate(refs => { const t = window.drawingFixes; refs.slice(0, 2).forEach(r => t.selected.add(r.id)); t.selectionChanged(); }, refs);
+    await page.locator('[data-tool="circle"]').click();
+    await page.getByRole("button", { name: "Two tangents and radius", exact: true }).click();
+    await move([-4, -4]); await page.locator("#sketch-radius").fill("2 mm"); await idle(); await move([-5, -6]); await click([-5, -6]);
+    s = await state(); circle = s.entities.filter(e => e.geometry.type === "circle").at(-1);
+    near(circle.geometry.radius, 2);
+    assert.equal(s.constraints.filter(c => c.kind === "tangent" && c.parameters.curves.some(r => r.id === circle.reference.id)).length, 2);
+
+    await choose("ellipse", "Center, side point and radius"); await click([-20, 0]); await click([-14, 6]); await move([-23, 3]);
+    await page.locator("#width").fill("20 mm"); await page.locator("#height").fill("8 mm"); await click([-23, 3]);
+    s = await state(); const ellipse = s.entities.find(e => e.geometry.type === "ellipse");
+    near(ellipse.geometry.major, 10); near(ellipse.geometry.minor, 4); near(ellipse.geometry.angle, Math.PI / 4);
+    const dimensions = s.dimensions.slice(-2); assert.ok(dimensions.every(d => d.kind === "length"));
+    assert.deepEqual(dimensions.map(d => d.computed.value), [20, 8]);
+    await page.screenshot({ path: "/private/tmp/pamatcad-drawing-fixes.png" });
+    for (const [mode, start, end] of [["Center, width and height", [-35, 10], [-28, 13]], ["Rectangle", [-35, -28], [-21, -22]]]) {
+      const before = (await state()).entities;
+      await choose("ellipse", mode); await click(start); await move(end);
+      await page.locator("#width").fill("14 mm"); await page.locator("#height").fill("6 mm"); await click(end);
+      s = await state(); const e = s.entities.find(e => e.geometry.type === "ellipse" && !before.some(old => old.reference.id === e.reference.id));
+      near(e.geometry.major, 7); near(e.geometry.minor, 3);
+      assert.deepEqual(s.dimensions.slice(-2).map(d => [d.kind, d.computed.value]), [["length", 14], ["length", 6]]);
+    }
+    console.log("Connected lines, Escape cancellation, endpoint removal, circle radius stages/tangent picking, and rotated ellipse axes passed");
+  } catch (error) { await page.screenshot({ path: "/private/tmp/pamatcad-drawing-fixes-failure.png" }); throw error; }
+  finally { await page.evaluate(() => window.drawingFixes.escape()); await idle(); await page.locator("#cancel").click(); }
 }

@@ -11,7 +11,7 @@ const toolIcons = import.meta.glob<string>("../icons/sketch-*.svg", { query: "?r
 import { dimensionChoices, dimensionLayout, formatDimension, inferDimension } from "../sketch-dimensions";
 import { constraintSelection } from "./sketch-constraints";
 import { TextControls } from "./sketch-text";
-const editing = new Set<SketchToolName>(["select", "dimension", "project", "offset", "rounding", "scale", "move", "split"]);
+const editing = new Set<SketchToolName>(["select", "dimension", "project", "offset", "rounding", "scale", "move", "split", "remove"]);
 const title = (s: string) => s.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
 const errorText = (e: unknown) => e instanceof Error ? e.message : String(e);
 type Hooks = {
@@ -80,7 +80,7 @@ export class SketchTool {
     const option = (group: string, label: string, icon: string, tip: string, pressed: boolean, action: (button: HTMLButtonElement) => void) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.title = tip;
+      button.dataset.tooltip = tip;
       button.setAttribute("aria-label", label);
       button.setAttribute("aria-pressed", String(pressed));
       const glyph = document.createElement("span");
@@ -350,7 +350,7 @@ export class SketchTool {
     }
     for (const button of this.get("sketch-construction").querySelectorAll("button")) {
       const construction = button.dataset.construction === "true";
-      button.disabled = selected.some(e => e.projected || this.state!.texts.some(t => Object.values(t.frame ?? {}).some(r => r.id === e.reference.id)));
+      button.disabled = selected.some(e => e.projected || this.state!.texts.some(t => Object.values(t.frame ?? {}).some(r => r.id === e.reference.id)) || this.state!.splines.some(s => s.envelope.some(r => r.id === e.reference.id) || s.fitPoints.some(p => [p.incoming, p.outgoing].some(r => r?.id === e.reference.id))));
       button.setAttribute("aria-pressed", String(this.editingText ? this.constructionMode === construction : selectedTexts.length ? selectedTexts.every(t => t.parameters.construction === construction) : selected.length ? selected.every(e => e.construction === construction) : this.constructionMode === construction));
     }
     this.handles();
@@ -368,6 +368,7 @@ export class SketchTool {
       const repair = document.createElement("button");
       repair.type = "button";
       repair.textContent = "Update";
+      repair.dataset.tooltip = "Update projection";
       repair.onclick = () => {
         this.repairingProjection = p.id;
         this.choose("project");
@@ -375,6 +376,7 @@ export class SketchTool {
       const remove = document.createElement("button");
       remove.type = "button";
       remove.textContent = "Remove";
+      remove.dataset.tooltip = "Remove projection";
       remove.onclick = () => this.run(() => this.sketch!.remove([p.id]));
       row.append(label, repair, remove);
       list.append(row);
@@ -410,14 +412,16 @@ export class SketchTool {
     this.get("sketch-config").hidden = tool === "select";
     this.get("sketch-tool-title").textContent = title(tool);
     this.get("sketch-tool-icon").innerHTML = toolIcons[`../icons/sketch-${tool}.svg`];
-    this.get("sketch-tool-empty").hidden = !["point", "line", "dimension", "project"].includes(tool);
+    this.get("sketch-tool-empty").hidden = !["point", "line", "spline", "dimension", "project", "remove"].includes(tool);
+    this.get("sketch-tool-empty").textContent = tool === "line" ? "Enter to finish, Esc to exit" : tool === "spline" ? "Enter to finish, Esc to exit. Click the first point to close." : tool === "remove" ? "Click a curve portion to remove it between intersections. Esc to exit." : "This tool has no configuration.";
+    if (tool === "remove") this.selected.clear();
     const group = this.find(".sketch-variants");
     group.replaceChildren();
     group.hidden = variants[tool].length < 2;
     variants[tool].forEach((name, i) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.title = name;
+      b.dataset.tooltip = name;
       b.setAttribute("aria-label", name);
       const icon = toolIcons[`../icons/sketch-${tool}-${i}.svg`];
       if (icon) {
@@ -432,8 +436,7 @@ export class SketchTool {
     });
     for (const id of ["sketch-radius", "sketch-angle"]) {
       const label = this.get(id + "-label");
-      // The two-tangent circle needs its radius before the single placement click.
-      const inPanel = (tool === "rounding" || tool === "circle" && variant === 3) && id === "sketch-radius" || tool === "move" && id === "sketch-angle";
+      const inPanel = tool === "rounding" && id === "sketch-radius" || tool === "move" && id === "sketch-angle";
       label.hidden = !inPanel;
       (inPanel ? label : this.liveDimensions).append(this.input(id));
     }
@@ -442,12 +445,13 @@ export class SketchTool {
       row.hidden = !row.dataset.tools!.split(" ").includes(tool);
     }
     this.get("sketch-offset2-row").hidden = tool !== "offset" || variant !== 2;
-    this.input("sketch-radius").hidden = !["circle", "arc", "slot", "rounding"].includes(tool) || tool === "circle" && [2, 4].includes(variant) || tool === "arc" && variant === 1;
+    this.input("sketch-radius").hidden = !["circle", "arc", "slot", "rounding"].includes(tool) || tool === "circle" && variant === 4 || tool === "arc" && variant === 1;
     this.input("sketch-angle").hidden = !(tool === "arc" && variant === 0 || tool === "move");
     const action = this.get("sketch-action");
     action.hidden = !["offset", "split", "rounding", "scale", "move"].includes(tool);
     action.removeAttribute("disabled");
     action.textContent = action.hidden ? "" : "Apply " + tool;
+    action.dataset.tooltip = action.textContent;
     if (tool === "move" && previous !== "move" || tool === "arc") this.setNumericField("sketch-angle", 0);
     if (tool === "slot") this.setNumericField("sketch-radius", Math.max(1e-6, 2 * this.viewport.pixelLength) / unitScale[this.scene.units.length]);
     if (tool === "dimension") this.hooks.status("Select geometry, then click to place the dimension. Right-click for alternate measurements.");
@@ -496,14 +500,17 @@ export class SketchTool {
       void this.queue.then(() => this.choose("select"));
       return;
     }
+    const discardLine = ["line", "spline"].includes(this.tool) && this.points.length > 0;
     if (this.tool === "select") this.selected.clear();
     this.repairingProjection = undefined;
     this.choose("select");
+    if (discardLine) void this.run(() => this.scene.discardPreview(), false, true);
     this.selectionChanged();
     document.getElementById("model-canvas")!.focus();
   }
   private updateDimensions(primitive?: Primitive) {
     if (this.popup instanceof HTMLInputElement && this.popup.isConnected) return;
+    if (this.tool === "circle" && [1, 2].includes(this.variant)) this.input("sketch-radius").hidden = this.points.length < 2;
     const visible = this.active && !editing.has(this.tool) && this.points.length > 0;
     this.liveDimensions.hidden = !visible;
     if (!visible || !this.state) {
@@ -524,9 +531,16 @@ export class SketchTool {
       positions.height = [center[0] + w * Math.cos(angle) / 2, center[1] + w * Math.sin(angle) / 2];
     } else if (primitive?.type === "ellipse") {
       const p = primitive.parameters;
-      const w = p.angle === 0 ? Number(p.major) : Number(p.minor), h = p.angle === 0 ? Number(p.minor) : Number(p.major);
-      positions.width = [p.center[0], p.center[1] - h];
-      positions.height = [p.center[0] + w, p.center[1]];
+      const angle = this.variant === 2 && this.points[1] ? bearing(this.points[0], this.points[1]) : 0;
+      const widthIsMajor = Math.abs(Math.cos((p.angle ?? 0) * Math.PI / 180 - angle)) > 0.5;
+      const w = Number(widthIsMajor ? p.major : p.minor), h = Number(widthIsMajor ? p.minor : p.major);
+      positions.width = [p.center[0] + h * Math.sin(angle), p.center[1] - h * Math.cos(angle)];
+      positions.height = [p.center[0] + w * Math.cos(angle), p.center[1] + w * Math.sin(angle)];
+      if (!this.dirty.has("width")) this.setNumericField("width", 2 * w / unitScale[this.scene.units.length]);
+      if (!this.dirty.has("height")) this.setNumericField("height", 2 * h / unitScale[this.scene.units.length]);
+    } else if (primitive?.type === "circle") {
+      positions["sketch-radius"] = primitive.parameters.center;
+      if (!this.dirty.has("sketch-radius")) this.setNumericField("sketch-radius", Number(primitive.parameters.diameter) / 2 / unitScale[this.scene.units.length]);
     } else if (primitive?.type === "line") {
       const p = primitive.parameters;
       positions.width = [(p.from[0] + p.to[0]) / 2, (p.from[1] + p.to[1]) / 2];
@@ -539,6 +553,7 @@ export class SketchTool {
   }
   private snapped(point: Point, excluded = new Set<string>()): Point {
     let result: Point = [...point];
+    if (this.tool === "spline" && this.points.length >= 3 && distance(point, this.points[0]) < this.viewport.pixelLength * 8) return [...this.points[0]];
     if (this.snapGrid) {
       result = result.map(v => Math.round(v)) as Point;
     }
@@ -619,6 +634,20 @@ export class SketchTool {
       }
       return;
     }
+    if (this.tool === "remove") {
+      const pick = hit.picks.find(p => p.kind === "geometry" && this.state?.entities.some(e =>
+        e.reference.id === p.id && e.geometry.type !== "point"));
+      const entity = this.state?.entities.find(e => e.reference.id === pick?.id);
+      if (entity && hit.point && this.sketch) {
+        const position = hit.point;
+        void this.run(async () => {
+          await this.sketch!.modifyCurves([entity.reference], { type: "remove", position });
+          this.selected.clear();
+          this.hooks.status("Curve portion removed. Click another curve or press Esc to exit.");
+        });
+      }
+      return;
+    }
     if (this.tool === "project") {
       const item = hit.item;
       if (item?.kind === "face" || item?.kind === "edge" || item?.kind === "vertex") {
@@ -664,6 +693,18 @@ export class SketchTool {
       }
       return;
     }
+    if (this.tool === "circle" && this.variant >= 3) {
+      const count = this.variant === 3 ? 2 : 3;
+      const pick = hit.picks.find(p => p.kind === "geometry" && this.state?.entities.some(e => e.reference.id === p.id && ["line", "circle", "arc"].includes(e.geometry.type)));
+      if (pick && (this.selected.size < count || this.selected.has(pick.id))) {
+        this.pick(pick, true);
+        if (this.selected.size === count && hit.point) { this.points = [hit.point]; this.updateDimensions(); this.schedulePreview(); }
+        else { this.points = []; this.updateDimensions(); }
+        return;
+      }
+      if (this.geometry().length !== count) { this.hooks.status(`Select ${count} lines, circles or arcs.`); return; }
+      this.points = [];
+    }
     if (editing.has(this.tool)) {
       this.pick(hit.picks[0], hit.additive);
       return;
@@ -673,13 +714,15 @@ export class SketchTool {
     }
     const count = drawingClicks(this.tool, this.variant);
     // A rejected final click remains editable without restarting the construction.
-    if ((this.tool === "arc" || this.tool === "slot") && this.points.length >= count) this.points.length = count - 1;
+    if (["arc", "slot", "circle", "ellipse", "line"].includes(this.tool) && this.points.length >= count) this.points.length = count - 1;
     this.points.push(this.snapped(hit.point));
     this.cursor = undefined;
     if (this.tool === "slot" && this.points.length === 2 && !this.dirty.has("sketch-radius")) {
       const radius = Math.max(1e-6, Math.min(2 * this.viewport.pixelLength, distance(this.points[0], this.points[1]) / 100));
       this.setNumericField("sketch-radius", radius / unitScale[this.scene.units.length]);
     }
+    if (this.tool === "circle" && [1, 2].includes(this.variant) && this.points.length === 2 && !this.dirty.has("sketch-radius")) this.setNumericField("sketch-radius", distance(this.points[0], this.points[1]) / 2 / unitScale[this.scene.units.length]);
+    if (this.tool === "ellipse" && this.variant === 2 && this.points.length === 2 && !this.dirty.has("height")) this.setNumericField("height", Math.max(4 * this.viewport.pixelLength, distance(this.points[0], this.points[1]) / 5) / unitScale[this.scene.units.length]);
     this.updateDimensions();
     if (this.tool === "text") {
       this.editingText = null;
@@ -689,7 +732,8 @@ export class SketchTool {
       (this.get("sketch-text") as HTMLTextAreaElement).focus();
       return;
     }
-    if (this.tool !== "spline" && this.points.length >= count) {
+    const splineEnd = this.tool === "spline" && this.points.length > 1 && (this.points.length > 3 && distance(this.points[0], this.points.at(-1)!) < 1e-7 || this.splineEndpoint(this.snapRefs.get(this.points.at(-1)!.join(","))?.id));
+    if (this.tool !== "spline" && this.points.length >= count || splineEnd) {
       this.creating = true;
       void this.run(() => this.create()).finally(() => {
         this.creating = false;
@@ -701,6 +745,12 @@ export class SketchTool {
     }
   }
   move(point: Point | null) {
+    if (this.tool === "circle" && this.variant >= 3) {
+      if (point && !this.creating && this.geometry().length === (this.variant === 3 ? 2 : 3)) {
+        this.points = [point]; this.cursor = undefined; this.updateDimensions(); this.schedulePreview();
+      }
+      return;
+    }
     if (point && this.tool === "dimension" && !this.popup?.isConnected) {
       this.dimensionPosition = point;
       this.display();
@@ -710,7 +760,7 @@ export class SketchTool {
       return;
     }
     const count = drawingClicks(this.tool, this.variant);
-    if ((this.tool === "arc" || this.tool === "slot") && this.points.length >= count) this.points.length = count - 1;
+    if (["arc", "slot", "circle", "ellipse", "line"].includes(this.tool) && this.points.length >= count) this.points.length = count - 1;
     this.cursor = this.snapped(point);
     const scale = unitScale[this.scene.units.length];
     const update = (id: string, value: number) => {
@@ -805,9 +855,8 @@ export class SketchTool {
   private async fields(): Promise<DrawingFields> {
     const active = (id: string) => !this.input(id).closest<HTMLElement>("[data-tools]")!.hidden;
     const field = async (id: string, fallback: number, dimension: "length" | "angle" | "scalar" = "length") => active(id) ? this.number(id, dimension) : fallback;
-    const closed = this.input("sketch-closed").checked;
     const [width, height, radius, angle] = await Promise.all([field("width", 10), field("height", 10), field("sketch-radius", 5), field("sketch-angle", 90, "angle")]);
-    return { width, height, radius, angle, size: this.fieldSource("sketch-size"), ...await this.textControls.parameters(), closed };
+    return { width, height, radius, angle, radiusTyped: this.dirty.has("sketch-radius"), widthTyped: this.dirty.has("width"), heightTyped: this.dirty.has("height"), size: this.fieldSource("sketch-size"), ...await this.textControls.parameters() };
   }
   private async primitive(preview = false): Promise<Primitive> {
     const tool = this.tool, variant = this.variant, dirty = new Set(this.dirty);
@@ -818,6 +867,7 @@ export class SketchTool {
     if (this.cursor && (preview || tool !== "spline" && points.length < drawingClicks(tool, variant))) {
       points.push(this.cursor);
     }
+    if (tool === "circle" && [1, 2].includes(variant) && points.length < 2 || tool === "ellipse" && variant === 2 && (points.length < 2 || points.length < 3 && !preview && !dirty.has("height"))) throw new Error("Complete the construction points first.");
     if (tool === "arc" && (points.length < 2 || points.length < 3 && !(variant === 0 && dirty.has("sketch-angle"))) || tool === "slot" && (points.length < 2 || points.length < 3 && !preview && !dirty.has("sketch-radius"))) {
       throw new Error("Complete the construction points first.");
     }
@@ -826,7 +876,7 @@ export class SketchTool {
       const a = points[0], b = points[1] ?? [a[0] + 1, a[1]], angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
       points = [a, [a[0] + f.width * Math.cos(angle), a[1] + f.width * Math.sin(angle)]];
     }
-    if ((tool === "rectangle" && variant !== 1 || tool === "ellipse") && (dirty.has("width") || dirty.has("height"))) {
+    if ((tool === "rectangle" && variant !== 1 || tool === "ellipse" && variant < 2) && (dirty.has("width") || dirty.has("height"))) {
       const a = points[0], b = points[1] ?? [a[0] + f.width, a[1] + f.height];
       const factor = tool === "rectangle" && variant === 2 || tool === "ellipse" && variant === 0 ? 2 : 1;
       points = [a, [dirty.has("width") ? a[0] + (Math.sign(b[0] - a[0]) || 1) * f.width / factor : b[0], dirty.has("height") ? a[1] + (Math.sign(b[1] - a[1]) || 1) * f.height / factor : b[1]]];
@@ -874,13 +924,13 @@ export class SketchTool {
     if (!this.sketch || editing.has(this.tool) && !["offset", "rounding", "scale", "move"].includes(this.tool) || !editing.has(this.tool) && !this.points.length || !this.active) {
       return;
     }
-    if (this.tool === "slot" && this.points.length < 2 || this.tool === "arc" &&
+    if (this.tool === "circle" && [1, 2].includes(this.variant) && (this.points.length < 2 || this.variant === 2 && !this.cursor && this.points.length < 3 && !this.dirty.has("sketch-radius")) || this.tool === "ellipse" && this.variant === 2 && this.points.length < 2 || this.tool === "slot" && this.points.length < 2 || this.tool === "arc" &&
         (this.points.length < 2 || !this.cursor && !(this.variant === 0 && this.dirty.has("sketch-angle")))) {
       this.constructionGuide();
       this.showError("");
       return;
     }
-    if (this.tool !== "text" && !editing.has(this.tool) && this.points.length === 1 && !this.cursor && !this.dirty.size) return;
+    if (this.tool !== "text" && !(this.tool === "circle" && this.variant >= 3) && !editing.has(this.tool) && this.points.length === 1 && !this.cursor && !this.dirty.size) return;
     this.previewQueued = true;
     this.flushUpdates();
   }
@@ -952,7 +1002,7 @@ export class SketchTool {
     });
     return this.queue;
   }
-  private async create() {
+  private async create(finishLine = false) {
     const version = ++this.version, tool = this.tool;
     this.interaction++;
     this.previewQueued = false;
@@ -971,10 +1021,11 @@ export class SketchTool {
     }
     if (primitive.type === "ellipse") {
       const p = primitive.parameters;
-      const widthIsMajor = p.angle === 0;
-      for (const [id, kind] of [["width", widthIsMajor ? "majorRadius" : "minorRadius"], ["height", widthIsMajor ? "minorRadius" : "majorRadius"]] as const) {
+      const angle = this.variant === 2 ? bearing(this.points[0], this.points[1]) : 0;
+      const widthIsMajor = Math.abs(Math.cos((p.angle ?? 0) * Math.PI / 180 - angle)) > 0.5;
+      for (const [id, index] of [["width", widthIsMajor ? 1 : 2], ["height", widthIsMajor ? 2 : 1]] as const) {
         if (this.dirty.has(id)) {
-          await this.sketch!.dimensions.add(kind, { curve: result.curves[0], mode: "driving", value: `(${this.fieldSource(id)}) / 2` });
+          await this.sketch!.dimensions.add("length", { line: result.curves[index], mode: "driving", value: this.fieldSource(id) });
         }
       }
     }
@@ -994,11 +1045,15 @@ export class SketchTool {
       const position = pointOf(state, point.id);
       const reference = [...this.snapRefs].find(([key]) => distance(key.split(",").map(Number) as Point, position) < 1e-7)?.[1];
       if (reference) {
-        await this.sketch!.constraints.add("coincident", { points: [reference, point] });
+        if (primitive.type === "spline" && !primitive.parameters.closed && [result.points[0].id, result.points.at(-1)!.id].includes(point.id) && this.splineEndpoint(reference.id)) {
+          await this.sketch!.splines.join({ from: point, to: reference });
+        } else if (reference.id !== point.id) await this.sketch!.constraints.add("coincident", { points: [reference, point] });
       }
     }
     if (primitive.type === "circle" && [1, 2].includes(this.variant) || primitive.type === "arc" && this.variant === 1) {
-      for (const reference of this.snapRefs.values()) {
+      for (const point of this.points.slice(0, this.dirty.has("sketch-radius") ? 2 : 3)) {
+        const reference = this.snapRefs.get(point.join(","));
+        if (!reference) continue;
         await this.sketch!.constraints.add("pointOnCurve", { points: [reference], curves: [result.curves[0]] });
       }
     }
@@ -1007,7 +1062,14 @@ export class SketchTool {
     this.snapRefs.clear();
     this.dirty.clear();
     this.hooks.status(title(tool) + " added");
+    if (tool === "circle" && this.variant >= 3) this.selected.clear();
     this.choose(tool, this.variant);
+    if (primitive.type === "line" && !finishLine) {
+      const end = result.points[1], position = pointOf(await this.sketch!.state(), end.id);
+      this.points = [position];
+      this.snapRefs.set(position.join(","), end);
+      this.updateDimensions();
+    }
   }
   addConstraint(kind: ConstraintKind) {
     if (this.constraintState(kind) !== "ready") return Promise.resolve();
@@ -1017,7 +1079,9 @@ export class SketchTool {
     this.selectionChanged();
     return this.run(async () => {
       try {
-        await this.sketch!.constraints.add(kind, parameters);
+        if (kind === "coincident" && parameters.points.length === 2 && parameters.points.every(p => this.splineEndpoint(p.id))) {
+          await this.sketch!.splines.join({ from: parameters.points[0], to: parameters.points[1] });
+        } else await this.sketch!.constraints.add(kind, parameters);
       } catch (error) {
         if (interaction === this.interaction && this.constraint === kind && !this.selected.size) {
           entities.forEach(e => this.selected.add(e.reference.id));
@@ -1033,6 +1097,11 @@ export class SketchTool {
       await this.sketch!.remove([...this.selected]);
       this.selected.clear();
     });
+  }
+  private splineEndpoint(id?: string) {
+    if (!id || !this.state) return false;
+    const curves = this.state.entities.filter(e => e.geometry.type === "spline" && e.geometry.points.includes(id) && this.state!.splines.some(s => s.curve.id === e.reference.id));
+    return curves.length === 1 && curves[0].geometry.type === "spline" && !curves[0].geometry.closed && [curves[0].geometry.points[0], curves[0].geometry.points.at(-1)].includes(id);
   }
   private async action(preview = false) {
     if (this.editingText) {
@@ -1220,6 +1289,12 @@ export class SketchTool {
       }
       e.preventDefault();
       const picks = this.viewport.sketchPicks(e);
+      const fitPoint = picks.find(p => p.kind === "geometry" && this.state?.splines.some(s => s.fitPoints.some(n => n.point.id === p.id)));
+      if (fitPoint && this.state) {
+        const node = this.state.splines.flatMap(s => s.fitPoints).find(p => p.point.id === fitPoint.id)!;
+        void this.run(() => this.sketch!.splines.setHandleMode(node.point, node.mode === "aligned" ? "independent" : "aligned"));
+        return;
+      }
       if (picks[0]?.kind === "text") { this.editText(picks[0].id); return; }
       const frameText = picks[0]?.kind === "geometry" && this.state?.texts.find(t => Object.values(t.frame ?? {}).some(r => r.id === picks[0].id));
       if (frameText) { this.editText(frameText.id); return; }
@@ -1302,6 +1377,14 @@ export class SketchTool {
       const drawingOnCanvas = e.target === canvas && !editing.has(this.tool) && this.points.length > 0;
       if (e.key === "Enter" && (geometryInput || drawingOnCanvas)) {
         e.preventDefault();
+        if (this.tool === "line") {
+          if (e.repeat || this.creating) return;
+          if (geometryInput && this.dirty.has("width")) {
+            this.creating = true;
+            void this.run(() => this.create(true)).finally(() => { this.creating = false; if (this.active) this.hooks.changed(this.pending); });
+          } else { this.choose("line"); void this.run(() => this.scene.discardPreview(), false, true); }
+          return;
+        }
         if (this.tool !== "text" && !e.repeat && !this.creating && (editing.has(this.tool) || this.points.length)) {
           this.creating = true;
           void this.run(() => this.action()).finally(() => {
@@ -1414,15 +1497,27 @@ export class SketchTool {
       }
       e.stopImmediatePropagation();
       const ref = this.dragEntity;
+      let join: SketchEntityRef | undefined;
       if (this.dragMoved) {
         const point = this.viewport.point(e);
-        if (point) this.queueDrag(point);
+        if (point) {
+          if (this.snapGeometry && this.splineEndpoint(ref.id)) join = this.state?.entities.find(entity => entity.geometry.type === "point" && entity.reference.id !== ref.id && this.splineEndpoint(entity.reference.id) && distance(entity.geometry.position, point) < this.viewport.pixelLength * 8)?.reference;
+          if (join) this.dragQueued = undefined;
+          else this.queueDrag(point);
+        }
       } else {
         this.pick({ kind: this.dragText ? "text" : "geometry", id: this.dragText?.id ?? ref.id }, e.shiftKey);
       }
       this.dragEntity = undefined;
       this.dragText = undefined;
       this.dragLine = undefined;
+      if (join) {
+        const to = join;
+        void this.run(async () => {
+          await this.sketch!.splines.join({ from: ref, to });
+          if (this.selected.delete(ref.id)) this.selected.add(to.id);
+        });
+      }
       this.hooks.changed(this.pending);
       this.flushUpdates();
       if (canvas.hasPointerCapture(e.pointerId)) {

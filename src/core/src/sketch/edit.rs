@@ -45,7 +45,19 @@ impl Sketch {
                 SketchGeometry::Circle { center, .. } | SketchGeometry::Ellipse { center, .. } => {
                     ids.insert(center.clone());
                 }
-                SketchGeometry::Spline { points, .. } => ids.extend(points.iter().cloned()),
+                SketchGeometry::Spline { points, .. } => {
+                    ids.extend(points.iter().cloned());
+                    if let Some(spline) = self.splines.get(&r.id) {
+                        ids.extend(spline.envelope.iter().map(|r| r.id.clone()));
+                        ids.extend(
+                            spline
+                                .fit_points
+                                .iter()
+                                .flat_map(|p| p.incoming.iter().chain(&p.outgoing))
+                                .map(|r| r.id.clone()),
+                        );
+                    }
+                }
                 _ => (),
             }
         }
@@ -74,7 +86,13 @@ impl Sketch {
             self.ensure_text_outline_editable(&reference.id)?;
             self.ensure_text_frame_editable(&reference.id)?;
         }
-        let ids = self.selected_entities(&input.entities)?;
+        let mut references = input.entities.clone();
+        for reference in &input.entities {
+            if let Some(axes) = self.ellipse_axes.get(&reference.id) {
+                references.extend(axes.iter().flatten().map(|id| self.entity_ref(id)));
+            }
+        }
+        let ids = self.selected_entities(&references)?;
         if !input.copy
             && ids
                 .iter()
@@ -168,6 +186,43 @@ impl Sketch {
             .collect::<Vec<_>>();
         for entity in entities {
             self.entities.insert(entity.reference.id.clone(), entity);
+        }
+        if input.copy {
+            let copies = self
+                .splines
+                .values()
+                .filter(|s| remap.contains_key(&s.curve.id))
+                .cloned()
+                .map(|mut s| {
+                    s.curve.id = remap[&s.curve.id].clone();
+                    for r in &mut s.envelope {
+                        r.id = remap[&r.id].clone();
+                    }
+                    for node in &mut s.fit_points {
+                        for r in std::iter::once(&mut node.point)
+                            .chain(&mut node.incoming)
+                            .chain(&mut node.outgoing)
+                        {
+                            r.id = remap[&r.id].clone();
+                        }
+                    }
+                    (s.curve.id.clone(), s)
+                })
+                .collect::<Vec<_>>();
+            self.splines.extend(copies);
+            let axes = self
+                .ellipse_axes
+                .iter()
+                .filter(|(id, _)| remap.contains_key(*id))
+                .map(|(id, axes)| {
+                    (
+                        remap[id].clone(),
+                        axes.each_ref()
+                            .map(|axis| axis.as_ref().and_then(|id| remap.get(id)).cloned()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            self.ellipse_axes.extend(axes);
         }
         if !input.copy {
             for c in &constraints {
@@ -356,18 +411,58 @@ impl Sketch {
     ) -> Result<SketchEditResult> {
         for r in references {
             self.check_reference(r)?;
+            self.ensure_spline_helper_editable(&r.id)?;
             self.ensure_text_outline_editable(&r.id)?;
             self.ensure_text_frame_editable(&r.id)?;
             if self.entities[&r.id].projected && operation != 1 {
                 return Err(invalid("Projected curves are read-only"));
             }
         }
-        let ids = references.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+        if operation == 4
+            && (references.len() != 1 || values.len() != 2 || values.iter().any(|v| !v.is_finite()))
+        {
+            return Err(invalid(
+                "Remove requires one curve and a finite sketch position",
+            ));
+        }
+        let mut ids = references.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+        let construction = operation == 4 && self.entities[&ids[0]].construction;
+        if operation == 4 {
+            if matches!(self.entities[&ids[0]].geometry, SketchGeometry::Point { .. }) {
+                return Err(invalid("Select a curve to remove"));
+            }
+            let target = ids[0].clone();
+            let axes = self.ellipse_axes.get(&target);
+            ids.extend(
+                self.entities
+                    .values()
+                    .filter(|e| {
+                        e.reference.id != target
+                            && !axes.is_some_and(|axes| {
+                                axes.iter().flatten().any(|id| id == &e.reference.id)
+                            })
+                            && !matches!(e.geometry, SketchGeometry::Point { .. })
+                            && self.ensure_spline_helper_editable(&e.reference.id).is_ok()
+                            && self.ensure_text_frame_editable(&e.reference.id).is_ok()
+                    })
+                    .map(|e| e.reference.id.clone()),
+            );
+        }
         let mut modified = vec![];
-        for value in values {
+        if operation == 4 {
             modified.extend(crate::kernel::sketch::modify(
-                self, &ids, operation, *value,
+                self,
+                &ids,
+                operation,
+                0.,
+                Some([values[0], values[1]]),
             )?);
+        } else {
+            for value in values {
+                modified.extend(crate::kernel::sketch::modify(
+                    self, &ids, operation, *value, None,
+                )?);
+            }
         }
         let mut removed = if operation == 1 {
             BTreeSet::new()
@@ -377,6 +472,14 @@ impl Sketch {
                 .filter_map(|(id, _, _)| id.clone())
                 .collect::<BTreeSet<_>>()
         };
+        let mut removed_ids = removed.iter().cloned().collect();
+        if operation == 4 {
+            if let Some(axes) = self.ellipse_axes.get(&ids[0]) {
+                removed.extend(axes.iter().flatten().cloned());
+            }
+        }
+        self.spline_removal(&mut removed_ids)?;
+        removed.extend(removed_ids);
         let original_points = self
             .selected_entities(
                 &removed
@@ -385,16 +488,36 @@ impl Sketch {
                     .collect::<Vec<_>>(),
             )?
             .into_iter()
-            .filter(|id| !removed.contains(id))
+            .filter(|id| {
+                !removed.contains(id)
+                    && matches!(self.entities[id].geometry, SketchGeometry::Point { .. })
+            })
             .map(|id| Ok((id.clone(), self.point_position(&id)?)))
             .collect::<Result<BTreeMap<_, _>>>()?;
         for id in &removed {
             self.entities.remove(id);
         }
+        self.ellipse_axes.retain(|id, axes| {
+            for axis in axes {
+                if axis.as_ref().is_some_and(|id| removed.contains(id)) {
+                    *axis = None;
+                }
+            }
+            !removed.contains(id)
+        });
         let mut created = vec![];
         let mut new_points = vec![];
         for (_, kind, data) in modified {
+            // Remove emits the source even when no surviving interval remains.
+            if kind == 0 {
+                continue;
+            }
             let mut geometry = self.import_curve(kind, &data)?;
+            if construction {
+                for reference in geometry.points.iter().chain(&geometry.curves) {
+                    self.entities.get_mut(&reference.id).unwrap().construction = true;
+                }
+            }
             let mut remap = BTreeMap::new();
             for point in &mut geometry.points {
                 let position = self.point_position(&point.id)?;
@@ -434,6 +557,26 @@ impl Sketch {
                     _ => (),
                 }
             }
+            for curve in &geometry.curves {
+                if let SketchGeometry::Spline { points, .. } = &self.entities[&curve.id].geometry {
+                    let points = points
+                        .iter()
+                        .map(|id| self.entity_ref(id))
+                        .collect::<Vec<_>>();
+                    let envelope = points
+                        .windows(2)
+                        .map(|p| self.spline_line(&p[0], &p[1]))
+                        .collect();
+                    self.splines.insert(
+                        curve.id.clone(),
+                        SketchSpline {
+                            curve: curve.clone(),
+                            fit_points: vec![],
+                            envelope,
+                        },
+                    );
+                }
+            }
             created.extend(geometry.curves);
             new_points.extend(geometry.points);
         }
@@ -445,7 +588,7 @@ impl Sketch {
             .collect::<Vec<_>>();
         let used = self.selected_entities(&curves)?;
         for id in original_points.keys() {
-            if !used.contains(id) {
+            if id != "origin" && !used.contains(id) {
                 self.entities.remove(id);
                 removed.insert(id.clone());
             }

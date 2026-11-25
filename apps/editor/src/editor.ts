@@ -19,6 +19,7 @@ import { SketchTool } from "./tools/sketch";
 import { ExtrudeTool } from "./tools/extrude";
 import { initToolWindow, type ToolWindowState } from "./tool-window";
 import { initRibbon, type Workbench } from "./ribbon";
+import { initTooltips } from "./tooltips";
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const button = (id: string) => el<HTMLButtonElement>(id);
@@ -46,7 +47,6 @@ type EditorDocument = {
   anchor?: Point;
   drawing: boolean;
   draft?: Rectangle;
-  fitFirstPreview: boolean;
   previewBodies: BodyProxy[];
   previewRemoved: string[];
   panel: Node[];
@@ -322,7 +322,7 @@ async function newScene() {
     const doc: EditorDocument = { workbench: "solid", scene: created, entries: [], sketches: new Map(), selection: [],
       proxies: new Map(), objectTab: browser.initialTab,
       hiddenObjects: new Set(Object.values(created.construction.builtin.planes).map((plane) => plane.id)),
-      drawing: false, fitFirstPreview: false, previewBodies: [], previewRemoved: [], panel: [], status: "Ready" };
+      drawing: false, previewBodies: [], previewRemoved: [], panel: [], status: "Ready" };
     documents.set(created.id, doc);
     showDocument(doc);
   });
@@ -452,7 +452,6 @@ async function beginExtrude() {
     const initial = doc.selection;
     doc.selection = [];
     doc.tool = "extrude";
-    doc.fitFirstPreview = true;
     openPanel("extrude");
     const tool = new ExtrudeTool(el("tool-panel"), doc.scene, transport, doc.sketches, doc.proxies, {
       changed() {
@@ -463,7 +462,6 @@ async function beginExtrude() {
       preview(bodies = [], removed = []) {
         if (activeDocument !== doc || doc.extrude !== tool) return;
         setPreview(bodies, removed);
-        if (bodies.length && doc.fitFirstPreview) { viewport.home(); doc.fitFirstPreview = false; }
       },
       handles(items) { if (activeDocument === doc) viewport.setHandles(items); },
       status(text) { if (activeDocument === doc) status(text); },
@@ -571,6 +569,7 @@ export async function startEditor() {
     activeDocument.workbench = value;
     controls();
   }, () => activeDocument?.sketchTool);
+  initTooltips([document.querySelector<HTMLElement>(".ribbon")!, el("tool-panel")]);
   button("home").onclick = () => viewport.home();
   const cameraButton = button("camera-mode");
   const cameraModes = el("camera-modes");

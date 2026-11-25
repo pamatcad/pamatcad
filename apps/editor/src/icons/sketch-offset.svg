@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Offset</title>
-  <path class="icon-construction" d="M5 27V6h21" stroke="#81909b"/><path class="icon-edge" d="M12 27V13h14" stroke="#6588a3"/><path class="icon-handle-fill icon-handle-edge" d="m7 8 7 1-2 2 7 7-3 3-7-7-2 2Z" fill="#dcb58c" stroke="#815a36" stroke-width="1.5"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>Offset</title><path class="icon-construction" d="M5 27V5h22" stroke="#81909b"/><path class="icon-edge" d="M12 27V12h15" stroke="#6588a3"/><path class="icon-handle-edge" d="m17 17 8 8m-5 0h5v-5" stroke="#815a36"/></svg>

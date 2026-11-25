@@ -320,17 +320,46 @@ fn encode(sketch: &Sketch, selected: Option<&str>) -> Result<(Vec<Curve>, Vec<f6
                 fit,
                 weights,
             } => {
-                data.extend([
-                    *degree as f64,
-                    points.len() as f64,
-                    f64::from(*closed),
-                    f64::from(*fit),
-                ]);
-                for p in points {
-                    data.extend(sketch.point_position(p)?);
+                if let Some(spline) = sketch.splines.get(id).filter(|s| !s.fit_points.is_empty()) {
+                    let nodes = &spline.fit_points;
+                    let spans =
+                        if *closed && nodes.first().unwrap().point != nodes.last().unwrap().point {
+                            nodes.len()
+                        } else {
+                            nodes.len() - 1
+                        };
+                    let n = 3 * spans + 1;
+                    data.extend([3., n as f64, f64::from(*closed), 0.]);
+                    data.extend(sketch.point_position(&nodes[0].point.id)?);
+                    for i in 0..spans {
+                        let next = &nodes[(i + 1) % nodes.len()];
+                        for r in [
+                            nodes[i].outgoing.as_ref().unwrap(),
+                            next.incoming.as_ref().unwrap(),
+                            &next.point,
+                        ] {
+                            data.extend(sketch.point_position(&r.id)?);
+                        }
+                    }
+                    data.extend([0.; 4]);
+                    for i in 1..spans {
+                        data.extend([i as f64 / spans as f64; 3]);
+                    }
+                    data.extend([1.; 4]);
+                    data.extend(vec![1.; n]);
+                } else {
+                    data.extend([
+                        *degree as f64,
+                        points.len() as f64,
+                        f64::from(*closed),
+                        f64::from(*fit),
+                    ]);
+                    for p in points {
+                        data.extend(sketch.point_position(p)?);
+                    }
+                    data.extend(knots);
+                    data.extend(weights);
                 }
-                data.extend(knots);
-                data.extend(weights);
                 4
             }
         };
@@ -437,6 +466,7 @@ extern "C" {
         data: *const f64,
         operation: i32,
         value: f64,
+        position: *const f64,
         sink: extern "C" fn(*mut c_void, usize, i32, *const f64, usize),
         context: *mut c_void,
         error: *mut c_char,
@@ -448,10 +478,11 @@ pub(crate) fn modify(
     ids: &[String],
     operation: i32,
     value: f64,
+    position: Option<[f64; 2]>,
 ) -> Result<Vec<(Option<String>, i32, Vec<f64>)>> {
     let (curves, data, _) = encode_curves(sketch, Some(ids))?;
     Ok(
-        modify_encoded(sketch.frame, &curves, &data, operation, value)?
+        modify_encoded(sketch.frame, &curves, &data, operation, value, position)?
             .into_iter()
             .map(|(source, kind, data)| (ids.get(source).cloned(), kind, data))
             .collect(),
@@ -495,6 +526,7 @@ pub(crate) fn normalize_text(outlines: &[Vec<[f64; 2]>]) -> Result<Vec<(i32, Vec
         &data,
         3,
         0.,
+        None,
     )?
     .into_iter()
     .map(|(_, kind, data)| (kind, data))
@@ -507,6 +539,7 @@ fn modify_encoded(
     data: &[f64],
     operation: i32,
     value: f64,
+    position: Option<[f64; 2]>,
 ) -> Result<Vec<(usize, i32, Vec<f64>)>> {
     extern "C" fn receive(
         context: *mut c_void,
@@ -533,6 +566,7 @@ fn modify_encoded(
             data.as_ptr(),
             operation,
             value,
+            position.as_ref().map_or(std::ptr::null(), |p| p.as_ptr()),
             receive,
             (&mut output as *mut Vec<(usize, i32, Vec<f64>)>).cast(),
             error.as_mut_ptr(),

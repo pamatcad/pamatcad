@@ -51,6 +51,52 @@ export async function testSketchModes(page) {
       await page.keyboard.press("Escape");
     }
 
+    // Refreshed tool SVGs retain the shared tooltip and semantic palette roles.
+    for (const name of ["dimension", "project", "offset", "split", "rounding", "scale", "move", "remove"]) {
+      const tool = page.locator(`[data-tool="${name}"]`);
+      await tool.hover();
+      await page.waitForFunction(name => {
+        const tip = document.querySelector("#ui-tooltip");
+        return !tip.hidden && tip.querySelector(".ui-tooltip-name").textContent.toLowerCase() === name;
+      }, name);
+      assert.equal(await tool.getAttribute("title"), null);
+      assert.equal(await tool.locator("svg").evaluate(el => getComputedStyle(el).pointerEvents), "none");
+    }
+    const trimming = await page.evaluate(async () => {
+      const t = window.modeCheck.tool, s = t.sketch;
+      const line = await s.primitives.add("line", { from: [-20, 0], to: [20, 0] });
+      const cuts = [];
+      for (const x of [-10, 10]) cuts.push(await s.primitives.add("line", { from: [x, -8], to: [x, 8], construction: true }));
+      const point = await s.primitives.add("point", { position: [0, 0] });
+      await t.reload(); return { line, cuts, point };
+    });
+    await page.locator('[data-tool="remove"]').click();
+    assert.equal(await page.locator("#sketch-action").isVisible(), false);
+    const untrimmed = await page.evaluate(() => window.modeCheck.tool.state);
+    await click([0, 15]); assert.deepEqual(await page.evaluate(() => window.modeCheck.tool.state), untrimmed);
+    await click([0, 0]); // The point at the same screen location must not mask the curve.
+    assert.equal(await page.evaluate(() => window.modeCheck.tool.tool), "remove");
+    assert.equal(await page.evaluate(() => window.modeCheck.tool.state.entities.filter(e => e.geometry.type === "line").length), 4);
+    await page.mouse.move(...await screen([0, 5]));
+    assert.equal((await cursor()).hidden, false); assert.equal((await cursor()).cursor, "default");
+    assert.match(decodeURIComponent((await cursor()).src), /<title>Remove<\/title>/);
+    await page.screenshot({ path: "/private/tmp/pamatcad-remove-tool.png" });
+    const removeDocument = await page.locator('#document-tabs [aria-selected="true"]').getAttribute("data-document");
+    await page.getByText("File", { exact: true }).click(); await page.locator("#menu-new").click();
+    await page.waitForFunction(id => document.querySelector('#document-tabs [aria-selected="true"]').dataset.document !== id, removeDocument);
+    assert.equal((await cursor()).hidden, true);
+    await page.locator(`#document-tabs [data-document="${removeDocument}"]`).click(); await idle();
+    assert.equal(await page.evaluate(() => window.modeCheck.tool.tool), "remove");
+    await click([-15, 0]); await click([15, 0]);
+    const remaining = await page.evaluate(() => window.modeCheck.tool.state);
+    for (const cut of trimming.cuts)
+      assert.deepEqual(remaining.entities.find(e => e.reference.id === cut.id), untrimmed.entities.find(e => e.reference.id === cut.id));
+    await click([-10, 4]); await click([10, 4]);
+    assert.equal(await page.evaluate(() => window.modeCheck.tool.state.entities.filter(e => e.geometry.type !== "point").length), 0);
+    await page.keyboard.press("Escape");
+    assert.equal(await page.evaluate(() => window.modeCheck.tool.tool), "select"); assert.equal((await cursor()).hidden, true);
+    await page.evaluate(async id => { const t = window.modeCheck.tool; await t.sketch.remove([id]); await t.reload(); }, trimming.point.points[0].id);
+
     // A new rectangle starts with fresh inputs but retains its variant and geometry mode.
     await page.getByRole("button", { name: "Construction geometry", exact: true }).click();
     await page.locator('[data-tool="rectangle"]').click();
@@ -188,7 +234,10 @@ export async function testSketchModes(page) {
     for (const file of files) {
       const svg = await readFile("apps/editor/src/icons/cursors/" + file, "utf8");
       assert.match(svg, /viewBox="0 0 16 16"/); assert.match(svg, /fill="none"/);
-      assert.match(svg, /class="cursor-line".*stroke="#000" stroke-width="1"/);
+      assert.match(svg, file.startsWith("constraint-")
+        ? /class="cursor-line".*stroke="#65727b" stroke-width="1"/
+        : /class="cursor-line".*stroke="#000" stroke-width="1"/);
+      if (file === "constraint-collinear.svg") assert.match(svg, /class="cursor-highlight".*stroke="#16a34a" stroke-width="1"/);
       assert.doesNotMatch(svg, /<circle|<text|fill="(?!none)/);
     }
     for (const scale of [1, 2]) {
@@ -273,7 +322,7 @@ export async function testSketchModes(page) {
       } finally { if (tool) { await tool.cancel(); tool.close(); } panel.remove(); await scene.close(); core.close(); }
     }, "/@fs" + resolve("sdk/javascript/dist/index.js"));
     assert.deepEqual(projected, ["project", 2, 8]);
-    console.log("Sketch modes: repeated drawing, contextual constraints, fresh pairs, rapid Fix, duplicates/failures, edit persistence and cursor/navigation/tab lifecycle passed");
+    console.log("Sketch modes: repeated drawing and Remove, custom tooltips, contextual constraints, fresh pairs, rapid Fix, duplicates/failures, edit persistence and cursor/navigation/tab lifecycle passed");
   } finally {
     await page.evaluate(() => { const c = window.modeCheck; c.release?.(); c.restore?.(); c.restoreTransport?.(); delete window.modeCheck; });
   }

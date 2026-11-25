@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-linecap="round" stroke-linejoin="round">
   <title>Collinear</title>
-  <defs><path id="symbol" d="M2 14 6 10M10 6l4-4M6 10l4-4"/></defs>
+  <defs><path id="symbol" d="M2.5 13.5 9 7"/><path id="highlight" d="m11 5 2.5-2.5"/></defs>
   <use class="cursor-halo" href="#symbol" stroke="#fff" stroke-width="3"/>
-  <use class="cursor-line" href="#symbol" stroke="#000" stroke-width="1"/>
+  <use class="cursor-halo" href="#highlight" stroke="#fff" stroke-width="3"/>
+  <use class="cursor-line" href="#symbol" stroke="#65727b" stroke-width="1"/>
+  <use class="cursor-highlight" href="#highlight" stroke="#16a34a" stroke-width="1"/>
 </svg>

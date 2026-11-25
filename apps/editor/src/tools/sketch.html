@@ -5,8 +5,8 @@
     <div class="sketch-state">
       <div class="sketch-geometry-mode"><span>Geometry</span><div class="sketch-icon-options" id="sketch-construction" role="group" aria-label="Geometry mode"></div></div>
       <output id="sketch-status" aria-live="polite"></output>
-      <label class="check"><input id="sketch-auto" type="checkbox" checked /> Recompute automatically</label>
-      <button id="sketch-recompute" type="button" hidden>Recompute</button>
+      <label class="check"><input id="sketch-auto" data-tooltip="Recompute automatically" type="checkbox" checked /> Recompute automatically</label>
+      <button id="sketch-recompute" data-tooltip="Recompute" type="button" hidden>Recompute</button>
     </div>
     <section id="sketch-config" aria-labelledby="sketch-tool-title" hidden>
       <h3 class="sketch-tool-heading"><span id="sketch-tool-icon" aria-hidden="true"></span><span id="sketch-tool-title"></span></h3>
@@ -14,31 +14,30 @@
       <p id="sketch-tool-empty" hidden>This tool has no configuration.</p>
       <label id="sketch-radius-label" for="sketch-radius" hidden>Radius</label>
       <label id="sketch-angle-label" for="sketch-angle" hidden>Angle</label>
-      <label data-tools="offset">Distance <input id="sketch-offset" value="2" /></label>
-      <label data-tools="offset" id="sketch-offset2-row">Second distance <input id="sketch-offset2" value="2" /></label>
-      <label data-tools="scale">Scale <input id="sketch-scale" value="1" /></label>
-      <label data-tools="move">Move X <input id="sketch-move-x" value="0" /></label>
-      <label data-tools="move">Move Y <input id="sketch-move-y" value="0" /></label>
-      <label data-tools="move scale" class="check"><input id="sketch-copy" type="checkbox" /> Copy</label>
-      <button data-tools="move scale" id="sketch-pivot" type="button">Pick pivot</button>
-      <label data-tools="spline" class="check"><input id="sketch-closed" type="checkbox" /> Closed</label>
+      <label data-tools="offset">Distance <input id="sketch-offset" data-tooltip="Distance" value="2" /></label>
+      <label data-tools="offset" id="sketch-offset2-row">Second distance <input id="sketch-offset2" data-tooltip="Second distance" value="2" /></label>
+      <label data-tools="scale">Scale <input id="sketch-scale" data-tooltip="Scale" value="1" /></label>
+      <label data-tools="move">Move X <input id="sketch-move-x" data-tooltip="Move X" value="0" /></label>
+      <label data-tools="move">Move Y <input id="sketch-move-y" data-tooltip="Move Y" value="0" /></label>
+      <label data-tools="move scale" class="check"><input id="sketch-copy" data-tooltip="Copy" type="checkbox" /> Copy</label>
+      <button data-tools="move scale" id="sketch-pivot" data-tooltip="Pick pivot" type="button">Pick pivot</button>
       <div data-tools="text" class="sketch-text-controls">
-        <label>Content <textarea id="sketch-text" rows="3" spellcheck="false">Text</textarea></label>
-        <div class="sketch-font-heading"><label for="sketch-font-family">Font</label><button id="sketch-font-import" type="button" title="Import an OpenType/TrueType font">Import</button><input id="sketch-font" type="file" accept=".ttf,.otf,.ttc,.otc" hidden /></div>
-        <select id="sketch-font-family" aria-label="Font family"></select>
-        <div id="sketch-font-access" role="status" hidden><span id="sketch-font-message"></span> <button id="sketch-local-fonts" type="button" hidden>Allow now</button></div>
+        <label>Content <textarea id="sketch-text" data-tooltip="Content" rows="3" spellcheck="false">Text</textarea></label>
+        <div class="sketch-font-heading"><label for="sketch-font-family">Font</label><button id="sketch-font-import" data-tooltip="Import an OpenType/TrueType font" type="button">Import</button><input id="sketch-font" type="file" accept=".ttf,.otf,.ttc,.otc" hidden /></div>
+        <select id="sketch-font-family" data-tooltip="Font family" aria-label="Font family"></select>
+        <div id="sketch-font-access" role="status" hidden><span id="sketch-font-message"></span> <button id="sketch-local-fonts" data-tooltip="Load system fonts" type="button" hidden>Allow now</button></div>
         <div class="sketch-text-typography">
-          <div class="sketch-text-weight"><label for="sketch-weight">Weight</label><div class="sketch-font-style"><select id="sketch-weight"></select><div class="sketch-icon-options" id="sketch-font-styles" role="group" aria-label="Font style"></div></div></div>
-          <label class="sketch-text-size">Size <input id="sketch-size" value="10" data-dimension="length" autocomplete="off" spellcheck="false" /></label>
+          <div class="sketch-text-weight"><label for="sketch-weight">Weight</label><div class="sketch-font-style"><select id="sketch-weight" data-tooltip="Weight"></select><div class="sketch-icon-options" id="sketch-font-styles" role="group" aria-label="Font style"></div></div></div>
+          <label class="sketch-text-size">Size <input id="sketch-size" data-tooltip="Size" value="10" data-dimension="length" autocomplete="off" spellcheck="false" /></label>
         </div>
         <div class="sketch-text-align"><div><span>Horizontal</span><div class="sketch-icon-options" id="sketch-horizontal" role="group" aria-label="Horizontal alignment"></div></div><div><span>Vertical</span><div class="sketch-icon-options" id="sketch-vertical" role="group" aria-label="Vertical alignment"></div></div></div>
-        <div id="sketch-text-edit-actions" class="actions" hidden><button id="sketch-text-cancel" type="button">Cancel edit</button><button id="sketch-text-done" type="button">Done</button></div>
+        <div id="sketch-text-edit-actions" class="actions" hidden><button id="sketch-text-cancel" data-tooltip="Cancel edit" type="button">Cancel edit</button><button id="sketch-text-done" data-tooltip="Done" type="button">Done</button></div>
       </div>
-      <button id="sketch-action" type="button" hidden>Apply</button>
+      <button id="sketch-action" data-tooltip="Apply" type="button" hidden>Apply</button>
     </section>
     <div class="sketch-view-options">
       <div class="sketch-option-section"><span>Highlight</span><div class="sketch-icon-options" id="sketch-highlight" role="group" aria-label="Highlight"></div></div>
-      <div hidden><button id="sketch-repair-support" type="button">Change sketch plane</button><div id="sketch-projections"></div></div>
+      <div hidden><button id="sketch-repair-support" data-tooltip="Change sketch plane" type="button">Change sketch plane</button><div id="sketch-projections"></div></div>
       <div class="sketch-option-section"><span>Display</span><div class="sketch-icon-options" id="sketch-display-options" role="group" aria-label="Display"></div></div>
       <div class="sketch-option-section"><span>Snap</span><div class="sketch-icon-options" id="sketch-snap-options" role="group" aria-label="Snap"></div></div>
     </div>
@@ -48,7 +47,7 @@
 <div class="sketch-live-dimensions" hidden>
   <input id="width" data-tools="rectangle ellipse line" data-dimension="length" aria-label="Width" value="10" autocomplete="off" spellcheck="false" />
   <input id="height" data-tools="rectangle ellipse" data-dimension="length" aria-label="Height" value="10" autocomplete="off" spellcheck="false" />
-  <input id="sketch-radius" data-tools="circle arc slot rounding" data-dimension="length" aria-label="Radius" value="5" autocomplete="off" spellcheck="false" />
-  <input id="sketch-angle" data-tools="arc move" data-dimension="angle" aria-label="Angle" value="90" autocomplete="off" spellcheck="false" />
+  <input id="sketch-radius" data-tooltip="Radius" data-tools="circle arc slot rounding" data-dimension="length" aria-label="Radius" value="5" autocomplete="off" spellcheck="false" />
+  <input id="sketch-angle" data-tooltip="Angle" data-tools="arc move" data-dimension="angle" aria-label="Angle" value="90" autocomplete="off" spellcheck="false" />
 </div>
-<div class="actions"><button id="cancel">Cancel</button><button id="apply" disabled>Finish sketch</button></div>
+<div class="actions"><button id="cancel" data-tooltip="Cancel">Cancel</button><button id="apply" data-tooltip="Finish sketch" disabled>Finish sketch</button></div>

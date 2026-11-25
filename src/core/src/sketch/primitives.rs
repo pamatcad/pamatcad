@@ -283,10 +283,28 @@ impl Sketch {
                     },
                     p.construction,
                 );
+                let (s, c) = p.angle.to_radians().sin_cos();
+                let mut points = vec![center];
+                let mut curves = vec![curve];
+                let mut axes = [None, None];
+                for (index, vector) in [[p.major * c, p.major * s], [-p.minor * s, p.minor * c]]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let axis = self.add_line(
+                        [p.center[0] - vector[0], p.center[1] - vector[1]],
+                        [p.center[0] + vector[0], p.center[1] + vector[1]],
+                        true,
+                    )?;
+                    axes[index] = Some(axis.curves[0].id.clone());
+                    points.extend(axis.points);
+                    curves.extend(axis.curves);
+                }
+                self.ellipse_axes.insert(id.clone(), axes);
                 PrimitiveData::Geometry(GeometryData {
                     id,
-                    points: vec![center],
-                    curves: vec![curve],
+                    points,
+                    curves,
                     constraints: vec![],
                 })
             }
@@ -411,66 +429,7 @@ impl Sketch {
                     constraints,
                 })
             }
-            Primitive::Spline(mut p) => {
-                if p.closed && !p.fit && p.points.len() > 2 && p.points.first() != p.points.last() {
-                    p.points.push(p.points[0]);
-                }
-                let degree = p.degree.unwrap_or(3).min(p.points.len().saturating_sub(1));
-                if p.points.len() < 2 || degree == 0 || degree > 5 {
-                    return Err(invalid(
-                        "Spline requires at least two points and degree 1 through 5",
-                    ));
-                }
-                let mut points = vec![];
-                for position in p.points {
-                    points.push(self.add_point(position, p.construction)?);
-                }
-                let n = points.len();
-                let knots = (0..n + degree + 1)
-                    .map(|i| {
-                        if i <= degree {
-                            0.
-                        } else if i >= n {
-                            1.
-                        } else {
-                            (i - degree) as f64 / (n - degree) as f64
-                        }
-                    })
-                    .collect();
-                let id = self.id("spline");
-                let curve = self.insert_geometry(
-                    id.clone(),
-                    SketchGeometry::Spline {
-                        points: points.iter().map(|r| r.id.clone()).collect(),
-                        degree,
-                        knots,
-                        weights: vec![1.; n],
-                        closed: p.closed,
-                        fit: p.fit,
-                    },
-                    p.construction,
-                );
-                let constraints = if p.closed && !p.fit {
-                    vec![
-                        self.add_constraint(
-                            ConstraintKind::Coincident,
-                            ConstraintParameters {
-                                points: vec![points[0].clone(), points[n - 1].clone()],
-                                curves: vec![],
-                            },
-                        )?
-                        .id,
-                    ]
-                } else {
-                    vec![]
-                };
-                PrimitiveData::Geometry(GeometryData {
-                    id,
-                    points,
-                    curves: vec![curve],
-                    constraints,
-                })
-            }
+            Primitive::Spline(p) => PrimitiveData::Geometry(self.add_spline(p)?),
         })
     }
 }

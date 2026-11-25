@@ -20,9 +20,11 @@ Sketch elements are selected by clicking on them. In case when there are two geo
 
 With no active command, the sketch is in selection mode. Geometry, tools, and constraints remain active after each application. Completing geometry resets its construction points and typed dimensions while retaining the tool variant and construction mode. Applying an editing tool clears its operand selection. Escape discards the unfinished drawing or active command without closing the sketch; in selection mode it clears the selection. Choosing another command replaces the current one, and clicking its active ribbon button returns to selection. Delete or Backspace removes selected geometry, constraints, or dimensions, except while editing text.
 
-The viewport uses the standard arrow in selection mode, a small hairline crosshair for drawing, and the standard arrow for editing tools and constraints. Active commands add a small monochrome outline symbol without filled geometry or vertex dots; variants share their command's symbol. Cursors and symbols follow the active document and disappear over panels, inputs, the navigation cube, and during camera navigation.
+The viewport uses the standard arrow in selection mode, a small hairline crosshair for drawing, and the standard arrow for editing tools and constraints. Active commands add a small outline symbol without filled geometry or vertex dots; variants share their command's symbol. Constraint ribbon and cursor icons use graphite; Horizontal and Vertical include H and V, and Collinear uses a longer graphite line and a shorter geometry-highlight line on the same axis. Cursors and symbols follow the active document and disappear over panels, inputs, the navigation cube, and during camera navigation.
 
 Constraints can be activated before picking geometry. With preselection, the ribbon enables constraints whose operand types and counts are compatible, including incomplete selections. Complete selections apply immediately. In active constraint mode, click compatible geometry without Shift; Fix applies to each clicked item, while multi-object constraints apply when all required operands are collected. Each application starts a fresh selection. Clicking a pending operand again removes it; clicking empty space clears pending operands. Invalid picks do not replace them. Solver failures retain the mode and operands for correction, and duplicates retain the existing constraint.
+
+Remove acts on each clicked curve portion between intersections and stays active; without intersections it removes the whole curve. It has no Apply button. Escape returns to selection. See [Remove curve intervals](../api/command/sketch/edit/remove.md) for supported geometry and boundary rules. Its ribbon button uses the shared custom tooltip and its cursor uses the outline X-on-line symbol.
 
 Dragging excludes the moving point and its coincident partners from snap targets. While a drag update is pending, retain the newest pointer position and always apply the release position. A click without movement only selects.
 
@@ -38,7 +40,9 @@ When a tool, constraint, or a geometry is selected, a part of tool window change
 
 Every geometry displays live dimensions during creation - with an ability to navigate between editable dimensions via tab and entering a dimension value. Every dimension is a formula. 
 
-Drawing starts with a canvas point. Editable dimensions appear beside the draft on the canvas; the tool window has no generic X/Y/width/height inputs or geometry submission buttons. The final click or Enter from the canvas or a geometry input completes geometry using the current dimensions. Enter finishes a spline using its confirmed points. Editing operations retain their Apply buttons.
+Line clicks create a connected chain with coincident endpoints. Enter on the canvas ends the chain at the last committed endpoint and leaves Line active; Enter in a typed length field commits that segment and ends the chain. Escape discards the pending segment and exits Line. Deleting a line removes its endpoints and their constraints unless another curve uses those same endpoint entities.
+
+Drawing starts with a canvas point. Editable dimensions appear beside the draft on the canvas; the tool window has no generic X/Y/width/height inputs or geometry submission buttons. The final click or Enter from the canvas or a geometry input completes geometry using the current dimensions. Enter finishes a spline using its confirmed points. Offset, Split, Rounding, Scale and Move retain their Apply buttons.
 
 Live drawing dimensions are standalone inputs without visible captions, surrounding panels, or tooltips. Use 10px text and 20px height, with accessible names. Numeric values include the document's length or angle unit. Typed formulas remain visible while editing; on blur, show their evaluated value in document units and restore the source on focus.
 
@@ -62,7 +66,7 @@ A tool window appears in the sketch mode, some of the interface is shared and so
 - Snap: caption and one row of icons for geometry snapping and grid snapping
 - Cancel sketch / Finish sketch
 
-Separate geometry/status, active-tool configuration and display options with full-width rules and subtle backgrounds, without captions for the two shared groups. The active tool has a title and outline icon; Point and Line show “This tool has no configuration.” Multi-mode geometry tools show every supported variant with an icon, visible name and selected state; dark orange dots mark picked points and dashed lines mark guides. Highlight, Display and Snap use compact outline icons. In selection mode, hide the tool section and the rule between the shared groups. Keep the sketch actions outside the scrolling fields.
+Separate geometry/status, active-tool configuration and display options with full-width rules and subtle backgrounds, without captions for the two shared groups. The active tool has a title and outline icon; Point shows “This tool has no configuration.” Line shows “Enter to finish, Esc to exit”. Multi-mode geometry tools show every supported variant with an icon, visible name and selected state; dark orange dots mark picked points and dashed lines mark guides. Highlight, Display and Snap use compact outline icons. In selection mode, hide the tool section and the rule between the shared groups. Keep the sketch actions outside the scrolling fields.
 
 Highlight defaults to None. Choosing a category highlights matching geometry in the shared green color while other geometry keeps its normal colors. Constrained includes fixed geometry; orange selection takes priority. Clicking the active category again, or None, clears highlighting.
 
@@ -75,9 +79,9 @@ Icon selectors
 - Rectangle: 2 point rectangle; rectangle at angle (3 points); centered rectangle
 - Circle: center point; two point and radius; three point; 2 tangent and radius; 3 tangent 
 - Arc: center, point and angle; 3 point
-- Ellipse: center, width and height; rectangle
+- Ellipse: center, width and height; rectangle; center, side point and radius
 - Slot: 3 point slot; center and line slot, center to center slot
-- Spline: fit point; control point
+- Spline: fit point; control point. Click the first point to close; Enter finishes an open curve.
 - Text: compact multiline text area, grouped font-family dropdown, weight dropdown, Bold/Italic style icons, formula size with document units, and labeled horizontal/vertical alignment groups. Keep text Done/Cancel actions inside this section. Bold stays synchronized with weight; unavailable font styles are disabled. Guideline selection is omitted from this panel.
 - Edit/Offset: 1 sided, 2 sided (symmetric or independent), 1 or 2 lengths accordingly
 - Edit/Rounding: one radius in the tool window for all selected geometry
@@ -86,7 +90,7 @@ Icon selectors
 
 ### Panel checks
 
-Verify titles and loaded icons for all nine geometry tools; Point/Line empty states; every drawing variant's icon and selection state, including all three rectangle types; Spline's Closed setting; and Text's grouped font picker, permission/import controls and seven alignment options. Keep geometry creation, text placement/Done, document switching, panel resizing and collapse unchanged. At 280 px and wider, fields and icon rows fit without horizontal scrolling; section boundaries and titles follow the theme, with no separator between shared groups in selection mode. Text fields share the standard field border and the labeled alignment buttons have visible borders.
+Verify titles and loaded icons for all nine geometry tools; Point empty state and Line completion hint; every drawing variant's icon and selection state, including all three rectangle types; Spline's endpoint closure; and Text's grouped font picker, permission/import controls and seven alignment options. Keep geometry creation, text placement/Done, document switching, panel resizing and collapse unchanged. At 280 px and wider, fields and icon rows fit without horizontal scrolling; section boundaries and titles follow the theme, with no separator between shared groups in selection mode. Text fields share the standard field border and the labeled alignment buttons have visible borders.
 
 ## Tool annotations
 
@@ -101,7 +105,15 @@ Only non-construction, closed geometry creates valid regions to use with command
 
 Dimensions should be accessible throughout the whole document. Dimensions could be referenced directly (sketch5 -> dimension31, note that dimensions may be removed without re-enumerating all following dimensions, so it's not just and indexed array), or by sketch and dimension names (something line scene.sketches.findByName and sketch.dimensions.findByName).
 
+Fit curves expose tangent handles with ordinary, constrainable point tips. Handles start aligned on opposite sides of the fit point with independently adjustable lengths. Double-click the fit point to toggle between aligned and independent handles; releasing alignment preserves the shape, and aligning again keeps the lengths independently adjustable. Dragging a fit point carries its handles. Control curves show the construction polygon connecting consecutive control points. Both kinds of helpers remain construction geometry and belong to their curve.
+
+Connecting spline endpoints while drawing, snapping, or applying Coincident shares one point while keeping the curves separately selectable. Clicking the starting point closes a draft, so there is no Closed checkbox. Existing constraints and dimensions follow the retained point; conflicting joins fail without publishing a partial change.
+
 Complex geometries are collections of constrained simpler primitives. A rectangle consists of four ordinary lines, with their endpoints joined by pairwise coincidence constraints; each line remains independently selectable and editable. A slot consists of two arcs, two side lines, and a construction line between the arc centers. Centered rectangles also have two construction diagonals and a midpoint. Slots have a construction midpoint on their centerline. These helpers remain selectable and constrained to the boundary geometry.
+
+Two-point circles use the final cursor position to vary radius and choose the center side; a typed radius overrides that value. Three-point circles expose an editable radius after the second point; typing it preserves the first two points and uses the pending cursor to choose the solution. Tangent circles accept preselection or curve picks after tool activation, then a placement click. Two-tangent radius entry stays on the canvas. Invalid radii or unsolvable tangencies keep the draft editable.
+
+Ellipses have two perpendicular full-length construction axes whose endpoints follow the ellipse. Typed width and height create length dimensions on these axes. The center/side/radius mode uses the center, an axis endpoint to set orientation and half-width, then a perpendicular radius point to set half-height. Axis dimensions retain full width/height values.
 
 Center-based arcs use three clicks: center, start point, and sweep endpoint. Three-point arcs use the two endpoints first, then a point on the arc. Both preview the final arc under the cursor; an angle becomes driving only when explicitly entered.
 

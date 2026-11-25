@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Horizontal</title>
-  <path class="icon-edge" d="M4 10h24" stroke="#6588a3"/><g class="icon-fill icon-edge" fill="#c5ddf0" stroke="#6588a3"><circle cx="4" cy="10" r="2"/><circle cx="28" cy="10" r="2"/></g><path class="icon-selection-edge" d="M12 19v9m8-9v9m-8-4h8" stroke="#487561"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#65727b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-solid-edge"><title>Horizontal</title><path d="M5 8h22M12 16v11m8-11v11m-8-5.5h8" class="icon-solid-edge" /><circle cx="5" cy="8" r="2" fill="#65727b" stroke="none" class="icon-solid-edge-fill" /><circle cx="27" cy="8" r="2" fill="#65727b" stroke="none" class="icon-solid-edge-fill" /></svg>

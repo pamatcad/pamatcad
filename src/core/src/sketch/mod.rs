@@ -4,6 +4,7 @@ pub mod primitives;
 mod projections;
 mod regions;
 mod solver;
+mod splines;
 mod text;
 pub(crate) use text::GlyphCache;
 pub mod types;
@@ -73,6 +74,8 @@ pub struct Sketch {
     pub saved: Option<Box<Sketch>>,
     pub projections: BTreeMap<String, SketchProjection>,
     pub texts: BTreeMap<String, SketchText>,
+    pub ellipse_axes: BTreeMap<String, [Option<String>; 2]>,
+    pub splines: BTreeMap<String, SketchSpline>,
     solver_cache: solver::Cache,
     region_cache: RefCell<Option<Rc<regions::Cached>>>,
     curve_cache: RefCell<BTreeMap<String, Rc<display::CachedCurve>>>,
@@ -114,6 +117,8 @@ impl Sketch {
             saved: None,
             projections: BTreeMap::new(),
             texts: BTreeMap::new(),
+            ellipse_axes: BTreeMap::new(),
+            splines: BTreeMap::new(),
             solver_cache: solver::Cache::default(),
             region_cache: RefCell::default(),
             curve_cache: RefCell::default(),
@@ -216,6 +221,7 @@ impl Sketch {
             auto_recompute: self.auto_recompute,
             projections: self.projections.values().cloned().collect(),
             texts: self.texts.values().cloned().collect(),
+            splines: self.splines.values().cloned().collect(),
         }
     }
     pub fn solve(
@@ -349,6 +355,20 @@ impl Sketch {
     }
 
     pub fn validate_geometry(&self) -> Result<()> {
+        for (point, (mode, handles)) in self.spline_handles() {
+            if mode == SplineHandleMode::Aligned && handles.len() == 2 {
+                let c = self.point_position(&point)?;
+                let a = self.point_position(&handles[0].id)?;
+                let b = self.point_position(&handles[1].id)?;
+                if (a[0] - c[0]) * (b[0] - c[0]) + (a[1] - c[1]) * (b[1] - c[1]) > LINEAR_TOLERANCE
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidParameter,
+                        "Aligned spline handles must remain on opposite sides of their fit point",
+                    ));
+                }
+            }
+        }
         for d in self.dimensions.values() {
             self.validate_dimension(d.kind, &d.parameters)?;
         }

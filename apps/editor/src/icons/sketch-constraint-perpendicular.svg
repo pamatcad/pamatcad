@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Perpendicular</title>
-  <path class="icon-edge" d="M6 5v21h21" stroke="#6588a3"/><path class="icon-selection-fill icon-selection-edge" d="M6 18h8v8H6Z" fill="#c0d8cc" stroke="#487561"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#65727b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-solid-edge"><title>Perpendicular</title><path d="M8 5v21h19" class="icon-solid-edge" /><path d="M8 18h8v8" stroke="#65727b" class="icon-solid-edge" /></svg>

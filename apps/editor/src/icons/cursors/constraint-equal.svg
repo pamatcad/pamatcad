@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-linecap="round" stroke-linejoin="round">
   <title>Equal</title>
-  <defs><path id="symbol" d="M2 5h12M2 11h12"/></defs>
+  <defs><path id="symbol" d="M3 5.5h10M3 10.5h10"/></defs>
   <use class="cursor-halo" href="#symbol" stroke="#fff" stroke-width="3"/>
-  <use class="cursor-line" href="#symbol" stroke="#000" stroke-width="1"/>
+  <use class="cursor-line" href="#symbol" stroke="#65727b" stroke-width="1"/>
 </svg>

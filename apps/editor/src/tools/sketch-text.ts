@@ -133,7 +133,7 @@ export class TextControls {
   private select(id: string) { return this.get(id) as HTMLSelectElement; }
   private button(group: string, value: string, icon: string, label: string, action: () => void) {
     const button = document.createElement("button");
-    button.type = "button"; button.title = label; button.setAttribute("aria-label", label); button.dataset.value = value;
+    button.type = "button"; button.dataset.tooltip = label; button.setAttribute("aria-label", label); button.dataset.value = value;
     button.innerHTML = icons[`../icons/${icon}.svg`]; button.querySelector("svg")?.setAttribute("aria-hidden", "true");
     button.onclick = action; this.get(group).append(button);
   }

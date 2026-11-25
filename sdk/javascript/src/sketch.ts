@@ -15,6 +15,7 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
   readonly regions;
   readonly projections;
   readonly texts;
+  readonly splines;
   readonly support;
   private readonly reference: SketchRef;
 
@@ -32,6 +33,10 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
       return transport.request("sketch.primitives.add", { sketch, primitive: { type, parameters } as Primitive, ...options });
     }
     this.primitives = { add };
+    this.splines = {
+      join: (endpoints: { from: SketchEntityRef; to: SketchEntityRef }) => transport.request("sketch.splines.join", { sketch, ...endpoints }),
+      setHandleMode: (point: SketchEntityRef, mode: "aligned" | "independent") => transport.request("sketch.splines.setHandleMode", { sketch, point, mode }),
+    };
     this.texts = {
       all: async () => (await this.state()).texts,
       get: async (id: string) => {
