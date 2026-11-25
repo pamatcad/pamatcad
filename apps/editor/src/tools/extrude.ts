@@ -46,6 +46,12 @@ export class ExtrudeTool {
       }
       this.change();
     };
+    for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-extrude-type]")) {
+      button.onclick = () => {
+        this.field("extrude-type").value = button.dataset.extrudeType!;
+        this.change();
+      };
+    }
     this.field("extrude-reverse").onchange = () => this.change();
     for (const slot of ["profiles", "start", "limit1", "limit2", "targets"] as const) {
       this.button("pick-" + slot).onclick = () => { this.selectionVersion++; this.slot = slot; this.updateForm(); this.callbacks.changed(); };
@@ -129,7 +135,15 @@ export class ExtrudeTool {
     show("offset-field", start === "offset");
     show("start-selection", start === "object");
     show("side2", type === "twoSides");
+    show("side1-heading", type === "twoSides");
     show("symmetric-field", type === "symmetric");
+    for (const button of this.panel.querySelectorAll<HTMLButtonElement>("[data-extrude-type]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.extrudeType === type));
+    }
+    const lengthLabel = type === "symmetric" ? this.value("symmetric-length") === "half" ? "Half-length" : "Total length" : "Length";
+    this.panel.querySelector<HTMLElement>("#length1-label")!.textContent = lengthLabel;
+    this.field("length").dataset.tooltip = type === "symmetric" ? "Symmetric " + lengthLabel.toLowerCase() : "Side 1: length";
+    this.field("length").setAttribute("aria-label", type === "symmetric" ? "Symmetric " + lengthLabel.toLowerCase() : "Side 1 length");
     show("extrude-direction-field", type !== "symmetric" && (this.value("extent1") !== "length" ||
       (type === "twoSides" && this.value("extent2") !== "length")));
     show("targets-section", mode !== "newBody");
@@ -148,16 +162,24 @@ export class ExtrudeTool {
       const pick = this.button("pick-" + slot);
       pick.setAttribute("aria-pressed", String(slot === this.slot));
       const count = this.inputs[slot].length;
-      pick.textContent = count ? `${count} selected · Change` : "Select…";
+      pick.classList.toggle("has-selection", !!count);
       this.button("clear-" + slot).disabled = !count;
-      this.panel.querySelector<HTMLElement>("#" + slot + "-items")!.textContent = this.inputs[slot].map((item) => {
+      const labels = this.inputs[slot].map((item) => {
         if (item.kind === "region") {
           const sketch = this.sketches.get(item.ref.sketchId)!;
           return `Region ${(sketch.regions ?? []).findIndex((r) => r.region.id === item.ref.id) + 1} · Sketch ${[...this.sketches.keys()].indexOf(item.ref.sketchId) + 1}`;
         }
         if (item.kind === "face") return `Face ${"faceId" in item.ref ? item.ref.faceId : ""} · Body ${[...this.bodies.keys()].indexOf(item.ref.bodyId) + 1}`;
         return item.kind === "body" ? `Body ${[...this.bodies.keys()].indexOf(item.id) + 1}` : "";
-      }).join(", ");
+      });
+      const first = this.inputs[slot][0];
+      let label = { profiles: "Select profiles…", start: "Select a face…", limit1: "Select a body…", limit2: "Select a body…", targets: "Select target bodies…" }[slot];
+      if (first?.kind === "region") label = `${count} ${count === 1 ? "region" : "regions"} · Sketch ${[...this.sketches.keys()].indexOf(first.ref.sketchId) + 1}`;
+      else if (count === 1) label = labels[0];
+      else if (count) label = `${count} ${slot === "targets" ? "bodies selected" : "faces"}`;
+      pick.querySelector<HTMLElement>(".extrude-pick-label")!.textContent = label;
+      pick.querySelector<HTMLElement>(".extrude-pick-change")!.hidden = !count;
+      pick.dataset.tooltip = pick.getAttribute("aria-label")! + (count ? ": " + labels.join(", ") : "");
     }
     this.panel.querySelector<HTMLElement>("#selection-hint")!.textContent = {
       profiles: "Select sketch regions or coplanar faces. Shift-click adds or removes.",
@@ -332,7 +354,7 @@ export class ExtrudeTool {
       this.validVersion = version;
       if (version === this.version && request.parameters.mode === "auto") {
         const mode = result.operation.resolvedMode;
-        const label = mode === "join" ? "Join" : mode === "cut" ? "Cut" : "New";
+        const label = mode === "join" ? "Join" : mode === "cut" ? "Cut" : "New body";
         this.panel.querySelector<HTMLOptionElement>('#extrude-mode option[value="auto"]')!.textContent = "Auto — " + label;
       }
       this.callbacks.preview(proxies, result.removedSolids.map((body) => body.id));

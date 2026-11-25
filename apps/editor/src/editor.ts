@@ -373,6 +373,12 @@ function openPanel(name: "sketch" | "extrude") {
   const panel = el("tool-panel");
   const template = el<HTMLTemplateElement>(name + "-fields");
   panel.replaceChildren(template.content.cloneNode(true));
+  if (name === "extrude") {
+    const icon = el("extrude").querySelector("svg")!.cloneNode(true) as SVGElement;
+    icon.querySelectorAll("[id]").forEach(element => element.removeAttribute("id"));
+    icon.removeAttribute("aria-labelledby");
+    panel.querySelector("h2")!.prepend(icon);
+  }
   panel.hidden = false;
   toolWindow.restore(activeDocument?.toolWindow);
   button("cancel").onclick = () => {

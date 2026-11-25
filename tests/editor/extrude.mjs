@@ -26,7 +26,9 @@ export async function testExtrudeEditor(browser, url) {
       try { await page.waitForFunction(() => document.querySelector("#apply") && !document.querySelector("#apply").disabled); }
       catch (error) { throw new Error(`Extrude preview: ${await page.locator("#status").textContent()}`, { cause: error }); }
     };
-    const choose = (id, value) => page.locator("#" + id).selectOption(value);
+    const choose = (id, value) => id === "extrude-type"
+      ? page.locator(`[data-extrude-type="${value}"]`).click()
+      : page.locator("#" + id).selectOption(value);
     const row = (name) => page.locator("#object-list").getByRole("button", { name, exact: true });
     const sketch = async (name = "Sketch 1") => { await page.locator("#sketches-tab").click(); await row(name).click(); };
     const volume = () => run(`const bodies = await scene.bodies.all(); return Promise.all(bodies.map(async b => (await (await scene.bodies.get(b.id)).properties()).volume.value));`);
@@ -48,12 +50,34 @@ export async function testExtrudeEditor(browser, url) {
     await page.locator("#sketches-tab").click();
     await row("Region 1").click(); await ready();
     await row("Region 2").click({ modifiers: ["Shift"] }); await ready();
-    assert.match(await page.locator("#pick-profiles").textContent(), /^2 selected/);
+    assert.match(await page.locator("#pick-profiles .extrude-pick-label").textContent(), /^2 regions · Sketch 1$/);
     await row("Region 2").click({ modifiers: ["Shift"] }); await ready();
-    assert.match(await page.locator("#pick-profiles").textContent(), /^1 selected/);
+    assert.match(await page.locator("#pick-profiles .extrude-pick-label").textContent(), /^1 region · Sketch 1$/);
+    assert.deepEqual(await page.locator(".extrude-section > h3").allTextContents(), ["Profiles", "Extent", "Result"]);
+    assert.equal((await page.locator("#tool-panel").boundingBox()).width, 320);
+    assert.ok(await page.locator("#tool-panel .extrude-heading svg").isVisible());
+    assert.ok(await page.locator("#tool-panel").evaluate(panel => [...panel.querySelectorAll('button, select, input:not([type="hidden"])')].every(el => !!el.dataset.tooltip && !el.hasAttribute("title"))));
+    assert.equal(await page.locator("#length").evaluate(el => getComputedStyle(el).fontFamily), await page.locator("#tool-panel").evaluate(el => getComputedStyle(el).fontFamily));
+    await page.locator("#toggle-output").click();
+    await page.locator("#tool-panel").screenshot({ path: "/private/tmp/pamatcad-extrude-refresh.png" });
+    await page.locator("#toggle-output").click();
+    await page.locator("#pick-profiles").hover();
+    await page.waitForFunction(() => !document.querySelector("#ui-tooltip").hidden && document.querySelector("#ui-tooltip").textContent.includes("Region 1 · Sketch 1"));
+    await page.locator("#clear-profiles").click();
+    assert.ok(await page.locator("#apply").isDisabled());
+    assert.ok(await page.locator("#clear-profiles").isDisabled());
+    await page.locator("#extrude-profiles-heading").hover();
+    await page.locator("#clear-profiles").hover({ force: true });
+    await page.waitForFunction(() => !document.querySelector("#ui-tooltip").hidden && document.querySelector("#ui-tooltip .ui-tooltip-name").textContent === "Clear profiles");
+    await row("Region 1").click(); await ready();
+    await page.locator('[data-extrude-type="twoSides"]').hover();
+    await page.waitForFunction(() => !document.querySelector("#ui-tooltip").hidden && document.querySelector("#ui-tooltip .ui-tooltip-name").textContent === "Two sides");
     await page.locator("#length").fill("2 deg");
     await page.waitForFunction(() => document.querySelector("#length").getAttribute("aria-invalid") === "true");
     assert.ok(await page.locator("#apply").isDisabled());
+    await page.locator("#length").hover();
+    await page.waitForFunction(() => !document.querySelector("#ui-tooltip").hidden && document.querySelector("#ui-tooltip .ui-tooltip-name").textContent === "Side 1: length");
+    assert.ok((await page.locator("#length").getAttribute("aria-describedby")).includes("length-error"));
     await page.locator("#length").fill("8 / 2"); await ready();
     await page.locator("#length").evaluate((input) => input.setSelectionRange(1, 1));
     await page.keyboard.type("0"); await ready();
@@ -185,7 +209,7 @@ export async function testExtrudeEditor(browser, url) {
     assert.equal(await page.locator("#length").inputValue(), "7");
     assert.equal(await page.locator("#length2").inputValue(), "3");
     assert.deepEqual(await page.locator("#tool-panel").evaluate(panel => [panel.style.left, panel.style.top, panel.style.width, panel.style.height]), ["", "", "", ""]);
-    assert.equal((await page.locator("#tool-panel").boundingBox()).width, 280, "Reset also clears the inactive draft layout");
+    assert.equal((await page.locator("#tool-panel").boundingBox()).width, 320, "Reset also clears the inactive Extrude draft layout");
     assert.equal(await page.locator(".tool-window-toggle").getAttribute("aria-expanded"), "true");
     assert.equal(await page.locator("#features li").count(), 1, "Layout changes preserve the original sketch timeline");
     await page.locator("#toggle-output").click();
@@ -198,6 +222,9 @@ export async function testExtrudeEditor(browser, url) {
     for (const half of ["total", "half"]) {
       await fresh(base); await sketch(); await start();
       await choose("extrude-type", "symmetric"); await choose("symmetric-length", half);
+      assert.equal(await page.locator('[data-extrude-type="symmetric"]').getAttribute("aria-pressed"), "true");
+      assert.equal(await page.locator("#length1-label").textContent(), half === "total" ? "Total length" : "Half-length");
+      assert.ok(await page.locator("#side2").isHidden());
       await page.locator("#length").fill("8"); await apply();
       await volumes([half === "total" ? 800 : 1600]);
     }
@@ -251,7 +278,7 @@ export async function testExtrudeEditor(browser, url) {
     await fresh(base + `await core.solid.extrude(await s.regions.only(), {length1:10});`);
     await sketch(); await start(); await choose("extrude-start", "offset");
     await page.locator("#length").fill("5");
-    for (const [offset, mode] of [[20, "New"], [10, "Join"], [5, "Cut"]]) {
+    for (const [offset, mode] of [[20, "New body"], [10, "Join"], [5, "Cut"]]) {
       await page.locator("#offset").fill(String(offset)); await ready();
       assert.equal(await page.locator("#extrude-mode").inputValue(), "auto");
       assert.equal(await page.locator('#extrude-mode option:checked').textContent(), "Auto — " + mode);
@@ -316,7 +343,7 @@ export async function testExtrudeEditor(browser, url) {
     await page.locator("#home").click(); view = await page.locator("#model-canvas").boundingBox();
     await page.mouse.click(view.x + view.width - 60, view.y + 38);
     await page.mouse.click(view.x + view.width / 2 + 60, view.y + view.height / 2 + 35);
-    await page.waitForFunction(() => document.querySelector("#pick-start").textContent.startsWith("1 selected"));
+    await page.waitForFunction(() => document.querySelector("#pick-start .extrude-pick-label").textContent.startsWith("Face "));
     await page.locator("#length").fill("-4"); await apply();
     const capBounds = await run(`const body = (await scene.bodies.all()).find(b => !${JSON.stringify(beforeStartExtrude)}.includes(b.id));
       const p = await scene.getProxyFor(body); const z = [...p.positions].filter((_,i)=>i%3===2); return [Math.min(...z), Math.max(...z)];`);

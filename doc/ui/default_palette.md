@@ -73,7 +73,7 @@ Use Inter with system UI fallbacks, sentence case, regular content, medium contr
 | Viewport dimensions and handle labels | 12px / 16px | 500 |
 | Console and code | 12px / 18px | 400, monospace |
 
-Keep essential text at least 12px. Use tabular numerals for dimensions, coordinates, timings and aligned numeric fields. Reserve monospace for code, formulas and technical output.
+Keep essential text at least 12px. Use tabular numerals for dimensions, coordinates, timings and aligned numeric fields. Formula fields use the shared UI font; reserve monospace for code and technical output.
 
 ## Icons
 

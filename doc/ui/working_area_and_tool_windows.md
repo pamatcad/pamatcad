@@ -46,7 +46,7 @@ Every tool configuration window should present all possible inputs and settings 
 
 Tool windows move by their header and resize from any edge or corner, within the viewport. The minimum requested size is 280 × 140 px, limited by the available viewport. Fields scroll while the header and action buttons remain visible. Arrow keys move the focused title or resize from the focused bottom-right grip in 10 px steps.
 
-The header collapse button uses the Navigator's icon and leaves only the header visible. Expanding restores the previous size. Each document retains its position, size, collapse state and draft inputs for the current session. Help → Reset UI clears these layout overrides for all open documents, restoring the default position, 280 px width, automatic height and expanded state without changing draft inputs.
+The header collapse button uses the Navigator's icon and leaves only the header visible. Expanding restores the previous size. Each document retains its position, size, collapse state and draft inputs for the current session. Help → Reset UI clears these layout overrides for all open documents, restoring the default position, tool width (280 px for Sketch, 320 px for Extrude), automatic height and expanded state without changing draft inputs.
 
 ## Test cases
 

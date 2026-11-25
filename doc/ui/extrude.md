@@ -18,6 +18,8 @@ Length and angle fields use the scene formula evaluator and retain typed express
 
 The tool window moves by its title bar, stays within the viewport, and scrolls its fields when necessary. Its position and draft survive document switching.
 
+Use a 320 px window with an Extrude icon in the header, Profiles/Extent/Result sections, compact pick-and-clear rows, and One side/Two sides/Symmetric buttons. Show selected geometry in sage, with full selection details in the shared custom tooltip. Label symmetric length as Total length or Half-length. Formula fields use the shared UI font and tabular numerals. Keep Cancel, Apply and operation errors in the footer; every interactive control retains its custom tooltip.
+
 # Preview, results and effects
 
 Viewport changes share one render per animation frame. Handles retain their geometry and materials while updating position, orientation, scale, and color; remove their resources when the handle disappears or changes kind. Adjacent surface ranges with the same material share a draw group without reordering triangles or changing face references.
@@ -42,8 +44,11 @@ Display field formula errors and operation errors in the window. Reject incompat
 - Hold preview and proxy responses while changing a handle repeatedly. Display the completed intermediate result, submit only the newest pending value after all mesh requests settle (including failures), and keep Apply disabled until that value is validated. Typed edits and cancellation reject obsolete results; invalid formulas recover. Scheduling introduces no timeout delay.
 - Multiple viewport updates before a frame produce one scene render; an idle viewport does not redraw. Repeated handle updates preserve geometry/material identities, maintain screen size and orientation, and release only removed handles. Surface groups merge for unselected, whole-body, adjacent-face, and separated-face selections while canvas picks retain the same face references.
 - Query multi-region rectangle/circle sketch proxies on XY, XZ, YZ and a planar face. Verify references, boundary points and orthonormal frames; repeated queries leave geometry and timeline unchanged. Incomplete sketches reject proxy requests. Curved face properties omit a planar frame.
-- 
+- Verify the refreshed sections, side buttons, geometry summaries and clear actions, shared formula font, custom tooltips (including disabled controls and field errors), and live palette changes. At the 280 px minimum width and short viewport heights, keep controls readable and the footer visible. Reset restores the 320 px Extrude default while Sketch retains 280 px.
+
 # History
 
 Initial interactive Extrude implementation.
 Response-driven preview scheduling, frame-coalesced drawing, persistent handles, and merged surface groups.
+
+2026-11-25: Refreshed the Extrude window layout and controls. Extrusion interactions, tooltips, window lifecycle, preview scheduling, live theme checks and web/desktop UI builds pass.

@@ -469,6 +469,48 @@ h2 {
 .geometry-input button { border: 1px solid var(--field-border); padding: 4px 8px; min-height: 32px; }
 .geometry-input [aria-pressed="true"] { background: var(--selection-background); color: var(--selection-foreground); }
 .geometry-input small { display: block; color: var(--foreground-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; margin-top: 4px; }
+#tool-panel:has(.extrude-fields) { width: 320px; padding: 0; }
+#tool-panel:has(.extrude-fields) .tool-window-header { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+#tool-panel:has(.extrude-fields).tool-window-collapsed .tool-window-header { border-bottom: 0; }
+#tool-panel .extrude-heading { display: flex; align-items: center; gap: 8px; }
+.extrude-heading svg { width: 24px; height: 24px; flex-shrink: 0; }
+.extrude-heading .icon-surface-fill { fill: var(--surface); }
+.extrude-heading .icon-preview-fill { fill: var(--preview); }
+.extrude-heading .icon-solid-edge { stroke: var(--edge); }
+.extrude-heading .icon-selection-fill { fill: var(--selection); }
+.extrude-heading .icon-selection-edge { stroke: var(--highlight); }
+.extrude-heading .icon-handle-fill { fill: var(--handle); }
+.extrude-heading .icon-handle-edge { stroke: var(--handle-edge); }
+#tool-panel .extrude-fields { padding: 0 12px; }
+.extrude-section { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.extrude-section:last-child { border-bottom: 0; }
+#tool-panel .extrude-section h3 { margin: 0 0 10px; font-size: 13px; line-height: 20px; font-weight: 600; }
+#tool-panel .extrude-section h4 { margin: 12px 0 4px; color: var(--foreground-muted); font-size: 12px; line-height: 18px; font-weight: 500; }
+#tool-panel .extrude-row { display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 8px; margin: 8px 0 0; font-size: 12px; line-height: 18px; }
+#tool-panel .extrude-row :is(input, select) { width: 100%; max-width: none; min-width: 0; height: 32px; font: 400 12px/20px var(--font-family); font-variant-numeric: tabular-nums; }
+#tool-panel .extrude-row select { padding-right: 4px; }
+.extrude-selection { margin-top: 8px; }
+.extrude-label { display: block; margin-bottom: 4px; font-size: 12px; }
+.extrude-pick-group { display: flex; min-width: 0; }
+.extrude-pick-group button { min-height: 32px; border: 1px solid var(--field-border); background: var(--field-background); font-size: 12px; line-height: 18px; }
+.extrude-pick { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 7px 8px; text-align: left; border-radius: 3px 0 0 3px; font-weight: 400; }
+.extrude-pick-label { flex: 1; overflow-wrap: anywhere; }
+.extrude-pick-change { flex-shrink: 0; }
+.extrude-pick-icon { flex-shrink: 0; width: 16px; height: 16px; background: currentColor; mask: url("./icons/sketch-select.svg") center / contain no-repeat; }
+.extrude-pick.has-selection { background: var(--selection-background); border-color: var(--highlight); color: var(--selection-foreground); }
+.extrude-pick:is([aria-pressed="true"], :focus-visible) { outline: none; border-color: var(--accent-border); }
+.extrude-pick-group .extrude-clear { width: 30px; flex-shrink: 0; padding: 4px; border-left: 0; border-radius: 0 3px 3px 0; font-size: 18px; font-weight: 400; }
+.extrude-sides { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--field-border); border-radius: 3px; }
+.extrude-sides button { flex: 1; min-width: 0; min-height: 28px; padding: 3px 2px; font-size: 12px; line-height: 18px; font-weight: 400; }
+.extrude-sides button[aria-pressed="true"] { background: var(--active-background); color: var(--on-accent); border-color: var(--accent-border); font-weight: 500; }
+#tool-panel #side2 { margin-top: 12px; border-top: 1px solid var(--border); }
+#tool-panel .extrude-reverse { justify-content: flex-start; margin: 12px 0 0; font-size: 12px; }
+#tool-panel:has(.extrude-fields):not(.tool-window-collapsed) > .actions { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin: 0; padding: 12px; border-top: 1px solid var(--border); }
+#tool-panel:has(.extrude-fields) > .actions button { min-width: 72px; }
+#tool-panel:has(.extrude-fields) #cancel { grid-column: 2; }
+#tool-panel:has(.extrude-fields) #apply { grid-column: 3; }
+#tool-panel #extrude-error { margin: 0; }
+#tool-panel #extrude-error:empty { display: none; }
 .tool-handle-label { position: absolute; z-index: 1; background: var(--handle); color: var(--handle-edge); border: 1px solid var(--handle-edge); padding: 3px 6px; font-size: 12px; line-height: 16px; min-height: 24px; font-variant-numeric: tabular-nums; touch-action: none; cursor: grab; }
 .tool-handle-label:hover:not(:disabled), .tool-handle-label:active:not(:disabled) { background: var(--handle); }
 .tool-handle-label:active { cursor: grabbing; }
