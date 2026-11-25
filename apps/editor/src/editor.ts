@@ -17,7 +17,7 @@ import { resetUiSettings } from "./ui-settings";
 import { selectionOwner, changeSelection, type SelectionItem } from "./selection";
 import { SketchTool } from "./tools/sketch";
 import { ExtrudeTool } from "./tools/extrude";
-import { initToolWindow, type ToolWindowPosition } from "./tool-window";
+import { initToolWindow, type ToolWindowState } from "./tool-window";
 import { initRibbon, type Workbench } from "./ribbon";
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -39,7 +39,7 @@ type EditorDocument = {
   selection: SelectionItem[];
   extrude?: ExtrudeTool;
   sketchTool?: SketchTool;
-  toolPosition?: ToolWindowPosition;
+  toolWindow?: ToolWindowState;
   objectTab: BrowserTab;
   hiddenObjects: Set<string>;
   tool?: "sketch" | "extrude";
@@ -271,7 +271,7 @@ function showDocument(doc?: EditorDocument) {
   viewport.setSketches(doc?.sketches ?? new Map());
   viewport.setConstruction(doc ? Object.values(doc.scene.construction.builtin.planes) : []);
   viewport.setHandles();
-  toolWindow.restore(doc?.toolPosition);
+  toolWindow.restore(doc?.toolWindow);
   viewport.sketching(doc?.tool === "sketch");
   viewport.setPreview(doc?.previewBodies, doc?.previewRemoved);
   if (doc?.view) viewport.restoreView(doc.view);
@@ -374,7 +374,7 @@ function openPanel(name: "sketch" | "extrude") {
   const template = el<HTMLTemplateElement>(name + "-fields");
   panel.replaceChildren(template.content.cloneNode(true));
   panel.hidden = false;
-  toolWindow.restore(activeDocument?.toolPosition);
+  toolWindow.restore(activeDocument?.toolWindow);
   button("cancel").onclick = () => {
     closeTool();
     status("Ready");
@@ -430,7 +430,7 @@ async function beginSketch(editId?: string) {
     });
     doc.sketchTool = tool;
     el("tool-panel").hidden = false;
-    toolWindow.restore(doc.toolPosition);
+    toolWindow.restore(doc.toolWindow);
     button("cancel").onclick = () => { void cancelTool(); };
     button("apply").onclick = () => work(async () => {
       const id = await tool.finish();
@@ -561,7 +561,7 @@ export async function startEditor() {
     (point) => { activeDocument?.sketchTool?.move(point); },
     editorTheme.definition,
   );
-  toolWindow = initToolWindow(el("tool-panel"), (position) => { if (activeDocument) activeDocument.toolPosition = position; });
+  toolWindow = initToolWindow(el("tool-panel"), (state) => { if (activeDocument) activeDocument.toolWindow = state; });
   editorTheme.subscribe((theme) => viewport.setTheme(theme));
   button("new-sketch").onclick = () => { void beginSketch(); };
   button("sketch-view").onclick = () => viewport.alignSketch();
@@ -625,7 +625,11 @@ export async function startEditor() {
     }
   }, resetUi: () => {
     resetUiSettings();
-    for (const doc of documents.values()) doc.objectTab = "Bodies";
+    for (const doc of documents.values()) {
+      doc.objectTab = "Bodies";
+      doc.toolWindow = undefined;
+    }
+    toolWindow.restore();
     viewport.setCameraMode("orthographic");
     document.querySelector<HTMLInputElement>('input[name="projection"][value="orthographic"]')!.checked = true;
     drawLists();

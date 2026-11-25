@@ -6,10 +6,12 @@ export async function testSketchText(page) {
   await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled && !document.querySelector("#features").children.length);
   await page.evaluate(async () => {
     window.fontAccessDescriptor = Object.getOwnPropertyDescriptor(window, "queryLocalFonts");
+    window.fontPermissionQuery = navigator.permissions.query;
     Object.defineProperty(window, "queryLocalFonts", { configurable: true, value: undefined });
     const { SketchTool } = await import("/src/tools/sketch.ts"), start = SketchTool.prototype.start;
+    window.textStart = start;
     SketchTool.prototype.start = function (...args) { window.textCheck = { tool: this, viewport: this.viewport }; return start.apply(this, args); };
-    try { document.querySelector("#new-sketch").click(); } finally { SketchTool.prototype.start = start; }
+    document.querySelector("#new-sketch").click();
   });
   const idle = () => page.waitForFunction(() => {
     const t = window.textCheck.tool; return t.sketch && !t.pending && !t.updateRunning && !t.creating && !t.viewport.renderPending;
@@ -24,10 +26,17 @@ export async function testSketchText(page) {
     await idle();
     await page.locator('[data-tool="text"]').click();
     assert.equal(await page.locator("#sketch-text").evaluate(e => e.tagName), "TEXTAREA");
-    assert.ok(await page.locator("#sketch-text").evaluate(e => e.rows >= 4));
+    assert.ok(await page.locator("#sketch-text").evaluate(e => e.rows >= 3));
+    assert.equal(await page.locator("#sketch-tool-title").textContent(), "Text");
+    assert.ok(await page.locator("#sketch-tool-icon svg").isVisible());
+    assert.equal(await page.locator("#sketch-font-family").evaluate(e => e.size), 0, "Font families use a compact grouped dropdown");
+    assert.ok(await page.locator("#tool-panel").evaluate(panel => [...panel.querySelectorAll(".sketch-fields, #sketch-config, .sketch-text-controls")].every(el => el.scrollWidth <= el.clientWidth)), "Text controls fit at the default width");
     assert.deepEqual(await page.locator("#sketch-font-family option").allTextContents(), ["Roboto"]);
-    assert.equal(await page.locator("#sketch-font-help").getAttribute("title"), "This browser does not support access to installed fonts. Use Chrome to select a local font.");
-    assert.ok(await page.locator("#sketch-font-help").isVisible());
+    assert.equal(await page.locator("#sketch-font-help").count(), 0);
+    assert.equal(await page.locator("#sketch-font-message").textContent(), "Accessing system fonts is not supported in Chrome, use Chrome or import a font");
+    assert.ok(await page.locator("#sketch-font-access").isVisible());
+    assert.deepEqual(await page.locator("#sketch-font-family optgroup").evaluateAll(groups => groups.map(g => g.label)), ["Document"]);
+    assert.ok(await page.locator(".sketch-font-heading #sketch-font-import").isVisible());
     assert.equal(await page.locator("#sketch-local-fonts").isVisible(), false);
     assert.ok(await page.locator("#sketch-size").inputValue().then(s => s.endsWith(" mm")));
     assert.equal(await page.locator("#sketch-guide").count(), 0);
@@ -45,11 +54,42 @@ export async function testSketchText(page) {
     await page.locator("#sketch-text").fill("B");
     await page.locator("#sketch-size").fill("20 mm / 2");
     await page.mouse.click(...await screen([-15, 0])); await idle();
+    assert.equal(await page.evaluate(() => window.textCheck.tool.state.texts.length), 0, "Placement is a preview until Done");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "sketch-text");
+    assert.ok(await page.locator("#apply").isDisabled());
+    assert.ok(await page.locator("#sketch-text-edit-actions").isVisible());
+    const draft = await page.evaluate(async () => (await window.textCheck.tool.sketch.state({ preview: true })).texts[0]);
+    await page.mouse.click(...await screen([20, 20]));
+    await page.keyboard.press("Enter"); await idle();
+    assert.equal(await page.evaluate(() => window.textCheck.tool.state.texts.length), 0);
+    const anchor = await page.evaluate(() => window.textCheck.tool.points[0]);
+    assert.ok(Math.hypot(...anchor.map((v, i) => v - draft.parameters.origin[i])) < 1e-10, "Extra canvas clicks do not move the anchor");
+    await page.locator("#sketch-size").fill("unknown"); await idle();
+    assert.ok(await page.locator("#sketch-text-done").isDisabled());
+    await page.locator("#sketch-size").fill("20 mm / 2");
+    await page.locator("#sketch-size").press("Enter"); await idle();
+    assert.equal(await page.evaluate(() => window.textCheck.tool.state.texts.length), 0, "Enter in a formula does not commit text");
+    const documentId = await page.locator('#document-tabs [aria-selected="true"]').getAttribute("data-document");
+    await page.getByText("File", { exact: true }).click(); await page.locator("#menu-new").click();
+    await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+    await page.locator(`#document-tabs [data-document="${documentId}"][role="tab"]`).click(); await idle();
+    assert.equal(await page.locator("#sketch-text").inputValue(), "B");
+    assert.equal(await page.evaluate(() => window.textCheck.tool.state.texts.length), 0, "Switching documents preserves the draft");
+    await page.locator("#sketch-text-done").click(); await idle();
+    assert.equal(await page.evaluate(() => window.textCheck.tool.tool), "text", "Done retains text placement mode");
     let text = await page.evaluate(() => window.textCheck.tool.state.texts[0]);
     const frame = text.frame;
     assert.equal(Object.keys(frame).length, 11);
     assert.equal(text.parameters.text, "B"); assert.equal(text.parameters.size.expression, "20 mm / 2");
     assert.ok(await page.evaluate(() => window.textCheck.tool.proxy.regions.some(r => r.holes.length === 2)));
+    await page.mouse.click(...await screen([15, 15])); await idle();
+    await page.locator("#sketch-text").fill("Cancel draft"); await idle();
+    await page.locator("#sketch-text-cancel").click(); await idle();
+    assert.equal(await page.evaluate(() => window.textCheck.tool.state.texts.length), 1);
+    await page.locator('[data-tool="text"]').click();
+    await page.mouse.click(...await screen([15, 15])); await idle();
+    await page.keyboard.press("Escape"); await idle();
+    assert.equal(await page.evaluate(() => window.textCheck.tool.state.texts.length), 1, "Escape discards a newly placed draft");
     await page.keyboard.press("Escape");
     await page.mouse.dblclick(...await screen([-15, 0])); await idle();
     assert.ok(await page.locator("#sketch-text-edit-actions").isVisible());
@@ -128,26 +168,108 @@ export async function testSketchText(page) {
     await page.locator("#sketch-text").fill("O");
     await page.locator("#sketch-size").fill("5 mm");
     await page.mouse.click(...await screen([10, 10])); await idle();
+    await page.locator("#sketch-text-done").click(); await idle();
     text = await page.evaluate(() => window.textCheck.tool.state.texts[0]);
     assert.ok(text.parameters.fontBase64.length > 1000);
     assert.equal(text.parameters.fontIndex, 0);
     await page.keyboard.press("Escape");
     await page.locator("#apply").click();
     await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
-    console.log("Editable text: controls, unsupported-font tooltip, formulas, regions, double-click, cancel, dragging, conversion and font import passed");
+    console.log("Editable text: anchored drafts, explicit Done, document switching, controls, formulas, regions, editing, dragging, conversion and font import passed");
 
     // Permission denial must not be mislabeled as an unsupported browser.
-    await page.evaluate(() => Object.defineProperty(window, "queryLocalFonts", { configurable: true, value: async () => { throw new DOMException("Denied", "NotAllowedError"); } }));
+    await page.evaluate(() => {
+      window.fontRequests = [];
+      window.fontPermission = Object.assign(new EventTarget(), { state: "prompt" });
+      navigator.permissions.query = async descriptor => descriptor.name === "local-fonts" ? window.fontPermission : window.fontPermissionQuery.call(navigator.permissions, descriptor);
+      Object.defineProperty(window, "queryLocalFonts", { configurable: true, value: async () => {
+        window.fontRequests.push(navigator.userActivation.isActive);
+        throw new DOMException("Dismissed", "NotAllowedError");
+      } });
+    });
     await page.locator("#new-sketch").click();
     await page.evaluate(() => chooseSketchPlane("XY"));
     await page.waitForFunction(() => !document.querySelector("#apply").disabled);
+    assert.deepEqual(await page.evaluate(() => window.fontRequests), [], "Opening a sketch does not request font access");
     await page.locator('[data-tool="text"]').click();
+    await page.waitForFunction(() => window.fontRequests.length === 1 && !window.textCheck.tool.textControls.localLoading);
+    assert.deepEqual(await page.evaluate(() => window.fontRequests), [true], "Activating Text requests access within the user gesture");
+    await page.keyboard.press("Escape");
+    await page.locator('[data-tool="text"]').click();
+    assert.equal(await page.evaluate(() => window.fontRequests.length), 1, "Dismissing the prompt does not cause another automatic request");
     await page.locator("#sketch-local-fonts").click();
-    await page.waitForFunction(() => !document.querySelector("#sketch-font-help").hidden);
-    assert.match(await page.locator("#sketch-font-help").getAttribute("title"), /denied or blocked/);
+    await page.waitForFunction(() => !document.querySelector("#sketch-local-fonts").disabled);
+    assert.deepEqual(await page.evaluate(() => window.fontRequests), [true, true], "Allow now retries explicitly");
+    assert.equal(await page.locator("#sketch-font-message").textContent(), "No permission to access local fonts. ");
+    assert.deepEqual(await page.locator("#sketch-font-family optgroup").evaluateAll(groups => groups.map(g => g.label)), ["Document"]);
+    assert.equal(await page.evaluate(async () => {
+      const { fonts } = await import("/src/runtime/fonts.ts");
+      return fonts.all(window.textCheck.tool.scene, "document").length;
+    }), 2, "Imported fonts remain available when another sketch opens in the same document");
+    const fontBytes = (await readFile("native/sketch/fonts/Roboto.ttf")).toString("base64");
+    await page.evaluate(bytes => {
+      Object.defineProperty(window, "queryLocalFonts", { configurable: true, value: async () => {
+        window.fontRequests.push(navigator.userActivation.isActive);
+        window.fontPermission.state = "granted"; window.fontPermission.dispatchEvent(new Event("change"));
+        const blob = async () => new Blob([Uint8Array.from(atob(bytes), c => c.charCodeAt(0))]);
+        return [ { family: "Roboto", style: "Regular", postscriptName: "MockRoboto", blob },
+          { family: "Roboto", style: "Italic", postscriptName: "MockRobotoItalic", blob } ];
+      } });
+    }, fontBytes);
+    await page.locator("#sketch-local-fonts").click();
+    await page.waitForFunction(() => document.querySelector('#sketch-font-family optgroup[label="System"]'));
+    assert.deepEqual(await page.evaluate(() => window.fontRequests), [true, true, true]);
+    assert.deepEqual(await page.locator("#sketch-font-family optgroup").evaluateAll(groups => groups.map(g => g.label)), ["Document", "System"]);
+    assert.ok(await page.locator("#sketch-font-access").isHidden());
+    assert.ok(await page.getByRole("button", { name: "Italic", exact: true }).isDisabled(), "Document Roboto does not inherit the System family's italic face");
+    await page.locator("#sketch-font-family").selectOption(JSON.stringify(["system", "Roboto"]));
+    await page.evaluate(() => window.textCheck.tool.textControls.loading);
+    assert.ok(await page.evaluate(() => window.textCheck.tool.textControls.face.id.startsWith("local:")));
+    assert.ok(await page.getByRole("button", { name: "Italic", exact: true }).isEnabled());
+    const embedded = await page.evaluate(() => window.textCheck.tool.textControls.parameters());
+    assert.ok(embedded.fontBase64.length > 1000);
+    await page.evaluate(() => { window.fontPermission.state = "denied"; window.fontPermission.dispatchEvent(new Event("change")); });
+    assert.equal(await page.locator('#sketch-font-family optgroup[label="System"]').count(), 0);
+    assert.equal(await page.locator("#sketch-font-family").inputValue(), JSON.stringify(["document", "Roboto"]));
+    assert.equal((await page.evaluate(() => window.textCheck.tool.textControls.parameters())).fontBase64, embedded.fontBase64, "Revocation retains the embedded document font");
+    assert.ok(await page.locator("#sketch-local-fonts").isVisible());
     await page.locator("#cancel").click();
-  } finally {
+    await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+    await page.getByText("File", { exact: true }).click(); await page.locator("#menu-new").click();
+    await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+    await page.locator("#new-sketch").click();
+    await page.evaluate(() => chooseSketchPlane("XY")); await idle();
+    await page.locator('[data-tool="text"]').click();
+    assert.equal(await page.evaluate(() => window.fontRequests.length), 3, "Known denial suppresses automatic requests in another sketch");
+    assert.equal(await page.evaluate(async () => {
+      const { fonts } = await import("/src/runtime/fonts.ts");
+      return fonts.all(window.textCheck.tool.scene, "document").length;
+    }), 1, "A separate document does not inherit imported fonts");
+    await page.locator("#cancel").click();
+    await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+    // Font access can exist even when the Permissions API lacks this descriptor.
     await page.evaluate(() => {
+      navigator.permissions.query = async descriptor => {
+        if (descriptor.name === "local-fonts") throw new TypeError("Unknown permission descriptor");
+        return window.fontPermissionQuery.call(navigator.permissions, descriptor);
+      };
+    });
+    await page.locator("#new-sketch").click();
+    await page.evaluate(() => chooseSketchPlane("XY")); await idle();
+    assert.equal(await page.evaluate(() => window.fontRequests.length), 3);
+    await page.locator('[data-tool="text"]').click();
+    await page.waitForFunction(() => document.querySelector('#sketch-font-family optgroup[label="System"]'));
+    assert.deepEqual(await page.evaluate(() => window.fontRequests), [true, true, true, true], "Automatic access succeeds without a permission-state query");
+    await page.keyboard.press("Escape");
+    await page.locator('[data-tool="text"]').click();
+    assert.equal(await page.evaluate(() => window.fontRequests.length), 4, "Available fonts do not trigger another request");
+    await page.locator("#cancel").click();
+    console.log("Text fonts: Document/System groups, import retention/isolation, automatic permission requests, explicit retry, denial and revocation passed");
+  } finally {
+    await page.evaluate(async () => {
+      const { SketchTool } = await import("/src/tools/sketch.ts");
+      SketchTool.prototype.start = window.textStart;
+      navigator.permissions.query = window.fontPermissionQuery;
       if (window.fontAccessDescriptor) Object.defineProperty(window, "queryLocalFonts", window.fontAccessDescriptor);
       else delete window.queryLocalFonts;
     });

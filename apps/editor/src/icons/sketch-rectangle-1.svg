@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Three-point rectangle</title>
-  <path class="icon-fill icon-edge" d="M4 18 20 5 28 15 12 28Z" fill="#c5ddf0" stroke="#6588a3"/>
-  <circle class="icon-point" cx="4" cy="18" r="2" fill="#dcb58c"/><circle class="icon-point" cx="20" cy="5" r="2" fill="#dcb58c"/><circle class="icon-point" cx="28" cy="15" r="2" fill="#dcb58c"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>Three points</title><path class="icon-edge" d="M4 19 20 5 28 14 12 28Z" stroke="#6588a3"/><circle class="icon-point" cx="4" cy="19" r="2" fill="#d55e00" stroke="none"/><circle class="icon-point" cx="20" cy="5" r="2" fill="#d55e00" stroke="none"/><circle class="icon-point" cx="28" cy="14" r="2" fill="#d55e00" stroke="none"/></svg>

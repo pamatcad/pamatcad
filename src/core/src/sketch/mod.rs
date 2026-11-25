@@ -5,6 +5,7 @@ mod projections;
 mod regions;
 mod solver;
 mod text;
+pub(crate) use text::GlyphCache;
 pub mod types;
 pub use regions::Boundary;
 
@@ -75,10 +76,16 @@ pub struct Sketch {
     solver_cache: solver::Cache,
     region_cache: RefCell<Option<Rc<regions::Cached>>>,
     curve_cache: RefCell<BTreeMap<String, Rc<display::CachedCurve>>>,
+    glyph_cache: Rc<RefCell<GlyphCache>>,
 }
 
 impl Sketch {
-    pub fn new(id: String, plane: SketchSupport, frame: Frame) -> Self {
+    pub(crate) fn new(
+        id: String,
+        plane: SketchSupport,
+        frame: Frame,
+        glyph_cache: Rc<RefCell<GlyphCache>>,
+    ) -> Self {
         let mut sketch = Self {
             data: SketchData {
                 id,
@@ -110,6 +117,7 @@ impl Sketch {
             solver_cache: solver::Cache::default(),
             region_cache: RefCell::default(),
             curve_cache: RefCell::default(),
+            glyph_cache,
         };
         let origin = sketch.entity_ref("origin");
         sketch.entities.insert(

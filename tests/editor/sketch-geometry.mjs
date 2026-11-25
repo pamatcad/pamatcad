@@ -144,7 +144,7 @@ export async function testSketchDrawingStages(page) {
     if (await button.getAttribute("aria-pressed") !== "true") await button.click();
     if (name) await page.getByRole("group", { name: "Tool variants" }).getByRole("button", { name, exact: true }).click();
     await idle();
-    if (["rectangle","arc","slot"].includes(tool)) assert.ok(await page.locator(".sketch-variants button").evaluateAll(buttons => buttons.every(b => b.title && b.getAttribute("aria-label") === b.title && b.querySelector("svg .icon-point") && b.querySelector("svg [class]"))));
+    if (["rectangle","circle","arc","ellipse","slot","spline"].includes(tool)) assert.ok(await page.locator(".sketch-variants button").evaluateAll(buttons => buttons.every(b => b.title && b.getAttribute("aria-label") === b.title && b.querySelector("svg .icon-point") && b.querySelector("svg [class]"))));
     assert.equal(await page.locator('.sketch-variants [aria-pressed="true"]').count(), 1);
   };
   try {
@@ -154,15 +154,15 @@ export async function testSketchDrawingStages(page) {
     const iconColors = () => page.evaluate(() => {
       const style = (selector, property) => getComputedStyle(document.querySelector(selector))[property];
       return { point: style(".sketch-variants .icon-point","fill"), edge: style(".sketch-variants .icon-edge","stroke"),
-        toolbarPoint: style('[data-tool="point"] .icon-point',"fill"), toolbarFill: style("#new-sketch .icon-fill","fill"),
+        toolbarPoint: style('[data-tool="point"] .icon-edge-fill',"fill"), toolbarFill: style("#new-sketch .icon-fill","fill"),
         extrude: style("#extrude .icon-surface-fill","fill") };
     });
     const originalColors=await iconColors();assert.notEqual(originalColors.point,originalColors.edge);
-    assert.equal(originalColors.point, await page.locator('[data-tool="move"] .icon-handle-fill').evaluate(e => getComputedStyle(e).fill));
-    assert.ok(await page.locator(".ribbon .icon-point, .sketch-variants .icon-point").evaluateAll(points => points.every(e => e.getAttribute("fill") === "#dcb58c")));
+    assert.equal(originalColors.point, "rgb(213, 94, 0)");
+    assert.ok(await page.locator(".ribbon .icon-point, .sketch-variants .icon-point").evaluateAll(points => points.every(e => e.getAttribute("fill") === "#d55e00")));
     assert.ok(await page.locator(".ribbon svg, .sketch-variants svg").evaluateAll(icons=>icons.length>25&&icons.every(svg=>[svg,...svg.querySelectorAll("[fill], [stroke]")].every(e=>!["fill","stroke"].some(a=>/^#/.test(e.getAttribute(a)||""))||e.classList.length))));
-    await page.evaluate(async()=>{const {editorTheme}=await import("/src/theme.ts");window.geometryTheme=editorTheme.definition;editorTheme.set({...editorTheme.definition,colors:{...editorTheme.definition.colors,handle:"#bb3300",sketchEdge:"#123456",sketch:"#ccddee",surface:"#aabbcc"}});});
-    assert.deepEqual(await iconColors(),{point:"rgb(187, 51, 0)",edge:"rgb(18, 52, 86)",toolbarPoint:"rgb(187, 51, 0)",toolbarFill:"rgb(204, 221, 238)",extrude:"rgb(170, 187, 204)"});
+    await page.evaluate(async()=>{const {editorTheme}=await import("/src/theme.ts");window.geometryTheme=editorTheme.definition;editorTheme.set({...editorTheme.definition,colors:{...editorTheme.definition.colors,geometrySelected:"#bb3300",sketchEdge:"#123456",sketch:"#ccddee",surface:"#aabbcc"}});});
+    assert.deepEqual(await iconColors(),{point:"rgb(187, 51, 0)",edge:"rgb(18, 52, 86)",toolbarPoint:"rgb(18, 52, 86)",toolbarFill:"rgb(204, 221, 238)",extrude:"rgb(170, 187, 204)"});
     await page.evaluate(async()=>{(await import("/src/theme.ts")).editorTheme.set(window.geometryTheme);delete window.geometryTheme;});
     assert.deepEqual(await iconColors(),originalColors);
     const base = (await state()).state;

@@ -388,12 +388,14 @@ h2 {
   accent-color: var(--accent-border);
 }
 #tool-panel {
+  --tool-window-top: min(calc(var(--gizmo-size) + 5px), max(0px, calc(100% - 148px)));
   position: absolute;
   z-index: 2;
-  top: calc(var(--gizmo-size) + 5px);
+  top: var(--tool-window-top);
   right: 48px;
   width: 280px;
-  max-height: calc(100% - var(--gizmo-size) - 13px);
+  max-width: 100%;
+  max-height: calc(100% - var(--tool-window-top) - 8px);
   display: flex;
   flex-direction: column;
   background: var(--panel-background);
@@ -402,13 +404,33 @@ h2 {
   box-shadow: 0 4px 15px color-mix(in srgb, var(--shadow) calc(var(--shadow-opacity) * 100%), transparent);
   padding: 12px;
 }
-#tool-panel h2 {
+.tool-window-header {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
   margin-bottom: 8px;
   cursor: move;
   touch-action: none;
   user-select: none;
 }
-.tool-fields { min-height: 0; overflow-y: auto; padding-right: 4px; }
+#tool-panel h2 { flex: 1; margin: 0; }
+.tool-window-toggle { display: grid; place-items: center; padding: 2px; min-width: 24px; min-height: 28px; }
+.tool-window-toggle img { width: 16px; height: 16px; transform: rotate(90deg); }
+.tool-window-collapsed .tool-window-toggle img { transform: rotate(-90deg); }
+.tool-window-collapsed .tool-window-header { margin-bottom: 0; }
+#tool-panel.tool-window-collapsed > :not(.tool-window-header) { display: none; }
+.tool-window-resize { position: absolute; touch-action: none; }
+.tool-window-resize[data-edge="n"], .tool-window-resize[data-edge="s"] { left: 10px; right: 10px; height: 5px; cursor: ns-resize; }
+.tool-window-resize[data-edge="e"], .tool-window-resize[data-edge="w"] { top: 10px; bottom: 10px; width: 5px; cursor: ew-resize; }
+.tool-window-resize[data-edge*="n"] { top: 0; }
+.tool-window-resize[data-edge*="s"] { bottom: 0; }
+.tool-window-resize[data-edge*="e"] { right: 0; }
+.tool-window-resize[data-edge*="w"] { left: 0; }
+.tool-window-resize[data-edge="ne"], .tool-window-resize[data-edge="sw"] { width: 10px; height: 10px; cursor: nesw-resize; }
+.tool-window-resize[data-edge="nw"], .tool-window-resize[data-edge="se"] { width: 10px; height: 10px; cursor: nwse-resize; }
+.tool-window-resize[data-edge="se"] { border-right: 2px solid var(--foreground-muted); border-bottom: 2px solid var(--foreground-muted); border-bottom-right-radius: 3px; }
+.tool-window-resize:focus-visible, .tool-window-header h2:focus-visible { outline: 2px solid var(--accent-border); }
+.tool-fields { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; padding-right: 4px; }
 #tool-panel fieldset { margin: 16px 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 3px; }
 #tool-panel legend { color: var(--foreground-muted); font-size: 12px; }
 #tool-panel select { max-width: 150px; padding: 4px 8px; border: 1px solid var(--field-border); border-radius: 3px; }
@@ -448,6 +470,7 @@ dialog p {
 #tool-panel input[type="checkbox"] { width: auto; padding: 0; accent-color: var(--accent); }
 #tool-panel .actions {
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
@@ -670,35 +693,35 @@ dialog::backdrop {
 
 
 .sketch-variants { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
-.sketch-variants button { padding: 3px 6px; font-size: 12px; }
-.sketch-variants .sketch-variant-icon { padding: 3px; line-height: 0; }
-.sketch-variant-icon svg { width: 32px; height: 32px; }
+.sketch-variants button { display: flex; align-items: center; gap: 8px; flex: 1 1 120px; min-height: 32px; padding: 4px 6px; font-size: 12px; text-align: left; }
+.sketch-variants .sketch-variant-icon { padding: 4px 6px; }
+.sketch-variant-icon svg { width: 24px; height: 24px; flex-shrink: 0; }
 /* Imported SVG geometry retains standalone colors; these semantic roles follow the shared theme. */
-:is(.tools, .sketch-variants) .icon-fill { fill: var(--sketch); }
-:is(.tools, .sketch-variants) .icon-profile-stroke { stroke: var(--sketch); }
-:is(.tools, .sketch-variants) .icon-edge { stroke: var(--sketch-edge); }
-:is(.tools, .sketch-variants) .icon-edge-fill { fill: var(--sketch-edge); }
-:is(.tools, .sketch-variants) .icon-construction { stroke: var(--construction-edge); }
-:is(.tools, .sketch-variants) .icon-construction-fill { fill: var(--construction-edge); }
-:is(.tools, .sketch-variants) .icon-point { fill: var(--handle); }
-:is(.tools, .sketch-variants) .icon-selection-fill { fill: var(--selection); }
-:is(.tools, .sketch-variants) .icon-selection-stroke { stroke: var(--selection); }
-:is(.tools, .sketch-variants) .icon-selection-detail { fill: var(--highlight); }
-:is(.tools, .sketch-variants) .icon-selection-edge { stroke: var(--highlight); }
-:is(.tools, .sketch-variants) .icon-handle-fill { fill: var(--handle); }
-:is(.tools, .sketch-variants) .icon-handle-stroke { stroke: var(--handle); }
-:is(.tools, .sketch-variants) .icon-handle-detail { fill: var(--handle-edge); }
-:is(.tools, .sketch-variants) .icon-handle-edge { stroke: var(--handle-edge); }
-:is(.tools, .sketch-variants) .icon-surface-fill { fill: var(--surface); }
-:is(.tools, .sketch-variants) .icon-surface-stroke { stroke: var(--surface); }
-:is(.tools, .sketch-variants) .icon-solid-edge-fill { fill: var(--edge); }
-:is(.tools, .sketch-variants) .icon-solid-edge { stroke: var(--edge); }
-:is(.tools, .sketch-variants) .icon-foreground-fill { fill: var(--foreground); }
-:is(.tools, .sketch-variants) .icon-foreground { stroke: var(--foreground); }
-:is(.tools, .sketch-variants) .icon-preview-fill { fill: var(--preview); }
-:is(.tools, .sketch-variants) .icon-preview-stroke { stroke: var(--preview); }
-:is(.tools, .sketch-variants) .icon-current-fill { fill: currentColor; }
-:is(.tools, .sketch-variants) .icon-current-stroke { stroke: currentColor; }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-fill { fill: var(--sketch); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-profile-stroke { stroke: var(--sketch); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-edge { stroke: var(--sketch-edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-edge-fill { fill: var(--sketch-edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-construction { stroke: var(--construction-edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-construction-fill { fill: var(--construction-edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-point { fill: var(--geometry-selected); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-selection-fill { fill: var(--selection); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-selection-stroke { stroke: var(--selection); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-selection-detail { fill: var(--highlight); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-selection-edge { stroke: var(--highlight); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-handle-fill { fill: var(--handle); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-handle-stroke { stroke: var(--handle); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-handle-detail { fill: var(--handle-edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-handle-edge { stroke: var(--handle-edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-surface-fill { fill: var(--surface); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-surface-stroke { stroke: var(--surface); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-solid-edge-fill { fill: var(--edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-solid-edge { stroke: var(--edge); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-foreground-fill { fill: var(--foreground); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-foreground { stroke: var(--foreground); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-preview-fill { fill: var(--preview); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-preview-stroke { stroke: var(--preview); }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-current-fill { fill: currentColor; }
+:is(.tools, .sketch-variants, .sketch-tool-heading) .icon-current-stroke { stroke: currentColor; }
 .sketch-variants button[aria-pressed="true"] { background: var(--active-background); color: var(--on-accent); border-color: var(--accent-border); }
 #tool-panel .sketch-fields .check { display: flex; justify-content: flex-start; gap: 6px; }
 #tool-panel .sketch-fields output { display: block; font-size: 12px; margin: 6px 0; overflow-wrap: anywhere; }
@@ -707,40 +730,67 @@ dialog::backdrop {
 .sketch-popup { position: fixed; z-index: 50; display: grid; gap: 4px; max-width: 280px; max-height: 60vh; overflow: auto; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-background); color: var(--foreground); box-shadow: 0 3px 12px var(--shadow); }
 .sketch-popup form { display: grid; gap: 6px; }
 .sketch-popup input, .sketch-popup select { min-width: 0; padding: 4px 6px; }
-.sketch-dimension-input { padding: 4px; }
-.sketch-popup.sketch-dimension-input input { width: 12ch; min-height: 24px; height: 24px; padding: 2px 4px; border: 1px solid var(--field-border); border-radius: 2px; color: var(--foreground-strong); font-size: 12px; font-weight: 500; }
 .sketch-live-dimensions { position: absolute; inset: 0; pointer-events: none; }
 .sketch-cursor-symbol { position: fixed; z-index: 60; width: 16px; height: 16px; pointer-events: none; user-select: none; }
-.sketch-live-dimensions > input[id] { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: auto; width: 12ch; min-width: 0; min-height: 20px; height: 20px; padding: 1px 3px; border: 1px solid var(--field-border); border-radius: 2px; background: var(--field-background); color: var(--foreground-strong); font-size: 10px; font-weight: 500; }
+:is(.sketch-live-dimensions > input[id], .sketch-dimension-input) { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: auto; width: 12ch; min-width: 0; min-height: 20px; height: 20px; padding: 1px 3px; border: 1px solid var(--field-border); border-radius: 2px; background: var(--field-background); color: var(--foreground-strong); font-size: 10px; font-weight: 500; }
 
-.sketch-geometry-mode { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
-.sketch-option-section { margin: 12px 0; }
+.sketch-geometry-mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sketch-option-section { display: grid; grid-template-columns: 60px minmax(0, 1fr); align-items: center; gap: 8px; }
 .sketch-option-section > span, .sketch-geometry-mode > span { font-size: 12px; color: var(--foreground-muted); }
 .sketch-icon-options { display: flex; gap: 4px; margin-top: 4px; }
 .sketch-geometry-mode .sketch-icon-options { margin-top: 0; }
 .sketch-icon-options button { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; min-height: 28px; padding: 4px; background: var(--panel-background); color: var(--foreground-muted); border: 1px solid transparent; }
 .sketch-icon-options button:hover:not(:disabled) { background: var(--hover-background); }
 .sketch-icon-options button[aria-pressed="true"] { background: var(--active-background); color: var(--on-accent); border-color: var(--accent-border); }
-.sketch-option-icon { display: block; width: 18px; height: 18px; background: currentColor; mask: var(--icon) center / contain no-repeat; }
-#sketch-highlight [data-highlight="constrained"] { color: var(--constrained); }
-#sketch-highlight [data-highlight="partial"] { color: var(--partially-constrained); }
-#sketch-highlight [data-highlight="unconstrained"] { color: var(--unconstrained); }
-#tool-panel #sketch-status { padding: 6px 8px; border-radius: 3px; background: var(--hover-background); color: var(--foreground); }
+.sketch-option-icon { display: block; width: 16px; height: 16px; background: currentColor; mask: var(--icon) center / contain no-repeat; }
+#tool-panel #sketch-status { margin: 8px 0; color: var(--foreground); }
 
-.sketch-text-controls { display: grid; gap: 8px; min-width: 0; }
-.sketch-text-controls textarea { resize: vertical; min-height: 88px; width: 100%; box-sizing: border-box; font: inherit; color: var(--foreground); background: var(--field-background); border: 1px solid var(--border); border-radius: 4px; padding: 6px; }
-.sketch-font-heading, .sketch-font-style, .sketch-text-align { display: flex; gap: 6px; align-items: center; }
-.sketch-font-heading > label:first-child { margin-right: auto; }
-.sketch-font-heading button, .sketch-font-import { font-size: 11px; padding: 2px 4px; }
-.sketch-font-import { cursor: pointer; }
-.sketch-font-import input { display: none; }
-#sketch-font-help { width: 17px; height: 17px; padding: 0; border-radius: 50%; }
+.sketch-text-controls { display: grid; gap: 12px; min-width: 0; }
+.sketch-text-controls textarea { appearance: none; resize: vertical; height: 72px; min-height: 72px; width: 100%; box-sizing: border-box; font: 13px/20px var(--font-family); color: var(--foreground); background: var(--field-background); border: 1px solid var(--field-border); border-radius: 3px; padding: 5px 8px; }
+.sketch-font-heading, .sketch-font-style { display: flex; gap: 6px; align-items: center; }
+.sketch-font-heading { justify-content: space-between; }
+.sketch-font-heading > label:first-child { flex: 0 0 auto; }
+.sketch-font-heading button { display: inline-flex; align-items: center; justify-content: center; min-height: 24px; font-size: 12px; padding: 0 4px; color: var(--foreground-muted); }
+#sketch-font-access { font-size: 11px; line-height: 16px; color: var(--foreground-muted); overflow-wrap: anywhere; }
+#sketch-font-access button { display: inline; padding: 0; min-height: 0; border: 0; background: none; color: var(--foreground); font: inherit; text-decoration: underline; }
 #tool-panel #sketch-font-family { width: 100%; max-width: none; }
-.sketch-font-style > label { flex: 1; min-width: 0; }
-.sketch-text-align { justify-content: space-between; flex-wrap: wrap; }
-.sketch-text-controls .sketch-icon-options svg { width: 18px; height: 18px; display: block; }
+#tool-panel .sketch-font-style > select { flex: 1; min-width: 0; width: 0; max-width: none; }
+.sketch-font-style .sketch-icon-options { flex-shrink: 0; margin: 0; }
+.sketch-text-align { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 4fr); gap: 12px; }
+.sketch-text-align > div > span { font-size: 12px; color: var(--foreground-muted); }
+.sketch-text-controls .sketch-icon-options svg { width: 16px; height: 16px; display: block; }
+.sketch-text-controls .sketch-icon-options button:not([aria-pressed="true"]) { border-color: var(--field-border); color: var(--foreground); }
+.sketch-font-style .sketch-icon-options button { height: 32px; }
 
 #tool-panel .sketch-text-controls > label:first-child { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 4px; }
 #tool-panel .sketch-text-controls label { margin: 0; }
 
 .sketch-text-controls .icon-current-stroke { stroke: currentColor; }
+
+#tool-panel:has(.sketch-fields) { padding: 0; }
+#tool-panel:has(.sketch-fields) .tool-window-header { margin: 0; padding: 12px; }
+#tool-panel:has(.sketch-fields) > .actions { margin: 0; padding: 12px; border-top: 1px solid var(--border); }
+#tool-panel .sketch-fields { padding: 0; container-type: inline-size; }
+.sketch-state, .sketch-view-options { padding: 12px; background: var(--hover-background); }
+.sketch-state { border-block: 1px solid var(--border); }
+.sketch-view-options { border-top: 1px solid var(--border); display: grid; gap: 8px; }
+#sketch-workspace:has(> #sketch-config[hidden]) > .sketch-state { border-bottom: 0; }
+#sketch-config[hidden] + .sketch-view-options { border-top: 0; }
+#tool-panel .sketch-state .check { margin-bottom: 0; }
+#sketch-config { padding: 16px; }
+#sketch-support, #sketch-error { padding: 12px; }
+.sketch-tool-heading { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 14px; line-height: 24px; font-weight: 600; }
+#sketch-tool-icon { display: flex; }
+#sketch-tool-icon svg { width: 24px; height: 24px; }
+#sketch-tool-empty { margin: 0; }
+.sketch-option-section .sketch-icon-options { margin: 0; }
+.sketch-text-typography { display: grid; grid-template-columns: minmax(0, 1fr) 88px; gap: 12px; }
+.sketch-text-weight, #tool-panel .sketch-text-size { display: grid; align-content: start; gap: 4px; }
+.sketch-text-controls label { font-size: 12px; color: var(--foreground-muted); }
+.sketch-text-controls input, .sketch-text-controls textarea, .sketch-text-controls select { color: var(--foreground); font-size: 13px; line-height: 20px; }
+#tool-panel .sketch-text-size input { width: 100%; }
+@container (max-width: 320px) {
+  .sketch-option-section { grid-template-columns: 1fr; gap: 4px; }
+  .sketch-font-style { flex-wrap: wrap; }
+  #tool-panel .sketch-font-style > select { flex-basis: 100%; width: 100%; }
+}

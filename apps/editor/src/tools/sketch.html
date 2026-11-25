@@ -2,12 +2,16 @@
 <div class="tool-fields sketch-fields">
   <div id="sketch-support"><p>Choose a construction plane or a planar solid face</p></div>
   <div id="sketch-workspace" hidden>
-    <div class="sketch-variants" role="group" aria-label="Tool variants"></div>
-    <div class="sketch-geometry-mode"><span>Geometry</span><div class="sketch-icon-options" id="sketch-construction" role="group" aria-label="Geometry mode"></div></div>
-    <label class="check"><input id="sketch-auto" type="checkbox" checked /> Recompute automatically</label>
-    <button id="sketch-recompute" type="button" hidden>Recompute</button>
-    <output id="sketch-status" aria-live="polite"></output>
-    <div id="sketch-config">
+    <div class="sketch-state">
+      <div class="sketch-geometry-mode"><span>Geometry</span><div class="sketch-icon-options" id="sketch-construction" role="group" aria-label="Geometry mode"></div></div>
+      <output id="sketch-status" aria-live="polite"></output>
+      <label class="check"><input id="sketch-auto" type="checkbox" checked /> Recompute automatically</label>
+      <button id="sketch-recompute" type="button" hidden>Recompute</button>
+    </div>
+    <section id="sketch-config" aria-labelledby="sketch-tool-title" hidden>
+      <h3 class="sketch-tool-heading"><span id="sketch-tool-icon" aria-hidden="true"></span><span id="sketch-tool-title"></span></h3>
+      <div class="sketch-variants" role="group" aria-label="Tool variants"></div>
+      <p id="sketch-tool-empty" hidden>This tool has no configuration.</p>
       <label id="sketch-radius-label" for="sketch-radius" hidden>Radius</label>
       <label id="sketch-angle-label" for="sketch-angle" hidden>Angle</label>
       <label data-tools="offset">Distance <input id="sketch-offset" value="2" /></label>
@@ -19,20 +23,25 @@
       <button data-tools="move scale" id="sketch-pivot" type="button">Pick pivot</button>
       <label data-tools="spline" class="check"><input id="sketch-closed" type="checkbox" /> Closed</label>
       <div data-tools="text" class="sketch-text-controls">
-        <label>Text <textarea id="sketch-text" rows="5" spellcheck="false">Text</textarea></label>
-        <div class="sketch-font-heading"><label for="sketch-font-family">Font</label><button id="sketch-font-help" type="button" aria-label="Font access information" hidden>?</button><button id="sketch-local-fonts" type="button">Local fonts</button><label class="sketch-font-import" title="Import an OpenType/TrueType font">Import<input id="sketch-font" type="file" accept=".ttf,.otf,.ttc,.otc" /></label></div>
-        <select id="sketch-font-family" size="5" aria-label="Font family"></select>
-        <div class="sketch-font-style"><label>Weight <select id="sketch-weight"></select></label><div class="sketch-icon-options" id="sketch-font-styles" role="group" aria-label="Font style"></div></div>
-        <label>Size <input id="sketch-size" value="10" data-dimension="length" autocomplete="off" spellcheck="false" /></label>
-        <div class="sketch-text-align"><div class="sketch-icon-options" id="sketch-horizontal" role="group" aria-label="Horizontal alignment"></div><div class="sketch-icon-options" id="sketch-vertical" role="group" aria-label="Vertical alignment"></div></div>
+        <label>Content <textarea id="sketch-text" rows="3" spellcheck="false">Text</textarea></label>
+        <div class="sketch-font-heading"><label for="sketch-font-family">Font</label><button id="sketch-font-import" type="button" title="Import an OpenType/TrueType font">Import</button><input id="sketch-font" type="file" accept=".ttf,.otf,.ttc,.otc" hidden /></div>
+        <select id="sketch-font-family" aria-label="Font family"></select>
+        <div id="sketch-font-access" role="status" hidden><span id="sketch-font-message"></span> <button id="sketch-local-fonts" type="button" hidden>Allow now</button></div>
+        <div class="sketch-text-typography">
+          <div class="sketch-text-weight"><label for="sketch-weight">Weight</label><div class="sketch-font-style"><select id="sketch-weight"></select><div class="sketch-icon-options" id="sketch-font-styles" role="group" aria-label="Font style"></div></div></div>
+          <label class="sketch-text-size">Size <input id="sketch-size" value="10" data-dimension="length" autocomplete="off" spellcheck="false" /></label>
+        </div>
+        <div class="sketch-text-align"><div><span>Horizontal</span><div class="sketch-icon-options" id="sketch-horizontal" role="group" aria-label="Horizontal alignment"></div></div><div><span>Vertical</span><div class="sketch-icon-options" id="sketch-vertical" role="group" aria-label="Vertical alignment"></div></div></div>
         <div id="sketch-text-edit-actions" class="actions" hidden><button id="sketch-text-cancel" type="button">Cancel edit</button><button id="sketch-text-done" type="button">Done</button></div>
       </div>
       <button id="sketch-action" type="button" hidden>Apply</button>
+    </section>
+    <div class="sketch-view-options">
+      <div class="sketch-option-section"><span>Highlight</span><div class="sketch-icon-options" id="sketch-highlight" role="group" aria-label="Highlight"></div></div>
+      <div hidden><button id="sketch-repair-support" type="button">Change sketch plane</button><div id="sketch-projections"></div></div>
+      <div class="sketch-option-section"><span>Display</span><div class="sketch-icon-options" id="sketch-display-options" role="group" aria-label="Display"></div></div>
+      <div class="sketch-option-section"><span>Snap</span><div class="sketch-icon-options" id="sketch-snap-options" role="group" aria-label="Snap"></div></div>
     </div>
-    <div class="sketch-option-section"><span>Highlight</span><div class="sketch-icon-options" id="sketch-highlight" role="group" aria-label="Highlight"></div></div>
-    <div hidden><button id="sketch-repair-support" type="button">Change sketch plane</button><div id="sketch-projections"></div></div>
-    <div class="sketch-option-section"><span>Display</span><div class="sketch-icon-options" id="sketch-display-options" role="group" aria-label="Display"></div></div>
-    <div class="sketch-option-section"><span>Snap</span><div class="sketch-icon-options" id="sketch-snap-options" role="group" aria-label="Snap"></div></div>
   </div>
   <p class="field-error" id="sketch-error" role="alert" hidden></p>
 </div>

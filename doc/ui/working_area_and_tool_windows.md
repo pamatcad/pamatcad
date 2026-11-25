@@ -43,3 +43,13 @@ Formula and selection edits invalidate Apply immediately. Preview evaluation sta
 # Tool configuration windows
 
 Every tool configuration window should present all possible inputs and settings from the protocol definition. There may be additional styling and icons per user definition.
+
+Tool windows move by their header and resize from any edge or corner, within the viewport. The minimum requested size is 280 × 140 px, limited by the available viewport. Fields scroll while the header and action buttons remain visible. Arrow keys move the focused title or resize from the focused bottom-right grip in 10 px steps.
+
+The header collapse button uses the Navigator's icon and leaves only the header visible. Expanding restores the previous size. Each document retains its position, size, collapse state and draft inputs for the current session. Help → Reset UI clears these layout overrides for all open documents, restoring the default position, 280 px width, automatic height and expanded state without changing draft inputs.
+
+## Test cases
+
+- Move and resize Sketch and Extrude using the header, edges, corners and keyboard; keep windows within a resized viewport, with scrollable fields and visible actions. Release outside the window and cancel pointer gestures without leaving dragging active.
+- Collapse to the header, move while collapsed, expand, and switch documents; retain each document's layout and draft inputs, including sketch text and extrusion formulas.
+- Reset UI with active and inactive drafts, including a collapsed window; restore default layouts in every document and retain inputs, geometry and timeline. Reopening a tool in the same document retains its layout until reset.

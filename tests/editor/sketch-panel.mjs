@@ -90,6 +90,35 @@ export async function testSketchPanel(page) {
     await page.waitForFunction(() => !!window.panelCheck.tool.sketch && !document.querySelector("#apply").disabled);
     assert.equal(await page.locator("#sketch-recompute").isVisible(), false);
     assert.equal(await page.getByText("References", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("Sketch state", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("View & snapping", { exact: true }).count(), 0);
+    const toolChoices = {
+      point: [], line: [], rectangle: ["Two corners", "Three points", "Centered"],
+      circle: ["Center and radius", "Two points and radius", "Three points", "Two tangents and radius", "Three tangents"],
+      arc: ["Center, point and angle", "Three points"], ellipse: ["Center, width and height", "Rectangle"],
+      slot: ["Three points", "Center and line", "Center to center"], spline: ["Fit points", "Control points"], text: [],
+    };
+    for (const [tool, choices] of Object.entries(toolChoices)) {
+      await page.locator(`#sketch-ribbon [data-tool="${tool}"]`).click(); await idle();
+      assert.equal(await page.locator("#sketch-tool-title").textContent(), tool[0].toUpperCase() + tool.slice(1));
+      assert.ok(await page.locator("#sketch-tool-icon svg").isVisible(), tool + " has an icon");
+      assert.equal(await page.locator("#sketch-tool-empty").isVisible(), ["point", "line"].includes(tool));
+      if (choices.length) {
+        assert.deepEqual(await page.locator(".sketch-variants button").allInnerTexts(), choices);
+        assert.equal(await page.locator(".sketch-variants button svg").count(), choices.length, tool + " has an icon for every drawing mode");
+        for (const [index, name] of choices.entries()) {
+          await page.getByRole("group", { name: "Tool variants" }).getByRole("button", { name, exact: true }).click();
+          assert.equal(await page.evaluate(() => window.panelCheck.tool.variant), index);
+          assert.equal(await page.locator('.sketch-variants [aria-pressed="true"]').getAttribute("aria-label"), name);
+        }
+      } else assert.ok(await page.locator(".sketch-variants").isHidden());
+      if (tool === "spline") assert.ok(await page.getByLabel("Closed", { exact: true }).isVisible());
+    }
+    assert.equal(await page.locator("#sketch-tool-empty").textContent(), "This tool has no configuration.");
+    await page.locator('#sketch-ribbon [data-tool="text"]').click();
+    assert.ok(await page.locator("#sketch-config").isHidden(), "Selection mode has no active tool section");
+    assert.deepEqual(await page.evaluate(() => [getComputedStyle(document.querySelector(".sketch-state")).borderBottomWidth,
+      getComputedStyle(document.querySelector(".sketch-view-options")).borderTopWidth]), ["0px", "0px"], "Selection mode joins the shared groups without a separator");
     for (const [name, count] of [["Geometry mode", 2], ["Display", 6], ["Snap", 2], ["Highlight", 4]]) {
       const controls = page.getByRole("group", { name, exact: true }).getByRole("button");
       assert.equal(await controls.count(), count);
@@ -101,6 +130,8 @@ export async function testSketchPanel(page) {
     await construction.click();
     assert.equal(await construction.getAttribute("aria-pressed"), "true");
     await page.locator('#sketch-ribbon [data-tool="line"]').click();
+    assert.deepEqual(await page.evaluate(() => [getComputedStyle(document.querySelector(".sketch-state")).borderBottomWidth,
+      getComputedStyle(document.querySelector(".sketch-view-options")).borderTopWidth]), ["1px", "1px"], "An active tool restores the section boundaries");
     await page.mouse.click(...await screen([-15, -10, 0]));
     await page.mouse.click(...await screen([-5, -10, 0])); await idle();
     assert.ok(await page.evaluate(() => window.panelCheck.tool.state.entities.some(e => e.geometry.type === "line" && e.construction)));
@@ -131,12 +162,42 @@ export async function testSketchPanel(page) {
     await page.getByRole("button", { name: "Partially constrained geometry", exact: true }).click();
     assert.equal(await page.evaluate(() => window.panelCheck.tool.options.highlight), "partial");
     const controls = await page.locator(".sketch-icon-options button").evaluateAll(buttons => buttons.map(b => b.getAttribute("aria-pressed")));
+    await page.locator('#sketch-ribbon [data-tool="text"]').click();
+    await page.locator("#sketch-text").fill("Unfinished text"); await idle();
+    const geometry = await page.evaluate(() => JSON.stringify(window.panelCheck.tool.state));
+    await page.locator("#tool-panel h2").press("ArrowLeft");
+    const windowBefore = await page.locator("#tool-panel").boundingBox();
+    const grip = await page.locator('.tool-window-resize[data-edge="w"]').boundingBox();
+    await page.mouse.move(grip.x + 2, grip.y + 10); await page.mouse.down();
+    await page.mouse.move(grip.x - 158, grip.y + 10, { steps: 5 }); await page.mouse.up();
+    const windowResized = await page.locator("#tool-panel").boundingBox();
+    assert.equal(windowResized.width, windowBefore.width + 160);
+    await page.getByRole("button", { name: "Collapse tool window", exact: true }).click();
+    assert.ok((await page.locator("#tool-panel").boundingBox()).height < 60);
     const documentId = await page.locator('#document-tabs [aria-selected="true"]').getAttribute("data-document");
     await page.getByText("File", { exact: true }).click(); await page.locator("#menu-new").click();
     await page.waitForFunction(id => document.querySelector('#document-tabs [aria-selected="true"]').getAttribute("data-document") !== id && !document.querySelector("#menu-new").disabled, documentId);
     await page.locator(`#document-tabs [data-document="${documentId}"]`).click(); await idle();
+    assert.equal(await page.locator(".tool-window-toggle").getAttribute("aria-expanded"), "false");
+    await page.getByRole("button", { name: "Expand tool window", exact: true }).click();
+    assert.deepEqual(await page.locator("#tool-panel").boundingBox(), windowResized);
+    assert.equal(await page.locator("#sketch-text").inputValue(), "Unfinished text");
+    assert.equal(await page.evaluate(() => JSON.stringify(window.panelCheck.tool.state)), geometry, "Window changes preserve sketch geometry");
     assert.deepEqual(await page.locator(".sketch-icon-options button").evaluateAll(buttons => buttons.map(b => b.getAttribute("aria-pressed"))), controls);
     await page.screenshot({ path: "/private/tmp/pamatcad-sketch-panel.png" });
+    const corner = await page.locator('.tool-window-resize[data-edge="se"]').boundingBox();
+    await page.mouse.move(corner.x + 5, corner.y + 5); await page.mouse.down();
+    await page.mouse.move(1, 1, { steps: 5 }); await page.mouse.up();
+    const minimum = await page.locator("#tool-panel").boundingBox();
+    assert.equal(minimum.width, 280); assert.equal(minimum.height, 140);
+    const actions = await page.locator("#tool-window-actions").boundingBox();
+    assert.ok(actions.y + actions.height <= minimum.y + minimum.height, "Actions remain inside the minimum window");
+    await page.locator("#cancel").click();
+    await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+    await page.locator("#new-sketch").click();
+    await page.waitForFunction(() => !document.querySelector("#cancel").disabled);
+    assert.deepEqual(await page.locator("#tool-panel").boundingBox(), minimum, "Reopening retains the document layout");
+    assert.equal(await page.locator(".tool-window-header").count(), 1);
     await page.locator("#cancel").click();
     await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
     console.log("Sketch panel: plane hover, quadrant offsets, responsive sizing, palette, viewport selection, compact controls, construction conversion, recompute and tab preservation passed");

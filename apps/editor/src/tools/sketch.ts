@@ -7,7 +7,7 @@ import type { SelectionItem } from "../selection";
 import { unitScale } from "../formula-input";
 import type { ToolHandle } from "../tool-handles";
 const icons = import.meta.glob<string>("../icons/*.svg", { query: "?url", import: "default", eager: true });
-const variantIcons = import.meta.glob<string>("../icons/sketch-*-*.svg", { query: "?raw", import: "default", eager: true });
+const toolIcons = import.meta.glob<string>("../icons/sketch-*.svg", { query: "?raw", import: "default", eager: true });
 import { dimensionChoices, dimensionLayout, formatDimension, inferDimension } from "../sketch-dimensions";
 import { constraintSelection } from "./sketch-constraints";
 import { TextControls } from "./sketch-text";
@@ -46,7 +46,7 @@ export class SketchTool {
   private lifetime?: AbortController;
   private popup?: HTMLElement;
   private textControls: TextControls;
-  private editingText?: string;
+  private editingText?: string | null; // null is a newly placed, uncommitted text draft.
   private dragText?: { id: string; cursor: Point; origin: Point };
   private dirty = new Set<string>();
   private numericFields = new Map<string, { text: string; source: string; formula?: boolean }>();
@@ -99,7 +99,7 @@ export class SketchTool {
         !construction, () => {
           const selected = this.geometry();
           const texts = this.state?.texts.filter(t => this.selected.has(t.id)) ?? [];
-          if (this.editingText) {
+          if (this.editingText !== undefined) {
             this.constructionMode = construction;
             this.selectionChanged(); this.schedulePreview();
           } else if (texts.length) {
@@ -117,8 +117,8 @@ export class SketchTool {
     this.input("sketch-auto").onchange = () => this.run(() => this.sketch!.settings({ autoRecompute: this.input("sketch-auto").checked }));
     this.get("sketch-recompute").onclick = () => this.run(() => this.sketch!.recompute());
     for (const [value, label, icon] of [
-      ["none", "No highlight", "eye"], ["constrained", "Constrained geometry", "sketch-constraint-fix"],
-      ["partial", "Partially constrained geometry", "sketch-freedom-partial"], ["unconstrained", "Unconstrained geometry", "sketch-move"],
+      ["none", "No highlight", "sketch-highlight-none"], ["constrained", "Constrained geometry", "sketch-highlight-constrained"],
+      ["partial", "Partially constrained geometry", "sketch-freedom-partial"], ["unconstrained", "Unconstrained geometry", "sketch-highlight-unconstrained"],
     ] as const) {
       const button = option("sketch-highlight", label, icon, value === "none" ? "Show normal geometry colors" : "Highlight " + label.toLowerCase(), this.options.highlight === value, () => {
         this.options.highlight = this.options.highlight === value ? "none" : value;
@@ -127,8 +127,8 @@ export class SketchTool {
       });
       button.dataset.highlight = value;
     }
-    for (const [name, icon] of [["lines", "sketch-line"], ["points", "sketch-point"], ["constraints", "sketch-constraint-coincident"],
-      ["dimensions", "sketch-dimension"], ["construction", "sketch-construction"], ["projections", "sketch-project"]] as const) {
+    for (const [name, icon] of [["lines", "sketch-line"], ["points", "sketch-point"], ["constraints", "sketch-display-constraints"],
+      ["dimensions", "sketch-display-dimensions"], ["construction", "sketch-display-construction"], ["projections", "sketch-display-projections"]] as const) {
       option("sketch-display-options", "Show " + name, icon, "Show or hide " + name, this.options[name], button => {
         this.options[name] = !this.options[name];
         button.setAttribute("aria-pressed", String(this.options[name]));
@@ -159,10 +159,11 @@ export class SketchTool {
       this.changingSupport = true;
       this.supportChooser(true);
     };
-    this.textControls = new TextControls(this.panel, () => this.schedulePreview(), message => this.showError(message));
+    this.textControls = new TextControls(this.panel, this.scene,
+      () => { if (this.active) this.schedulePreview(); }, message => { if (this.active) this.showError(message); });
     this.get("sketch-text-cancel").onclick = () => this.choose("select");
     this.get("sketch-text-done").onclick = () => {
-      if (this.creating) return;
+      if (this.creating || !this.draftValid || this.pending) return;
       this.creating = true;
       void this.run(() => this.action()).finally(() => { this.creating = false; this.hooks.changed(this.pending); });
     };
@@ -309,6 +310,7 @@ export class SketchTool {
     const state = results[0].value, proxy = results[1].value;
     this.regionsPending = !regions;
     this.state = state;
+    this.textControls.remember(state.texts.map(text => text.parameters));
     this.proxy = proxy;
     if (!this.active) {
       return;
@@ -380,9 +382,11 @@ export class SketchTool {
   }
   choose(tool: SketchToolName, variant = 0) {
     const previous = this.tool;
+    const discardText = this.editingText !== undefined && !this.creating;
     this.editingText = undefined;
     this.dragText = undefined;
     this.get("sketch-text-edit-actions").hidden = true;
+    this.get("sketch-text-done").setAttribute("disabled", "");
     this.dragEntity = undefined;
     this.dragLine = undefined;
     this.dragQueued = undefined;
@@ -403,6 +407,10 @@ export class SketchTool {
     this.interaction++;
     this.previewQueued = false;
     this.popup?.remove();
+    this.get("sketch-config").hidden = tool === "select";
+    this.get("sketch-tool-title").textContent = title(tool);
+    this.get("sketch-tool-icon").innerHTML = toolIcons[`../icons/sketch-${tool}.svg`];
+    this.get("sketch-tool-empty").hidden = !["point", "line", "dimension", "project"].includes(tool);
     const group = this.find(".sketch-variants");
     group.replaceChildren();
     group.hidden = variants[tool].length < 2;
@@ -411,11 +419,13 @@ export class SketchTool {
       b.type = "button";
       b.title = name;
       b.setAttribute("aria-label", name);
-      if (["rectangle", "arc", "slot"].includes(tool)) {
+      const icon = toolIcons[`../icons/sketch-${tool}-${i}.svg`];
+      if (icon) {
         b.classList.add("sketch-variant-icon");
-        b.innerHTML = variantIcons[`../icons/sketch-${tool}-${i}.svg`];
+        b.innerHTML = icon;
         b.querySelector("svg")!.setAttribute("aria-hidden", "true");
-      } else b.textContent = name;
+      }
+      b.append(document.createTextNode(name));
       b.setAttribute("aria-pressed", String(i === variant));
       b.onclick = () => this.choose(tool, i);
       group.append(b);
@@ -447,11 +457,13 @@ export class SketchTool {
     this.handles();
     this.updateCursor();
     this.hooks.changed(this.pending);
+    if (discardText) void this.run(() => this.scene.discardPreview(), false, true);
+    if (tool === "text") this.textControls.activate();
     this.flushUpdates();
   }
   private updateCursor() {
     const symbol = !this.active || this.pickingSupport ? undefined : this.constraint ? "constraint-" + this.constraint : this.tool === "select" ? undefined : this.tool;
-    this.viewport.setSketchCursor(symbol, !editing.has(this.tool) && !this.editingText);
+    this.viewport.setSketchCursor(symbol, !editing.has(this.tool) && this.editingText === undefined);
   }
   constraintState(kind: ConstraintKind) {
     // Annotation selections are not constraint operands.
@@ -476,6 +488,7 @@ export class SketchTool {
     if (this.popup?.isConnected) {
       this.popup.remove();
       if (this.tool === "dimension") this.choose("select");
+      else this.updateDimensions();
       document.getElementById("model-canvas")!.focus();
       return;
     }
@@ -490,6 +503,7 @@ export class SketchTool {
     document.getElementById("model-canvas")!.focus();
   }
   private updateDimensions(primitive?: Primitive) {
+    if (this.popup instanceof HTMLInputElement && this.popup.isConnected) return;
     const visible = this.active && !editing.has(this.tool) && this.points.length > 0;
     this.liveDimensions.hidden = !visible;
     if (!visible || !this.state) {
@@ -572,7 +586,7 @@ export class SketchTool {
     });
   }
   click(hit: Hit) {
-    if (this.creating || this.editingText) return;
+    if (this.creating || this.editingText !== undefined) return;
     if (this.pending && editing.has(this.tool) && !this.constraint) {
       return;
     }
@@ -641,7 +655,7 @@ export class SketchTool {
           this.dimensionPosition = hit.point;
           this.display();
           const unit = this.scene.units[candidate.kind === "angle" ? "angle" : "length"];
-          this.dimensionFormula(hit.client, `${candidate.value / unitScale[unit]} ${unit}`, async value => {
+          this.dimensionFormula(dimensionLayout(this.state, candidate)!.label, `${candidate.value / unitScale[unit]} ${unit}`, async value => {
             await this.sketch!.dimensions.add(candidate.kind, { ...candidate.parameters, value });
             this.selected.clear();
             this.choose("dimension");
@@ -667,6 +681,14 @@ export class SketchTool {
       this.setNumericField("sketch-radius", radius / unitScale[this.scene.units.length]);
     }
     this.updateDimensions();
+    if (this.tool === "text") {
+      this.editingText = null;
+      this.selected.clear();
+      this.get("sketch-text-edit-actions").hidden = false;
+      this.updateCursor(); this.selectionChanged(); this.schedulePreview();
+      (this.get("sketch-text") as HTMLTextAreaElement).focus();
+      return;
+    }
     if (this.tool !== "spline" && this.points.length >= count) {
       this.creating = true;
       void this.run(() => this.create()).finally(() => {
@@ -684,7 +706,7 @@ export class SketchTool {
       this.display();
       return;
     }
-    if (!point || !this.sketch || editing.has(this.tool) || this.creating || this.editingText) {
+    if (!point || !this.sketch || editing.has(this.tool) || this.creating || this.editingText !== undefined) {
       return;
     }
     const count = drawingClicks(this.tool, this.variant);
@@ -725,6 +747,7 @@ export class SketchTool {
     }
   }
   private editText(id: string) {
+    if (this.editingText !== undefined) return;
     const text = this.state?.texts.find(t => t.id === id);
     if (!text) return;
     this.choose("text");
@@ -741,6 +764,7 @@ export class SketchTool {
     } else { this.input("sketch-size").value = source; }
     this.get("sketch-text-edit-actions").hidden = false;
     this.updateCursor(); this.selectionChanged();
+    this.schedulePreview();
     (this.get("sketch-text") as HTMLTextAreaElement).focus();
   }
   private pick(pick?: SketchPick, additive = false) {
@@ -845,6 +869,7 @@ export class SketchTool {
     this.version++;
     this.previewQueued = false;
     this.draftValid = false;
+    this.get("sketch-text-done").setAttribute("disabled", "");
     this.hooks.changed(this.pending);
     if (!this.sketch || editing.has(this.tool) && !["offset", "rounding", "scale", "move"].includes(this.tool) || !editing.has(this.tool) && !this.points.length || !this.active) {
       return;
@@ -855,7 +880,7 @@ export class SketchTool {
       this.showError("");
       return;
     }
-    if (!editing.has(this.tool) && this.points.length === 1 && !this.cursor && !this.dirty.size) return;
+    if (this.tool !== "text" && !editing.has(this.tool) && this.points.length === 1 && !this.cursor && !this.dirty.size) return;
     this.previewQueued = true;
     this.flushUpdates();
   }
@@ -910,6 +935,7 @@ export class SketchTool {
         this.display(state, proxy);
         const waitingForRadius = tool === "slot" && !this.cursor && this.points.length === 2 && !this.dirty.has("sketch-radius");
         this.draftValid = version === this.version && !waitingForRadius;
+        if (tool === "text") this.get("sketch-text-done").toggleAttribute("disabled", !this.draftValid);
         if (editing.has(tool)) this.get("sketch-action").toggleAttribute("disabled", !this.draftValid);
         if (version === this.version) this.showError("");
       }
@@ -1076,6 +1102,7 @@ export class SketchTool {
 
   private menuAt(client: Point) {
     this.popup?.remove();
+    this.updateDimensions();
     const menu = document.createElement("div");
     menu.className = "sketch-popup";
     menu.style.left = client[0] + "px";
@@ -1084,26 +1111,39 @@ export class SketchTool {
     this.popup = menu;
     return menu;
   }
-  private dimensionFormula(client: Point, formula: string, save: (value: string, changed: boolean) => Promise<void>) {
-    const menu = this.menuAt(client), form = document.createElement("form"), value = document.createElement("input");
-    menu.classList.add("sketch-dimension-input");
+  private dimensionFormula(at: Point, formula: string, save: (value: string, changed: boolean) => Promise<void>, dimension = "dimension-preview") {
+    this.popup?.remove();
+    const value = document.createElement("input"), canvas = document.getElementById("model-canvas")!;
+    value.className = "sketch-dimension-input";
     const initial = formatDimension(formula);
     value.value = initial;
-    const resize = () => { value.style.width = Math.min(26, Math.max(12, value.value.length + 2)) + "ch"; };
+    const frame = this.state!.frame;
+    const position = frame.origin.map((v, i) => v + frame.u[i] * at[0] + frame.v[i] * at[1]) as [number, number, number];
+    const resize = () => {
+      value.style.width = Math.min(26, Math.max(12, value.value.length + 2)) + "ch";
+      this.viewport.setSketchInputs([{ element: value, position, dimension }]);
+    };
     value.oninput = resize;
-    resize();
     value.setAttribute("aria-label", "Dimension formula");
     value.autocomplete = "off";
     value.spellcheck = false;
-    form.append(value);
-    form.onsubmit = e => {
+    value.onkeydown = e => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); this.escape(); return; }
+      if (e.key !== "Enter" || e.isComposing) return;
       e.preventDefault();
-      if (this.pending || !value.value.trim()) return;
+      e.stopPropagation();
+      if (e.repeat || this.pending || !value.value.trim()) return;
       const changed = value.value !== initial;
-      void this.run(async () => { await save(changed ? value.value : formula, changed); menu.remove(); document.getElementById("model-canvas")!.focus(); });
+      void this.run(async () => {
+        await save(changed ? value.value : formula, changed);
+        value.remove();
+        if (this.active) { this.updateDimensions(); canvas.focus(); }
+      });
     };
-    form.onkeydown = e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); this.escape(); } };
-    menu.append(form);
+    this.popup = value;
+    this.liveDimensions.hidden = true;
+    canvas.parentElement!.append(value);
+    resize();
     value.focus(); value.select();
   }
   private editDimension(id: string, client: Point, context = false) {
@@ -1113,7 +1153,8 @@ export class SketchTool {
     const source = typeof formula === "object" ? formula.expression : typeof formula === "number" ? `${formula} ${d.kind === "angle" ? "deg" : "mm"}` : formula ?? `${d.computed.value} ${d.computed.unit}`;
     if (!context) {
       if (d.parameters.mode === "driven") { this.hooks.status("This dimension measures the geometry. Right-click to make it driving."); return; }
-      this.dimensionFormula(client, source, async (value, changed) => { if (changed) await this.sketch!.dimensions.update(id, { value }); });
+      const layout = dimensionLayout(this.state!, d);
+      if (layout) this.dimensionFormula(layout.label, source, async (value, changed) => { if (changed) await this.sketch!.dimensions.update(id, { value }); }, id);
       return;
     }
     const menu = this.menuAt(client);
@@ -1234,7 +1275,7 @@ export class SketchTool {
       }
     }, { signal });
     document.addEventListener("keydown", e => {
-      if (e.defaultPrevented || e.target instanceof Element && e.target.closest("dialog, .sketch-popup")) {
+      if (e.defaultPrevented || e.target instanceof Element && e.target.closest("dialog, .sketch-popup, .sketch-dimension-input")) {
         return;
       }
       if (e.key.toLowerCase() === "d" && !e.ctrlKey && !e.metaKey && !e.altKey && !this.pickingSupport && !(e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]"))) {
@@ -1261,7 +1302,7 @@ export class SketchTool {
       const drawingOnCanvas = e.target === canvas && !editing.has(this.tool) && this.points.length > 0;
       if (e.key === "Enter" && (geometryInput || drawingOnCanvas)) {
         e.preventDefault();
-        if (!e.repeat && !this.creating && (editing.has(this.tool) || this.points.length)) {
+        if (this.tool !== "text" && !e.repeat && !this.creating && (editing.has(this.tool) || this.points.length)) {
           this.creating = true;
           void this.run(() => this.action()).finally(() => {
             this.creating = false;
@@ -1271,8 +1312,9 @@ export class SketchTool {
       }
     }, { signal });
     document.addEventListener("pointerdown", e => {
-      if (this.popup && !this.popup.contains(e.target as Node)) {
+      if (this.popup?.isConnected && !this.popup.contains(e.target as Node)) {
         this.popup.remove();
+        if (this.popup instanceof HTMLInputElement) this.updateDimensions();
       }
     }, { signal });
     canvas.addEventListener("pointerdown", e => {
@@ -1412,7 +1454,7 @@ export class SketchTool {
     this.flushUpdates();
   }
   async finish() {
-    if (this.editingText) throw new Error("Finish or cancel the text edit before finishing the sketch.");
+    if (this.editingText !== undefined) throw new Error("Finish or cancel the text edit before finishing the sketch.");
     if (this.points.length) throw new Error("Complete or cancel the current geometry before finishing the sketch.");
     if (this.dragEntity || this.annotationDrag || this.dragQueued) throw new Error("Finish the current drag before finishing the sketch.");
     this.version++;
@@ -1442,6 +1484,7 @@ export class SketchTool {
   }
   close() {
     this.suspend();
+    this.textControls.dispose();
     this.viewport.sketching(false);
     this.viewport.restoreView(this.previousView);
     this.hooks.visibility(false);

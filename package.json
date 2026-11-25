@@ -28,6 +28,7 @@
     "build:web": "npm run build:sdk && npm run build:wasm && npm run web -w @pamatcad/editor",
     "build:desktop": "npm run build:sdk && npm run desktop -w @pamatcad/editor",
     "dev:editor": "npm run dev -w @pamatcad/editor",
+    "dev:desktop": "npm run build:sdk && npm run desktop-ui -w @pamatcad/editor && npm exec -w @pamatcad/editor -- tauri dev",
     "test:editor:web": "node tests/editor/browser.mjs",
     "test:editor:desktop": "npm run desktop-ui -w @pamatcad/editor && cargo run --locked --release --manifest-path apps/editor/src-tauri/Cargo.toml --features editor-smoke"
   },

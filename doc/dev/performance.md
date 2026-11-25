@@ -18,6 +18,10 @@ A separate 10-slot scenario connects all radii with equality constraints to exer
 
 The text-creation scenario measures `PerformanceTest` (15 letters, bundled Roboto, 10 mm) in fresh scenes, recording creation, first proxy and repeated unchanged proxy separately under `creationResults`. Scene setup/cleanup and validation are outside the timed intervals. Solver profiling checks that dragging one of 100 independent slots reuses the other 99 components; connected slots remain one solve.
 
+The glyph-cache scenario creates `text so long and so on and so forth`, then changes it to `text so forth and so on and so long` at 10 mm. Both must retain 39 regions. Each performance scenario starts a fresh engine, including a separate WASM module instance: the first creation has a cold glyph cache; subsequent scenes reuse it. Reports distinguish first creation, warmed creation, content editing, and first/repeated full proxies. Native geometry profiling also records `glyphCacheHits`, `glyphCacheMisses` and `overlapGroups`; overlapping groups still undergo joint normalization. These scenarios remain opt-in.
+
+See the [glyph-cache measurements](performance-glyph-cache.md) for the controlled before/after comparison and validation results.
+
 JSON results are saved under `reports/performance/`; their paths are printed by the suite. Compare the same scenario, runtime, build and machine. There are no timing pass/fail thresholds yet; the suite checks that operations succeed, drag targets are reached and regions remain valid. Set explicit budgets when undertaking performance work, using these baselines. Do not silently update budgets to accept a regression.
 
 `--solver-profile` adds native slot-drag stage timings and component sizes to the report (first interaction, warm-ups, then samples). Diagnosis includes PlaneGCS initialization; solve includes applying its result. Jacobian and entity/total DOF are separate. Profiling is opt-in, adds measurement overhead, and excludes response serialization from the internal solver total. Direct native callers can enable the same JSON stderr events with `PAMATCAD_SKETCH_PROFILE=1`.

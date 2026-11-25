@@ -62,6 +62,8 @@ A tool window appears in the sketch mode, some of the interface is shared and so
 - Snap: caption and one row of icons for geometry snapping and grid snapping
 - Cancel sketch / Finish sketch
 
+Separate geometry/status, active-tool configuration and display options with full-width rules and subtle backgrounds, without captions for the two shared groups. The active tool has a title and outline icon; Point and Line show “This tool has no configuration.” Multi-mode geometry tools show every supported variant with an icon, visible name and selected state; dark orange dots mark picked points and dashed lines mark guides. Highlight, Display and Snap use compact outline icons. In selection mode, hide the tool section and the rule between the shared groups. Keep the sketch actions outside the scrolling fields.
+
 Highlight defaults to None. Choosing a category highlights matching geometry in the shared green color while other geometry keeps its normal colors. Constrained includes fixed geometry; orange selection takes priority. Clicking the active category again, or None, clears highlighting.
 
 Sketches are auto-named and can be renamed later. The tool window has no name field, help paragraph, or References section; retain the plane-change implementation for future use.
@@ -76,11 +78,15 @@ Icon selectors
 - Ellipse: center, width and height; rectangle
 - Slot: 3 point slot; center and line slot, center to center slot
 - Spline: fit point; control point
-- Text: multiline text area, font-family list, weight dropdown, Bold/Italic style icons, formula size with document units, and horizontal/vertical alignment icons. Bold stays synchronized with weight; unavailable font styles are disabled. Guideline selection is omitted from this panel.
+- Text: compact multiline text area, grouped font-family dropdown, weight dropdown, Bold/Italic style icons, formula size with document units, and labeled horizontal/vertical alignment groups. Keep text Done/Cancel actions inside this section. Bold stays synchronized with weight; unavailable font styles are disabled. Guideline selection is omitted from this panel.
 - Edit/Offset: 1 sided, 2 sided (symmetric or independent), 1 or 2 lengths accordingly
 - Edit/Rounding: one radius in the tool window for all selected geometry
 - Edit/Scale: one scale rate in the tool window, a draggable arrow in a viewpoint
 - Edit/Move: draggable arrows in a viewport (rotate and move), a button to select a pivot point and copy instead of move in the tool window
+
+### Panel checks
+
+Verify titles and loaded icons for all nine geometry tools; Point/Line empty states; every drawing variant's icon and selection state, including all three rectangle types; Spline's Closed setting; and Text's grouped font picker, permission/import controls and seven alignment options. Keep geometry creation, text placement/Done, document switching, panel resizing and collapse unchanged. At 280 px and wider, fields and icon rows fit without horizontal scrolling; section boundaries and titles follow the theme, with no separator between shared groups in selection mode. Text fields share the standard field border and the labeled alignment buttons have visible borders.
 
 ## Tool annotations
 
@@ -111,7 +117,7 @@ Projection is orthogonal along the sketch normal; selecting a face projects its 
 
 The Dimension tool (D) infers radius from a circle/arc, length from a line, distance from two points or a point and line, perpendicular distance from parallel lines, and angle from nonparallel lines. A driving parallel-line distance also maintains parallelism; removing it removes that equation. Cursor placement chooses the angle sector. Right-click offers other applicable measurements (diameter, horizontal/vertical distance, ellipse radii, orientation/span).
 
-Click to place the preview, enter a formula, and press Enter; Escape cancels. Dimensions show extension lines, arrows and values in the sketch. Drag their lines or labels to reposition annotations without changing geometry or DOF. Placement is stored in sketch coordinates and survives Finish/reopen; Cancel restores it. Double-click edits a driving formula; right-click handles naming and driving/driven mode.
+Click to place the preview, enter a formula, and press Enter; Escape cancels. Creation and double-click editing replace the dimension label with a standalone input, sharing live drawing input styling and following camera changes, without a surrounding popup. Closing the field restores the label; invalid formulas remain editable. Dimensions show extension lines, arrows and values in the sketch. Drag their lines or labels to reposition annotations without changing geometry or DOF. Placement is stored in sketch coordinates and survives Finish/reopen; Cancel restores it. Double-click edits a driving formula; right-click handles naming and driving/driven mode.
 
 Dimensions can be created during any drawing of a geometry, or later (by using dimension tool). Dimensions use the shared formula solver, that can compute lengths or reference other dimensions (like dimension133, by name, or from other sketch - sketch23dimension444, or sketches[main]dimension[width]). Dimensions can be removed at any time, double-clicking a dimension allows to change the value, and right-click allows to rename it via a popup menu.
 
@@ -129,6 +135,6 @@ Constrained and unconstrained sketches can be used in the same way be other tool
 
 Straight text has a construction rectangle with diagonals and a center point. Its typographic bounds include advances, spaces, ascenders, descenders, line spacing and empty lines. Corners, edges and center can be used for snapping and constraints. Text controls its size; constraints control placement and rotation. Helpers cannot be independently edited or removed until conversion. Text edits retain helper references and reject conflicting constraints atomically.
 
-Text remains an editable object: select it as a whole, double-click to edit its settings, and use the context menu to convert it to ordinary sketch geometry. Conversion preserves exact lines and curves, boundaries and region references. Non-construction text supplies regions before conversion, including glyph holes and disconnected characters. Outline points and curves cannot be edited independently until conversion. Size retains its formula and computed value; multiline layout uses font metrics.
+Text remains an editable object: select it as a whole, double-click to edit its settings, and use the context menu to convert it to ordinary sketch geometry. Clicking to place new text anchors a draft and opens its settings; only Done commits it. Cancel or Escape discards the draft, and Finish sketch remains unavailable until it is completed or cancelled. After Done, the text tool remains ready for another placement. Conversion preserves exact lines and curves, boundaries and region references. Non-construction text supplies regions before conversion, including glyph holes and disconnected characters. Outline points and curves cannot be edited independently until conversion. Size retains its formula and computed value; multiline layout uses font metrics.
 
-Roboto is the only bundled font. Native builds list installed fonts; supported browsers request local-font permission on explicit action. Otherwise show a small (?) beside the font list: “This browser does not support access to installed fonts. Use Chrome to select a local font.” Denied permission has its own explanation. Font-file import remains available. Use actual font faces/variation axes rather than simulated bold or italic; retain selected font bytes and collection index with editable text.
+Roboto is the only bundled font. Group the font list into Document (Roboto and the active document's imported/embedded fonts) and System (installed fonts available with access). Keep sources distinct when family names match. Place an Import button beside the Font caption. In supported browsers, activating Text requests font access directly from the user interaction; avoid repeated automatic requests after dismissal or denial, and retain Allow now for explicit retry. Below the list, show “No permission to access local fonts. Allow now” when permission is absent, with Allow now requesting access. When the API is unavailable, show “Accessing system fonts is not supported in <browser name>, use Chrome or import a font”. Native builds list installed fonts directly. Use actual font faces/variation axes rather than simulated bold or italic; retain selected font bytes and collection index with editable text.

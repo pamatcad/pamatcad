@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <title>Endpoints then arc point</title>
-  <path class="icon-fill" d="M4 24a12 16 0 0 1 24 0Z" fill="#c5ddf0"/><path class="icon-edge" d="M4 24a12 16 0 0 1 24 0" stroke="#6588a3"/><path class="icon-construction" d="M4 24h24" stroke="#81909b" stroke-dasharray="3 2"/>
-  <circle class="icon-point" cx="4" cy="24" r="2" fill="#dcb58c"/><circle class="icon-point" cx="28" cy="24" r="2" fill="#dcb58c"/><circle class="icon-point" cx="16" cy="8" r="2" fill="#dcb58c"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>Three points</title><path class="icon-edge" d="M4 24A12 16 0 0 1 28 24" stroke="#6588a3"/><path class="icon-construction" d="M4 24H28" stroke="#81909b" stroke-dasharray="2.5 2.5" stroke-width="1.2"/><circle class="icon-point" cx="4" cy="24" r="2" fill="#d55e00" stroke="none"/><circle class="icon-point" cx="28" cy="24" r="2" fill="#d55e00" stroke="none"/><circle class="icon-point" cx="16" cy="8" r="2" fill="#d55e00" stroke="none"/></svg>

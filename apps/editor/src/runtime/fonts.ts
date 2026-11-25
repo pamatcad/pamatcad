@@ -1,3 +1,4 @@
+import type { Scene } from "@pamatcad/sdk";
 export type FontFaceInfo = {
   id: string; family: string; style: string; weight: number; italic: boolean;
   weights?: number[]; variableItalic?: boolean; postscriptName?: string;
@@ -5,12 +6,25 @@ export type FontFaceInfo = {
 export type FontData = { fontBase64?: string; fontIndex?: number };
 type LocalFont = { family: string; style: string; postscriptName: string; blob(): Promise<Blob> };
 type FontWindow = Window & { queryLocalFonts?: () => Promise<LocalFont[]> };
-export const unsupportedFonts = "This browser does not support access to installed fonts. Use Chrome to select a local font.";
+export function unsupportedFonts() {
+  const agent = navigator.userAgent;
+  const browser = /Edg\//.test(agent) ? "Edge" : /OPR\//.test(agent) ? "Opera" : /Firefox\//.test(agent) ? "Firefox" : /Chrome\//.test(agent) ? "Chrome" : /Safari\//.test(agent) ? "Safari" : "this browser";
+  return `Accessing system fonts is not supported in ${browser}, use Chrome or import a font`;
+}
 export const bundledFont: FontFaceInfo = { id: "bundled:roboto", family: "Roboto", style: "Regular", weight: 400, italic: false, weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] };
-const faces = new Map<string, FontFaceInfo>([[bundledFont.id, bundledFont]]);
+const faces = new Map<string, FontFaceInfo>();
 const data = new Map<string, Promise<FontData>>();
 const browserFonts = new Map<string, LocalFont>();
-const storedFaces = new Map<string, FontFaceInfo>();
+type DocumentFonts = { faces: Map<string, FontFaceInfo>; data: Map<string, Promise<FontData>>; stored: Map<string, FontFaceInfo> };
+const documents = new WeakMap<Scene, DocumentFonts>();
+function documentFonts(scene: Scene) {
+  let catalog = documents.get(scene);
+  if (!catalog) {
+    catalog = { faces: new Map([[bundledFont.id, bundledFont]]), data: new Map(), stored: new Map() };
+    documents.set(scene, catalog);
+  }
+  return catalog;
+}
 let importedId = 0;
 
 export function encodeFont(bytes: Uint8Array) {
@@ -74,44 +88,52 @@ function nameWeight(style: string) {
 }
 export const fonts = {
   get supported() { return import.meta.env.MODE === "desktop" || typeof (window as FontWindow).queryLocalFonts === "function"; },
-  all: () => [...faces.values()],
+  all: (scene: Scene, source: "document" | "system") => [...(source === "document" ? documentFonts(scene).faces : faces).values()],
+  clearLocal() { faces.clear(); browserFonts.clear(); data.clear(); },
   async listLocal() {
     if (import.meta.env.MODE === "desktop") {
       const { invoke } = await import("@tauri-apps/api/core");
-      for (const face of await invoke<FontFaceInfo[]>("list_fonts")) faces.set("native:" + face.id, { ...face, id: "native:" + face.id });
+      const local = await invoke<FontFaceInfo[]>("list_fonts");
+      faces.clear();
+      for (const face of local) faces.set("native:" + face.id, { ...face, id: "native:" + face.id });
     } else {
       const query = (window as FontWindow).queryLocalFonts;
-      if (!query) throw new Error(unsupportedFonts);
+      if (!query) throw new Error(unsupportedFonts());
       // Call directly from the click handler, before any asynchronous work consumes activation.
       const local = await query.call(window);
+      faces.clear(); browserFonts.clear();
       for (const font of local) {
         const id = "local:" + font.postscriptName;
         browserFonts.set(id, font);
         faces.set(id, { id, family: font.family, style: font.style, postscriptName: font.postscriptName, weight: nameWeight(font.style), italic: /italic|oblique/i.test(font.style) });
       }
     }
-    return this.all();
+    return [...faces.values()];
   },
-  import(bytes: Uint8Array) {
+  import(scene: Scene, bytes: Uint8Array) {
+    const catalog = documentFonts(scene);
     const fontBase64 = encodeFont(bytes), imported = inspectFont(bytes).map(face => ({ ...face, id: "imported:" + ++importedId }));
-    for (const face of imported) { faces.set(face.id, face); data.set(face.id, Promise.resolve({ fontBase64, fontIndex: face.fontIndex })); storedFaces.set(face.fontIndex + ":" + fontBase64, face); }
+    for (const face of imported) { catalog.faces.set(face.id, face); catalog.data.set(face.id, Promise.resolve({ fontBase64, fontIndex: face.fontIndex })); catalog.stored.set(face.fontIndex + ":" + fontBase64, face); }
     return imported;
   },
-  restore(value: FontData, family = "Roboto") {
+  restore(scene: Scene, value: FontData, family = "Roboto") {
     if (!value.fontBase64) return bundledFont;
+    const catalog = documentFonts(scene);
     const key = (value.fontIndex ?? 0) + ":" + value.fontBase64;
-    const stored = storedFaces.get(key);
+    const stored = catalog.stored.get(key);
     if (stored) return stored;
     const bytes = decodeFont(value.fontBase64);
     const info = inspectFont(bytes).find(face => face.fontIndex === (value.fontIndex ?? 0));
     if (!info) throw new Error("Font face does not exist in the collection");
     // Match stored bytes rather than a family name, which may name a different installed font.
     const face = { ...info, family: info.family || family, id: "document:" + ++importedId };
-    faces.set(face.id, face); data.set(face.id, Promise.resolve(value)); storedFaces.set(key, face);
+    catalog.faces.set(face.id, face); catalog.data.set(face.id, Promise.resolve(value)); catalog.stored.set(key, face);
     return face;
   },
-  async load(id: string): Promise<FontData> {
+  async load(scene: Scene, id: string): Promise<FontData> {
     if (id === bundledFont.id) return {};
+    const stored = documentFonts(scene).data.get(id);
+    if (stored) return stored;
     let pending = data.get(id);
     if (!pending) {
       pending = (async () => {
@@ -128,7 +150,6 @@ export const fonts = {
         const info = id.startsWith("local:") ? metadata.find(face => face.postscriptName === faces.get(id)?.postscriptName) ?? (metadata.length === 1 ? metadata[0] : undefined) : metadata.find(face => face.fontIndex === result.fontIndex);
         if (!info) throw new Error("Selected font face was not found");
         Object.assign(faces.get(id)!, info);
-        storedFaces.set(info.fontIndex + ":" + result.fontBase64, faces.get(id)!);
         return { ...result, fontIndex: info.fontIndex };
       })();
       data.set(id, pending);

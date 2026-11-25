@@ -16,6 +16,7 @@ pub struct Engine {
     next_revision: u64,
     previews: BTreeMap<(u64, String), modeling::PreviewOverlay>,
     sketch_previews: BTreeMap<(u64, String), Sketch>,
+    glyph_cache: std::rc::Rc<std::cell::RefCell<crate::sketch::GlyphCache>>,
 }
 
 impl Engine {
@@ -112,7 +113,12 @@ impl Engine {
                     }
                     SketchSupport::Face(face) => self.face_frame(face)?,
                 };
-                let mut sketch = Sketch::new(self.id("sketch"), input.plane, frame);
+                let mut sketch = Sketch::new(
+                    self.id("sketch"),
+                    input.plane,
+                    frame,
+                    self.glyph_cache.clone(),
+                );
                 sketch.data.name = input.name;
                 self.validate_sketch_name(
                     &sketch.data.scene_id,

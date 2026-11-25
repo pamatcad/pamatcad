@@ -97,13 +97,46 @@ export async function testExtrudeEditor(browser, url) {
     assert.ok((await page.screenshot({ clip: cube })).equals(orientation), "Handle dragging must not orbit the camera");
     await page.locator("#camera-mode").click(); await page.getByRole("radio", { name: "Orthographic", exact: true }).click();
 
-    // Window position and scroll remain inside the viewport.
+    // Window layout changes retain the live extrusion draft.
     const title = await page.locator("#tool-panel h2").boundingBox();
     const before = await page.locator("#tool-panel").boundingBox();
+    const draftLength = await page.locator("#length").inputValue();
     await page.mouse.move(title.x + 20, title.y + 5); await page.mouse.down();
     await page.mouse.move(title.x - 180, title.y - 80, { steps: 5 }); await page.mouse.up();
+    const draggedWindow = await page.locator("#tool-panel").boundingBox();
+    assert.ok(draggedWindow.x < before.x && draggedWindow.y < before.y);
+    assert.equal(draggedWindow.height, before.height, "Moving preserves automatic height");
+    for (const [edge, dx, dy] of [["w", -30, 0], ["n", 0, 15], ["e", 30, 0], ["s", 0, -30],
+      ["nw", -20, -10], ["ne", 20, -10], ["sw", -20, -20], ["se", 20, -20]]) {
+      const old = await page.locator("#tool-panel").boundingBox();
+      const grip = await page.locator(`.tool-window-resize[data-edge="${edge}"]`).boundingBox();
+      await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2); await page.mouse.down();
+      await page.mouse.move(grip.x + grip.width / 2 + dx, grip.y + grip.height / 2 + dy, { steps: 4 }); await page.mouse.up();
+      const resized = await page.locator("#tool-panel").boundingBox();
+      assert.equal(resized.width, old.width + (edge.includes("w") ? -dx : dx), edge + " width");
+      assert.equal(resized.height, old.height + (edge.includes("n") ? -dy : dy), edge + " height");
+      assert.equal(resized.x, old.x + (edge.includes("w") ? dx : 0), edge + " opposite edge stays fixed");
+      assert.equal(resized.y, old.y + (edge.includes("n") ? dy : 0), edge + " opposite edge stays fixed");
+    }
+    const resizedWindow = await page.locator("#tool-panel").boundingBox();
+    await page.locator("#tool-panel h2").press("ArrowRight");
+    await page.locator('.tool-window-resize[data-edge="se"]').press("ArrowDown");
+    const expanded = await page.locator("#tool-panel").boundingBox();
+    assert.equal(expanded.x, resizedWindow.x + 10);
+    assert.equal(expanded.height, resizedWindow.height + 10);
+    await page.getByRole("button", { name: "Collapse tool window", exact: true }).click();
+    const collapsed = await page.locator("#tool-panel").boundingBox();
+    assert.equal(collapsed.width, expanded.width);
+    assert.ok(collapsed.height < 60, "Only the header remains");
+    assert.ok(await page.locator("#tool-window-fields").isHidden());
+    assert.ok(await page.locator("#apply").isHidden());
+    assert.equal(await page.locator(".tool-window-toggle").getAttribute("aria-expanded"), "false");
+    await page.locator("#tool-panel h2").press("ArrowLeft");
+    await page.getByRole("button", { name: "Expand tool window", exact: true }).click();
     const moved = await page.locator("#tool-panel").boundingBox();
-    assert.ok(moved.x < before.x && moved.y < before.y);
+    assert.equal(moved.x, expanded.x - 10);
+    assert.equal(moved.height, expanded.height);
+    assert.equal(await page.locator("#length").inputValue(), draftLength);
     await choose("extrude-start", "offset"); await page.locator("#offset").fill("-3 mm");
     await choose("extrude-type", "twoSides"); await page.locator("#length").fill("7"); await page.locator("#length2").fill("3");
     const draftId = await page.locator('#document-tabs [aria-selected="true"]').getAttribute("data-document");
@@ -115,6 +148,48 @@ export async function testExtrudeEditor(browser, url) {
     assert.equal(await page.locator("#length2").inputValue(), "3");
     const restored = await page.locator("#tool-panel").boundingBox();
     assert.equal(restored.x, moved.x); assert.equal(restored.y, moved.y);
+    assert.equal(restored.width, moved.width); assert.equal(restored.height, moved.height);
+    await page.setViewportSize({ width: 760, height: 530 });
+    await page.waitForFunction(() => {
+      const panel = document.querySelector("#tool-panel").getBoundingClientRect();
+      const view = document.querySelector("#viewport").getBoundingClientRect();
+      const actions = document.querySelector("#tool-window-actions").getBoundingClientRect();
+      return panel.x >= view.x && panel.y >= view.y && panel.right <= view.right && panel.bottom <= view.bottom &&
+        actions.top >= panel.top && actions.bottom <= panel.bottom;
+    });
+    assert.ok(await page.locator(".tool-fields").evaluate(el => el.scrollHeight > el.clientHeight));
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.waitForFunction(height => document.querySelector("#tool-panel").offsetHeight === height, moved.height);
+    const cancellation = await page.locator("#tool-panel h2").boundingBox();
+    await page.mouse.move(cancellation.x + 15, cancellation.y + 10); await page.mouse.down();
+    await page.mouse.move(cancellation.x - 20, cancellation.y + 10);
+    await page.locator("#tool-panel").dispatchEvent("pointercancel", { pointerId: 1 });
+    const cancelled = await page.locator("#tool-panel").boundingBox();
+    await page.mouse.move(cancellation.x - 60, cancellation.y + 10); await page.mouse.up();
+    assert.deepEqual(await page.locator("#tool-panel").boundingBox(), cancelled, "Cancellation ends dragging");
+
+    await page.getByRole("button", { name: "Collapse tool window", exact: true }).click();
+    await page.getByText("File", { exact: true }).click(); await page.locator("#menu-new").click();
+    await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+    await page.locator("#new-sketch").click();
+    await page.waitForFunction(() => !document.querySelector("#menu-reset-ui").disabled);
+    assert.equal((await page.locator("#tool-panel").boundingBox()).width, 280, "New document has default layout");
+    await page.locator("#tool-panel h2").press("ArrowLeft");
+    await page.locator('.tool-window-resize[data-edge="se"]').press("ArrowRight");
+    await page.getByRole("button", { name: "Collapse tool window", exact: true }).click();
+    await page.getByText("Help", { exact: true }).click(); await page.locator("#menu-reset-ui").click();
+    assert.equal((await page.locator("#tool-panel").boundingBox()).width, 280);
+    assert.ok(await page.locator("#cancel").isVisible(), "Reset expands the active draft");
+    await page.locator(`#document-tabs [data-document="${draftId}"]`).click(); await ready();
+    assert.equal(await page.locator("#offset").inputValue(), "-3 mm");
+    assert.equal(await page.locator("#length").inputValue(), "7");
+    assert.equal(await page.locator("#length2").inputValue(), "3");
+    assert.deepEqual(await page.locator("#tool-panel").evaluate(panel => [panel.style.left, panel.style.top, panel.style.width, panel.style.height]), ["", "", "", ""]);
+    assert.equal((await page.locator("#tool-panel").boundingBox()).width, 280, "Reset also clears the inactive draft layout");
+    assert.equal(await page.locator(".tool-window-toggle").getAttribute("aria-expanded"), "true");
+    assert.equal(await page.locator("#features li").count(), 1, "Layout changes preserve the original sketch timeline");
+    await page.locator("#toggle-output").click();
+    console.log("Tool windows: all resize edges, header movement, collapse, keyboard, viewport bounds, cancellation, document layouts and Reset UI passed");
     await apply();
     await volumes([1000]);
     const bounds = await run(`const p = await scene.getProxyFor((await scene.bodies.all())[0]); const z = [...p.positions].filter((_,i)=>i%3===2); return [Math.min(...z), Math.max(...z)];`);

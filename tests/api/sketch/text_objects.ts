@@ -4,6 +4,82 @@ import { readFile } from "node:fs/promises";
 import { startCore } from "../../support/core.js";
 import { near } from "../../support/extrude.js";
 
+test("glyph cache warmed by a discarded preview preserves geometry and entity identities", async t => {
+  const { scene, core } = await startCore(t, "glyph-cache-preview");
+  const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const parameters = { text: "oooooooooooooo", origin: [0, 0] as [number, number], size: 10 };
+  const initial = await sketch.state();
+  const cold = await sketch.primitives.add("text", parameters, { preview: true });
+  const coldState = await sketch.state({ preview: true });
+  const coldProxy = await sketch.getProxy({ preview: true });
+  assert.equal(coldProxy.regions.filter(r => r.holes.length === 1).length, 14);
+  await scene.discardPreview();
+  assert.deepEqual(await sketch.state(), initial);
+  const warm = await sketch.primitives.add("text", parameters);
+  assert.deepEqual(warm, cold);
+  assert.deepEqual(await sketch.state(), coldState);
+  assert.deepEqual(await sketch.getProxy(), coldProxy);
+  const other = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  await other.primitives.add("text", parameters);
+  assert.deepEqual((await other.state()).entities.map(e => [e.reference.id, e.geometry]), coldState.entities.map(e => [e.reference.id, e.geometry]));
+  await sketch.complete();
+  const feature = await core.solid.extrude(coldProxy.regions.filter(r => r.holes.length === 1).map(r => r.region), { length1: 1 });
+  const volumes = await Promise.all(feature.newSolids.map(async r => (await (await scene.bodies.get(r.id)).properties()).volume.value));
+  assert.equal(volumes.length, 14);
+  for (const volume of volumes) near(volume, volumes[0]!);
+});
+
+test("glyph cache distinguishes font outlines and sizes while reusing translated glyphs", async t => {
+  const { scene } = await startCore(t, "glyph-cache-keys");
+  const base = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  await base.primitives.add("text", { text: "B", origin: [0, 0], size: 10 });
+  const original = (await base.state()).entities.map(e => e.geometry);
+  const bold = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  await bold.primitives.add("text", { text: "B", origin: [0, 0], size: 10, weight: 700 });
+  assert.notDeepEqual((await bold.state()).entities.map(e => e.geometry), original);
+  const larger = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const largeText = await larger.primitives.add("text", { text: "B", origin: [30, 20], size: 20 });
+  assert.notDeepEqual((await larger.state()).entities.map(e => e.geometry), original);
+  const baseProxy = await base.getProxy(), largerProxy = await larger.getProxy();
+  const largePoints = largerProxy.curves.filter(c => !c.construction).flatMap(c => c.points);
+  const basePoints = baseProxy.curves.filter(c => !c.construction).flatMap(c => c.points);
+  near(Math.max(...largePoints.map(p => p[0])), 30 + 2 * Math.max(...basePoints.map(p => p[0])));
+  near(Math.max(...largePoints.map(p => p[1])), 20 + 2 * Math.max(...basePoints.map(p => p[1])));
+  // Force a content rebuild at the original size, rather than its affine fast path.
+  await larger.texts.update(largeText.id, { text: "BB", origin: [0, 0], size: 10 });
+  assert.equal((await larger.getProxy()).regions.filter(r => r.holes.length === 2).length, 2);
+  const imported = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const fontBase64 = (await readFile("native/sketch/fonts/Roboto.ttf")).toString("base64");
+  await imported.primitives.add("text", { text: "B", origin: [0, 0], size: 10, fontBase64 });
+  assert.deepEqual((await imported.state()).entities.map(e => e.geometry), original);
+});
+
+test("cached glyphs rotate onto a guideline and a different support without changing their exact profile", async t => {
+  const { scene, core } = await startCore(t, "glyph-cache-placement");
+  const base = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const original = await base.primitives.add("text", { text: "B", origin: [0, 0], size: 10 });
+  const baseState = await base.state();
+  const rotated = await scene.sketches.create(scene.construction.builtin.planes.xz);
+  const guide = await rotated.primitives.add("line", { from: [20, 30], to: [20, 130], construction: true });
+  const placed = await rotated.primitives.add("text", { text: "B", origin: [20, 30], size: 10, guide: guide.curves[0] });
+  const rotatedState = await rotated.state();
+  assert.equal(placed.points.length, original.points.length);
+  for (let i = 0; i < original.points.length; i++) {
+    const a = baseState.entities.find(e => e.reference.id === original.points[i]!.id)!.geometry;
+    const b = rotatedState.entities.find(e => e.reference.id === placed.points[i]!.id)!.geometry;
+    assert.equal(a.type, "point"); assert.equal(b.type, "point");
+    if (a.type !== "point" || b.type !== "point") assert.fail("Expected glyph control points");
+    near(b.position[0], 20 - a.position[1]); near(b.position[1], 30 + a.position[0]);
+  }
+  const proxy = await rotated.getProxy();
+  assert.ok(proxy.regions.every(r => r.boundary.every(p => Math.abs(p[1]) < 1e-7)));
+  const profile = proxy.regions.find(r => r.holes.length === 2)!;
+  assert.ok(profile);
+  await rotated.complete();
+  const feature = await core.solid.extrude(profile.region, { length1: 1 });
+  near((await (await scene.bodies.get(feature.newSolids[0]!.id)).properties()).volume.value, 18.545449994418085);
+});
+
 test("editable text previews and conversion preserve exact regions and glyph holes", async t => {
   const { core, scene } = await startCore(t, "editable-text");
   const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);

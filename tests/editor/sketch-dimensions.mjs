@@ -12,7 +12,7 @@ export async function testSketchDimensions(page) {
   });
   await page.evaluate(() => chooseSketchPlane("XY"));
   await page.waitForFunction(() => window.dimensionCheck?.tool.state && !window.dimensionCheck.tool.pending);
-  const idle = () => page.waitForFunction(() => !window.dimensionCheck.tool.pending && !window.dimensionCheck.tool.updateRunning && !window.dimensionCheck.tool.dragQueued);
+  const idle = () => page.waitForFunction(() => !window.dimensionCheck.tool.pending && !window.dimensionCheck.tool.updateRunning && !window.dimensionCheck.tool.dragQueued && !window.dimensionCheck.viewport.renderPending);
   const screen = xy => page.evaluate(xy => {
     const { tool, viewport } = window.dimensionCheck, frame = tool.state.frame;
     viewport.camera.updateMatrixWorld();
@@ -87,6 +87,11 @@ export async function testSketchDimensions(page) {
     assert.equal(await page.locator("#sketch-dimension-mode").count(), 0);
     await page.mouse.move(...await screen([-28, 13])); await page.mouse.click(...await screen([-28, 13]));
     const formula = page.getByRole("textbox", { name: "Dimension formula", exact: true });
+    await idle();
+    assert.equal(await page.locator(".sketch-popup").count(), 0, "Dimension creation uses a standalone input");
+    assert.ok(await formula.evaluate(input => input.parentElement === document.querySelector("#model-canvas").parentElement));
+    let bounds = await formula.boundingBox();
+    near([bounds.x + bounds.width / 2, bounds.y + bounds.height / 2], await screen([-28, 13]), 1);
     await formula.fill("20 / 2"); await formula.press("Enter"); await idle();
     const original = await page.evaluate(() => {
       const t = window.dimensionCheck.tool, d = t.state.dimensions[0];
@@ -126,8 +131,21 @@ export async function testSketchDimensions(page) {
     });
     await page.mouse.dblclick(...await screen(after.position));
     assert.equal(await formula.inputValue(), "12.3457 mm");
-    const fieldStyle = await formula.evaluate(input => ({ height: input.getBoundingClientRect().height, width: input.getBoundingClientRect().width, outline: getComputedStyle(input).outlineStyle, color: getComputedStyle(input).color }));
-    assert.equal(fieldStyle.height, 24); assert.ok(fieldStyle.width < 120); assert.equal(fieldStyle.outline, "none"); assert.equal(fieldStyle.color, "rgb(17, 17, 17)");
+    const fieldStyle = await formula.evaluate(input => ({ height: input.getBoundingClientRect().height, width: input.getBoundingClientRect().width, fontSize: getComputedStyle(input).fontSize, outline: getComputedStyle(input).outlineStyle, color: getComputedStyle(input).color }));
+    assert.equal(fieldStyle.height, 20); assert.ok(fieldStyle.width < 120); assert.equal(fieldStyle.fontSize, "10px"); assert.equal(fieldStyle.outline, "none"); assert.equal(fieldStyle.color, "rgb(17, 17, 17)");
+    assert.equal(await page.locator(".sketch-popup").count(), 0, "Dimension editing has no popup shell");
+    await idle();
+    bounds = await formula.boundingBox();
+    near([bounds.x + bounds.width / 2, bounds.y + bounds.height / 2], await screen(after.position), 1);
+    const view = await page.evaluate(() => window.dimensionCheck.viewport.captureView());
+    await page.evaluate(view => window.dimensionCheck.viewport.restoreView({ ...view, zoom: view.zoom * 1.2,
+      position: view.position.map((v, i) => v + (i === 0 ? -2 : 0)), target: view.target.map((v, i) => v + (i === 0 ? -2 : 0)) }), view);
+    await idle();
+    const transformed = await formula.boundingBox();
+    assert.notEqual(transformed.x, bounds.x, "Dimension input follows view movement");
+    near([transformed.x + transformed.width / 2, transformed.y + transformed.height / 2], await screen(after.position), 1);
+    assert.equal(await formula.inputValue(), "12.3457 mm");
+    await page.evaluate(view => window.dimensionCheck.viewport.restoreView(view), view); await idle();
     await page.screenshot({ path: "/private/tmp/pamatcad-dimension-edit.png" });
     await formula.press("Enter"); await idle();
     const unchanged = await page.evaluate(() => {
@@ -135,6 +153,16 @@ export async function testSketchDimensions(page) {
       return { dimension: t.state.dimensions[0], entities: t.state.entities, revision: String(t.state.revision), updates: window.dimensionCheck.annotations.length };
     });
     assert.deepEqual(unchanged, precise, "Accepting a rounded field must not update the formula or geometry");
+    await page.mouse.dblclick(...await screen(after.position));
+    await formula.fill("99 mm"); await formula.press("Escape"); await idle();
+    assert.equal(await formula.count(), 0);
+    assert.deepEqual(await page.evaluate(() => window.dimensionCheck.tool.state.dimensions[0]), precise.dimension, "Escape discards inline formula edits");
+    await page.mouse.dblclick(...await screen(after.position));
+    await formula.fill("2 deg"); await formula.press("Enter"); await idle();
+    assert.ok(await formula.isVisible(), "Invalid formulas remain editable");
+    assert.ok(await page.locator("#sketch-error").textContent());
+    assert.deepEqual(await page.evaluate(() => window.dimensionCheck.tool.state.dimensions[0]), precise.dimension);
+    await formula.press("Escape");
     await page.mouse.dblclick(...await screen(after.position));
     await formula.fill("12 mm"); await formula.press("Enter"); await idle();
     assert.equal(await page.evaluate(() => window.dimensionCheck.tool.state.dimensions[0].computed.value), 12);
@@ -153,6 +181,17 @@ export async function testSketchDimensions(page) {
     await page.mouse.click(...await screen(lengthPosition), { button: "right" });
     await page.getByRole("textbox", { name: "Dimension name" }).fill("width");
     await page.getByRole("button", { name: "Rename", exact: true }).click(); await idle();
+    await page.mouse.dblclick(...await screen(lengthPosition)); await idle();
+    assert.equal(await page.evaluate(() => {
+      const { tool, viewport } = window.dimensionCheck, id = tool.state.dimensions.at(-1).id;
+      return viewport.sketchDisplay.children.find(n => n.isSprite && n.userData.pick?.id === id).visible;
+    }), false, "The inline field replaces the named dimension label");
+    await page.screenshot({ path: "/private/tmp/pamatcad-dimension-named-edit.png" });
+    await formula.press("Escape"); await idle();
+    assert.equal(await page.evaluate(() => {
+      const { tool, viewport } = window.dimensionCheck, id = tool.state.dimensions.at(-1).id;
+      return viewport.sketchDisplay.children.find(n => n.isSprite && n.userData.pick?.id === id).visible;
+    }), true, "Closing the inline field restores the label");
     await page.mouse.click(...await screen(lengthPosition), { button: "right" });
     await page.getByRole("button", { name: "Make driven", exact: true }).click(); await idle();
     assert.equal(await page.evaluate(() => window.dimensionCheck.tool.state.dimensions.at(-1).parameters.mode), "driven");
@@ -175,11 +214,17 @@ export async function testSketchDimensions(page) {
     assert.ok(await page.evaluate(() => window.dimensionCheck.tool.state.dimensions.at(-1).parameters.line));
     await page.screenshot({ path: "/private/tmp/pamatcad-dimensions-all.png" });
 
-    // A dimension draft and popup never commit during document suspension.
+    // A dimension draft and inline input never commit during document suspension.
     const current = await page.locator('#document-tabs [aria-selected="true"]').getAttribute("data-document");
     const count = await page.evaluate(() => window.dimensionCheck.tool.state.dimensions.length);
     await page.keyboard.press("Escape"); await page.keyboard.press("d");
     await page.mouse.click(...await screen([8, 0])); await page.mouse.click(...await screen([6, -6]));
+    assert.ok(await formula.isVisible());
+    await formula.fill("99 mm"); await formula.press("Escape"); await idle();
+    assert.equal(await formula.count(), 0);
+    assert.equal(await page.evaluate(() => window.dimensionCheck.tool.state.dimensions.length), count, "Escape discards dimension creation");
+    await page.keyboard.press("d");
+    await page.mouse.click(...await screen([6, -6]));
     assert.ok(await formula.isVisible());
     await page.getByText("File", { exact: true }).click(); await page.locator("#menu-new").click();
     await page.waitForFunction(id => document.querySelector('#document-tabs [aria-selected="true"]')?.getAttribute("data-document") !== id, current);

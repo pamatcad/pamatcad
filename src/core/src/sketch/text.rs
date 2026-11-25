@@ -1,5 +1,8 @@
 use super::*;
+mod cache;
 use base64::Engine as _;
+pub(crate) use cache::GlyphCache;
+use cache::{normalize_glyphs, PlacedGlyph};
 use ttf_parser::OutlineBuilder;
 fn invalid(message: &str) -> CoreError {
     CoreError::new(ErrorCode::InvalidParameter, message)
@@ -300,6 +303,7 @@ impl Sketch {
         let mut points = vec![];
         let mut curves = vec![];
         let mut outlines = BTreeMap::new();
+        let mut placed = vec![];
         for (line_index, line) in lines.iter().enumerate() {
             let mut buffer = rustybuzz::UnicodeBuffer::new();
             buffer.push_str(line.trim_end_matches('\r'));
@@ -356,7 +360,11 @@ impl Sketch {
                 let outline = outlines.entry(info.glyph_id).or_insert_with(|| {
                     let mut outline = Outline::default();
                     face.outline_glyph(ttf_parser::GlyphId(info.glyph_id as u16), &mut outline);
-                    outline
+                    for point in outline.segments.iter_mut().flatten() {
+                        point[0] *= scale;
+                        point[1] *= scale;
+                    }
+                    Rc::new(outline)
                 });
                 let offset = [
                     x + position.x_offset as f64 * scale,
@@ -380,59 +388,26 @@ impl Sketch {
                 } else {
                     (p.origin, 0.)
                 };
-                for segment in &outline.segments {
-                    let positions = segment
-                        .iter()
-                        .map(|q| {
-                            let u = q[0] * scale + offset[0] - if guide.is_some() { x } else { 0. };
-                            let v = q[1] * scale + offset[1];
-                            [
-                                origin[0] + u * angle.cos() - v * angle.sin(),
-                                origin[1] + u * angle.sin() + v * angle.cos(),
-                            ]
-                        })
-                        .collect::<Vec<_>>();
-                    let primitive = if positions.len() == 2 {
-                        Primitive::Line(LineParameters {
-                            from: positions[0],
-                            to: positions[1],
-                            construction: p.construction,
-                        })
-                    } else {
-                        Primitive::Spline(SplineParameters {
-                            degree: Some(positions.len() - 1),
-                            points: positions,
-                            fit: false,
-                            closed: false,
-                            construction: p.construction,
-                        })
-                    };
-                    if let PrimitiveData::Geometry(data) = self.add_primitive(primitive)? {
-                        points.extend(data.points);
-                        curves.extend(data.curves);
-                    }
-                }
+                let u = offset[0] - if guide.is_some() { x } else { 0. };
+                let v = offset[1];
+                placed.push(PlacedGlyph {
+                    outline: outline.clone(),
+                    origin: [
+                        origin[0] + u * angle.cos() - v * angle.sin(),
+                        origin[1] + u * angle.sin() + v * angle.cos(),
+                    ],
+                    angle,
+                });
                 x += position.x_advance as f64 * scale;
             }
         }
         let outlines_ms = started.map(|t| t.elapsed().as_secs_f64() * 1000.);
-        if !curves.is_empty() {
-            let normalized = crate::kernel::sketch::modify(
-                self,
-                &curves.iter().map(|r| r.id.clone()).collect::<Vec<_>>(),
-                3,
-                0.,
-            )?;
-            for reference in points.iter().chain(&curves) {
-                self.entities.remove(&reference.id);
-            }
-            points.clear();
-            curves.clear();
-            for (_, kind, data) in normalized {
-                let geometry = self.import_curve(kind, &data)?;
-                points.extend(geometry.points);
-                curves.extend(geometry.curves);
-            }
+        let (normalized, cache_hits, cache_misses, overlap_groups) =
+            normalize_glyphs(&placed, &mut self.glyph_cache.borrow_mut())?;
+        for (kind, data) in normalized {
+            let geometry = self.import_curve(kind, &data)?;
+            points.extend(geometry.points);
+            curves.extend(geometry.curves);
         }
         let normalization_ms = started.map(|t| t.elapsed().as_secs_f64() * 1000.);
         for reference in points.iter().chain(&curves) {
@@ -481,7 +456,8 @@ impl Sketch {
                 serde_json::json!({"event":"sketch.text", "fontMs":font_ms.unwrap(),
                 "outlinesMs":outlines_ms.unwrap()-font_ms.unwrap(),
                 "normalizationMs":normalization_ms.unwrap()-outlines_ms.unwrap(),
-                "finalizeMs":t.elapsed().as_secs_f64()*1000.-normalization_ms.unwrap()})
+                "finalizeMs":t.elapsed().as_secs_f64()*1000.-normalization_ms.unwrap(),
+                "glyphCacheHits":cache_hits, "glyphCacheMisses":cache_misses, "overlapGroups":overlap_groups})
             );
         }
         Ok(geometry)

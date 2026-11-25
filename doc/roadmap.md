@@ -1,5 +1,16 @@
 # Roadmap
 
+## Sketch solver and proxy performance (deferred)
+
+Start with repeated dragging in the 100-slot scenario, measuring whole-sketch preparation, changed-component solving and degree-of-freedom (DOF) analysis separately. Use those measurements to choose the implementation order. Keep performance scenarios in the [opt-in suite](dev/performance.md).
+
+1. Retain the compiled equation graph between edits. Update parameter values during dragging; rebuild affected mappings, equations and component partitions when geometry, constraints or dependencies change.
+2. Reduce DOF-analysis overhead. Reuse buffers and structural information, and handle simple cases directly. Preserve detection of rank changes at singular configurations; do not blindly reuse previous DOF values.
+3. Reduce copying and allocation during live updates. Share immutable data and copy only modified state while preserving transactional edits and preview isolation. Include bookkeeping for fixed text outlines.
+4. Optimize large connected components. Profile PlaneGCS diagnosis separately from solving; investigate Jacobian sparsity and reusable solver preparation. Cover both independent slots and slots connected by constraints; component caching alone does not address one large connected system.
+
+Investigate full-region/proxy reconstruction separately. The measured text's first full proxy still took about 286 ms after glyph caching; faster solving alone will not remove that cost. See the [glyph-cache comparison](dev/performance-glyph-cache.md).
+
 ## M5 - web apps
 
 Goal: user should be able to take a save file and product a web app to configure a product

@@ -182,3 +182,56 @@ test("create a 15-letter text block and retrieve first and repeated proxies", as
   creationResults.push({ name: t.name, text: "PerformanceTest", size: 10, first, warmup, samples, timings, geometryProfiles });
   t.diagnostic(JSON.stringify({ runtime, timings }));
 });
+
+test("create and edit repeated glyphs with cold and warm caches", async t => {
+  const geometryProfiles: unknown[] | undefined = process.env.PAMATCAD_GEOMETRY_PROFILE ? [] : undefined;
+  const { core } = await startCore(t, t.name, "release", geometryProfiles && (line => {
+    try { const value = JSON.parse(line); if (["sketch.geometry", "sketch.text", "sketch.regions"].includes(value.event)) geometryProfiles.push(value); } catch { /* Other native diagnostics. */ }
+  }));
+  const text = "text so long and so on and so forth";
+  const editedText = "text so forth and so on and so long";
+  let regionCounts: number[] | undefined;
+  const interaction = async () => {
+    const scene = await core.scene.create(t.name);
+    try {
+      const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+      const a = performance.now();
+      const created = await sketch.primitives.add("text", { text, origin: [0, 0], size: 10 });
+      const b = performance.now();
+      const proxy = await sketch.getProxy();
+      const c = performance.now();
+      const repeated = await sketch.getProxy();
+      const d = performance.now();
+      await sketch.texts.update(created.id, { text: editedText });
+      const e = performance.now();
+      const edited = await sketch.getProxy();
+      const f = performance.now();
+      assert.deepEqual(repeated, proxy);
+      const counts = [proxy.regions.length, edited.regions.length];
+      assert.deepEqual(counts, [39, 39]);
+      regionCounts ??= counts;
+      assert.deepEqual(counts, regionCounts);
+      return { createMs: b - a, firstProxyMs: c - b, repeatedProxyMs: d - c, editMs: e - d, editedProxyMs: f - e };
+    } finally { await scene.close(); }
+  };
+  // The first creation uses a fresh engine; later scenes share its glyph cache.
+  const first = await interaction();
+  const warmup: typeof first[] = [], samples: typeof first[] = [];
+  for (let i = 0; i < warmupCount; i++) warmup.push(await interaction());
+  for (let i = 0; i < sampleCount; i++) samples.push(await interaction());
+  const timings = Object.fromEntries((Object.keys(first) as (keyof typeof first)[]).map(key => {
+    const sorted = samples.map(s => s[key]).sort((a, b) => a - b), middle = Math.floor(sorted.length / 2);
+    return [key, { medianMs: (sorted[middle - 1]! + sorted[middle]!) / 2, p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1]! }];
+  }));
+  if (geometryProfiles) {
+    const stages = () => geometryProfiles.filter(p => (p as { event: string }).event === "sketch.text") as { glyphCacheHits: number; glyphCacheMisses: number; overlapGroups: number }[];
+    for (let i = 0; stages().length < 2 * (1 + warmupCount + sampleCount) && i < 100; i++) await delay(10);
+    assert.equal(stages().length, 2 * (1 + warmupCount + sampleCount));
+    assert.equal(stages()[0]!.glyphCacheMisses, 13);
+    assert.equal(stages()[0]!.glyphCacheHits, 14);
+    assert.ok(stages().slice(1).every(p => p.glyphCacheMisses === 0 && p.glyphCacheHits === 27));
+    assert.ok(stages().every(p => p.overlapGroups === 0));
+  }
+  creationResults.push({ name: t.name, text, editedText, size: 10, regionCounts, firstCache: "cold", first, warmup, samples, timings, geometryProfiles });
+  t.diagnostic(JSON.stringify({ runtime, first, regionCounts, timings }));
+});

@@ -450,6 +450,64 @@ pub(crate) fn modify(
     value: f64,
 ) -> Result<Vec<(Option<String>, i32, Vec<f64>)>> {
     let (curves, data, _) = encode_curves(sketch, Some(ids))?;
+    Ok(
+        modify_encoded(sketch.frame, &curves, &data, operation, value)?
+            .into_iter()
+            .map(|(source, kind, data)| (ids.get(source).cloned(), kind, data))
+            .collect(),
+    )
+}
+
+// Font outlines are lines and quadratic/cubic Beziers. Normalize before creating
+// sketch entities so cache state cannot affect entity allocation.
+pub(crate) fn normalize_text(outlines: &[Vec<[f64; 2]>]) -> Result<Vec<(i32, Vec<f64>)>> {
+    let mut curves = Vec::with_capacity(outlines.len());
+    let mut data = vec![];
+    for segment in outlines {
+        let n = segment.len();
+        if !(2..=4).contains(&n) || segment.iter().flatten().any(|x| !x.is_finite()) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidParameter,
+                "Invalid glyph outline",
+            ));
+        }
+        let start = data.len();
+        if n > 2 {
+            data.extend([(n - 1) as f64, n as f64, 0., 0.]);
+        }
+        data.extend(segment.iter().flatten().copied());
+        if n > 2 {
+            data.extend(std::iter::repeat(0.).take(n));
+            data.extend(std::iter::repeat(1.).take(2 * n)); // end knots, then weights
+        }
+        curves.push(Curve {
+            kind: if n == 2 { 0 } else { 4 },
+            start,
+            count: data.len() - start,
+        });
+    }
+    if curves.is_empty() {
+        return Ok(vec![]);
+    }
+    Ok(modify_encoded(
+        crate::sketch::Frame::builtin(crate::protocol::Plane::Xy),
+        &curves,
+        &data,
+        3,
+        0.,
+    )?
+    .into_iter()
+    .map(|(_, kind, data)| (kind, data))
+    .collect())
+}
+
+fn modify_encoded(
+    frame: crate::sketch::Frame,
+    curves: &[Curve],
+    data: &[f64],
+    operation: i32,
+    value: f64,
+) -> Result<Vec<(usize, i32, Vec<f64>)>> {
     extern "C" fn receive(
         context: *mut c_void,
         source: usize,
@@ -464,13 +522,7 @@ pub(crate) fn modify(
             unsafe { std::slice::from_raw_parts(data, count) }.to_vec(),
         ));
     }
-    let frame = [
-        sketch.frame.origin,
-        sketch.frame.u,
-        sketch.frame.v,
-        sketch.frame.normal,
-    ]
-    .concat();
+    let frame = [frame.origin, frame.u, frame.v, frame.normal].concat();
     let mut output: Vec<(usize, i32, Vec<f64>)> = vec![];
     let mut error = [0; 1024];
     let status = unsafe {
@@ -495,10 +547,7 @@ pub(crate) fn modify(
                 .into_owned(),
         ));
     }
-    Ok(output
-        .into_iter()
-        .map(|(source, kind, data)| (ids.get(source).cloned(), kind, data))
-        .collect())
+    Ok(output)
 }
 
 fn encode_curves(

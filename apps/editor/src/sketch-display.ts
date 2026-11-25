@@ -21,7 +21,7 @@ export type SketchDisplayOptions = {
 export const sketchDisplayDefaults: SketchDisplayOptions = { lines: true, points: true, constraints: true, dimensions: true, construction: true, projections: true, highlight: "none" };
 const symbols: Record<string, string> = { coincident: "●", fix: "⊙", equal: "=", horizontal: "H", vertical: "V", parallel: "∥", perpendicular: "⊥", tangent: "T", concentric: "◎", midpoint: "M", symmetric: "↔", collinear: "—", pointOnCurve: "⊙" };
 export class SketchDisplay extends T.Group {
-  inputs: { element: HTMLElement; position: [number, number, number] }[] = [];
+  inputs: { element: HTMLElement; position: [number, number, number]; dimension?: string }[] = [];
   private labels: T.Sprite[] = [];
   private arrows: { line: T.LineSegments; tip: T.Vector3; direction: T.Vector3; normal: T.Vector3 }[] = [];
   private pointTexture: T.CanvasTexture;
@@ -238,6 +238,8 @@ export class SketchDisplay extends T.Group {
       placed.push({ x, y, w, h });
     }
     for (const label of this.labels) {
+      label.visible = label.userData.pick.kind !== "dimension" || !this.inputs.some(input => input.dimension === label.userData.pick.id);
+      if (!label.visible) continue;
       label.scale.set(label.userData.width * scale, label.userData.height * scale, 1);
       const projected = (label.userData.anchor as T.Vector3).clone().project(camera);
       const x = (projected.x + 1) * width / 2, y = (1 - projected.y) * height / 2;

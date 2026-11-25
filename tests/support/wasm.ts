@@ -12,9 +12,9 @@ type WasmModule = {
 };
 let loaded: Promise<WasmModule> | undefined;
 /** The API's sketch scenarios run unchanged against the production WASM dispatcher. */
-export async function startWasmCore(t: TestContext, sceneName: string) {
-  loaded ??= import(pathToFileURL(resolve("apps/editor/public/wasm/pamatcad.mjs")).href).then(m => m.default());
-  const wasm = await loaded;
+export async function startWasmCore(t: TestContext, sceneName: string, fresh = false) {
+  const load = () => import(pathToFileURL(resolve("apps/editor/public/wasm/pamatcad.mjs")).href).then(m => m.default());
+  const wasm: WasmModule = await (fresh ? load() : loaded ??= load());
   const transport: Transport = {
     async request<M extends Method>(method: M, params: Parameters<M>): Promise<Result<M>> {
       const input = wasm.stringToNewUTF8(JSON.stringify({ method, params }));

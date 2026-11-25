@@ -6,7 +6,7 @@ import { captureReportScene } from "./report.js";
 import { Core, type Scene } from "@pamatcad/sdk";
 
 export async function startCore(t: TestContext, sceneName: string, profile: "debug" | "release" = "debug", onDiagnostic?: (line: string) => void): Promise<{ core: Core; scene: Scene; url: string }> {
-  if (process.env.PAMATCAD_TEST_RUNTIME === "wasm") return (await import("./wasm.js")).startWasmCore(t, sceneName);
+  if (process.env.PAMATCAD_TEST_RUNTIME === "wasm") return (await import("./wasm.js")).startWasmCore(t, sceneName, profile === "release");
   const executable = resolve("target", profile, process.platform === "win32" ? "pamatcad.exe" : "pamatcad");
   const child = spawn(executable, ["serve", "--transport", "ws", "--listen", "127.0.0.1:0"], {
     stdio: ["ignore", "pipe", "pipe"],
