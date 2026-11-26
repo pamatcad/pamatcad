@@ -89,3 +89,102 @@ export async function testSketchSplines(page) {
   }catch(error){await page.screenshot({path:"/private/tmp/pamatcad-spline-failure.png"});throw error;}
   finally{await page.evaluate(()=>window.splineCheck.escape());await idle();await page.locator("#cancel").click();}
 }
+
+export async function testSplineCurveDragging(page) {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.addScriptTag({ path: "tests/editor/rectangle.js" });
+  for (const fit of [false, true]) for (const closed of [false, true]) {
+    await page.getByText("File", { exact: true }).click(); await page.locator("#menu-new").click();
+    await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+    await page.evaluate(async () => {
+      const { SketchTool } = await import("/src/tools/sketch.ts"), start = SketchTool.prototype.start;
+      SketchTool.prototype.start = function (...args) { window.splineDragCheck = { tool: this }; return start.apply(this, args); };
+      try { document.querySelector("#new-sketch").click(); } finally { SketchTool.prototype.start = start; }
+    });
+    await page.evaluate(() => chooseSketchPlane("XY"));
+    const idle = () => page.waitForFunction(() => {
+      const t = window.splineDragCheck.tool;
+      return t.state && !t.pending && !t.updateRunning && !t.dragQueued && !t.viewport.renderPending;
+    });
+    await idle();
+    try {
+      const setup = await page.evaluate(async ({ fit, closed }) => {
+        const check = window.splineDragCheck, t = check.tool, s = t.sketch;
+        const curve = await s.primitives.add("spline", { fit, closed, points: closed ? [[-20, -10], [0, -20], [20, -10], [12, 15], [-12, 15]] : [[-20, -5], [-10, 15], [10, -12], [20, 3]] });
+        const unrelated = await s.primitives.add("point", { position: [-30, 25] });
+        await t.reload(); t.choose("select"); t.viewport.span = 80; t.viewport.resize(); t.viewport.alignSketch();
+        const g = t.state.entities.find(e => e.reference.id === curve.id).geometry, spline = t.state.splines.find(s => s.curve.id === curve.id);
+        const ids = new Set([...g.points, ...spline.fitPoints.flatMap(n => [n.incoming, n.outgoing].filter(Boolean).map(r => r.id))]);
+        check.points = [...ids].map(id => t.state.entities.find(e => e.reference.id === id));
+        check.curve = curve; check.calls = []; check.original = s.drag.bind(s);
+        s.drag = async (...args) => {
+          check.calls.push(args);
+          const result = await check.original(...args);
+          if (check.holdNext) { check.holdNext = false; await new Promise(resolve => { check.release = resolve; }); }
+          return result;
+        };
+        return { curve, unrelated, state: t.state, points: check.points, view: t.viewport.captureView() };
+      }, { fit, closed });
+      const curvePoint = () => page.evaluate(() => {
+        const { tool: t, curve } = window.splineDragCheck, v = t.viewport;
+        v.renderFrame(); const r = v.host.getBoundingClientRect(), panel = document.querySelector("#tool-panel").getBoundingClientRect();
+        const points = t.proxy.curves.find(c => c.entity.id === curve.id).points;
+        const indices = points.map((_, i) => i).sort((a, b) => Math.abs(a - points.length / 2) - Math.abs(b - points.length / 2));
+        for (const i of indices) {
+          const p = v.camera.position.clone().fromArray(points[i]).project(v.camera);
+          const clientX = Math.round(r.x + (p.x + 1) * r.width / 2), clientY = Math.round(r.y + (1 - p.y) * r.height / 2);
+          if (clientX >= panel.left && clientX <= panel.right && clientY >= panel.top && clientY <= panel.bottom) continue;
+          if (clientY < r.top + 30 || clientY > r.bottom - 30 || clientX < r.left + 30 || clientX > r.right - 30) continue;
+          if (v.sketchPicks({ clientX, clientY })[0]?.id === curve.id) return [clientX, clientY];
+        }
+        throw new Error("No unobstructed spline curve sample");
+      });
+      let p = await curvePoint();
+      await page.mouse.click(...p); await idle();
+      assert.deepEqual(await page.evaluate(() => [...window.splineDragCheck.tool.selected]), [setup.curve.id]);
+      assert.equal(await page.evaluate(() => window.splineDragCheck.calls.length), 0);
+      assert.equal(await page.evaluate(() => window.splineDragCheck.tool.state.revision), setup.state.revision);
+      const delta = await page.evaluate(p => {
+        const v = window.splineDragCheck.tool.viewport, a = v.point({ clientX: p[0], clientY: p[1] }), b = v.point({ clientX: p[0] + 28, clientY: p[1] - 18 });
+        return [b[0] - a[0], b[1] - a[1]];
+      }, p);
+      await page.evaluate(() => { window.splineDragCheck.holdNext = true; });
+      await page.mouse.move(...p); await page.mouse.down();
+      const excluded = await page.evaluate(() => [...window.splineDragCheck.tool.dragExcluded]);
+      assert.ok(setup.points.every(point => excluded.includes(point.reference.id)), "All spline points and tangent tips are excluded from self-snapping");
+      await page.mouse.move(p[0] + 2, p[1] - 2);
+      await page.waitForFunction(() => !!window.splineDragCheck.release);
+      await page.mouse.move(p[0] + 28, p[1] - 18, { steps: 8 }); await page.mouse.up();
+      assert.equal(await page.evaluate(() => window.splineDragCheck.calls.length), 1);
+      assert.equal(await page.locator("#apply").isDisabled(), true);
+      await page.evaluate(() => window.splineDragCheck.release()); await idle();
+      const after = await page.evaluate(() => ({ state: window.splineDragCheck.tool.state, calls: window.splineDragCheck.calls, view: window.splineDragCheck.tool.viewport.captureView() }));
+      assert.equal(after.calls.length, 2, "Only the latest queued target survives release");
+      for (const point of setup.points) {
+        const actual = after.state.entities.find(e => e.reference.id === point.reference.id).geometry.position;
+        const expected = point.geometry.position.map((n, axis) => n + delta[axis]);
+        assert.ok(Math.hypot(actual[0] - expected[0], actual[1] - expected[1]) < 1e-6, `Whole ${fit ? "fit" : "control"} spline translates ${point.reference.id}`);
+      }
+      assert.deepEqual(after.state.splines, setup.state.splines); assert.deepEqual(after.state.constraints, setup.state.constraints);
+      assert.deepEqual(after.view, setup.view);
+      assert.deepEqual(after.state.entities.find(e => e.reference.id === setup.unrelated.points[0].id), setup.state.entities.find(e => e.reference.id === setup.unrelated.points[0].id));
+      assert.equal(await page.locator("#apply").isDisabled(), false);
+      await page.evaluate(async () => { const c = window.splineDragCheck; await c.original(...c.calls.at(-1)); await c.tool.reload(); });
+      assert.deepEqual(await page.evaluate(() => window.splineDragCheck.tool.state.entities), after.state.entities);
+      // A fixed node restricts the same whole-curve gesture, without disabling it.
+      const fixed = await page.evaluate(async () => {
+        const c = window.splineDragCheck, t = c.tool, ref = c.curve.points[0];
+        await t.sketch.constraints.add("fix", { points: [ref] }); await t.reload();
+        c.calls = []; return { ref, position: t.state.entities.find(e => e.reference.id === ref.id).geometry.position };
+      });
+      p = await curvePoint();
+      await page.mouse.move(...p); await page.mouse.down(); await page.mouse.move(p[0] + 12, p[1] - 10, { steps: 5 }); await page.mouse.up(); await idle();
+      const constrained = await page.evaluate(ref => ({ point: window.splineDragCheck.tool.state.entities.find(e => e.reference.id === ref.id).geometry.position,
+        calls: window.splineDragCheck.calls.length, error: document.querySelector("#sketch-error").textContent }), fixed.ref);
+      assert.deepEqual(constrained.point, fixed.position); assert.ok(constrained.calls > 0); assert.equal(constrained.error, "");
+      await page.screenshot({ path: `/private/tmp/pamatcad-${fit ? "fit" : "control"}-${closed ? "closed" : "open"}-spline-drag.png` });
+      await page.locator("#apply").click(); await page.waitForFunction(() => !document.querySelector("#new-sketch").disabled);
+    } finally { await page.evaluate(() => { if (window.splineDragCheck.release) window.splineDragCheck.release(); delete window.splineDragCheck; }); }
+  }
+  console.log("Whole spline dragging: fit/control, open/closed, real curve gestures, absolute queued/release targets, fixed nodes, self-snapping exclusions and camera preservation passed");
+}

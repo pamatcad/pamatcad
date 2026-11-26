@@ -36,6 +36,8 @@ Temporary cursor and position-preference equations use negative tags and `drivin
 
 Line dragging expands to two absolute endpoint targets in the same solver call. The adapter accepts multiple targets, canonicalizes coincident endpoints, and rejects conflicting targets for the same vertex. The editor retains the starting endpoints through the gesture instead of accumulating deltas between responses.
 
+Spline curve dragging reuses those multiple point goals for every defining point and tangent tip. The core validates the complete point set using the existing selected-geometry expansion; the editor retains the initial point positions. No new solver equations or persistent constraints are added.
+
 Circle/arc rim dragging adds temporary cursor variables and a point-on-circle equation. It first pins the center and arc endpoint angles, then falls back to the shared constrained drag solve. Arc center dragging prefers unchanged radius and sweep. Temporary variables/equations do not contribute to reported DOF or persistent constraints.
 
 `sketch-dimensions.ts` infers measurements and lays out annotations; the core remains authoritative on commit. `DimensionParameters.annotation.position` is sketch-local display metadata. Annotation-only updates bypass solving, geometry revisions and proxy invalidation. Two-line `angleBranch` fixes the chosen measurement sector independently of annotation position: for signed angle θ, direct/reversed/supplementary/reversedSupplementary measure θ, −θ, 180°−θ, and 180°+θ respectively.

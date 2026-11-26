@@ -30,6 +30,8 @@ Dragging excludes the moving point and its coincident partners from snap targets
 
 Dragging a line moves both endpoints together according to their constraints. Endpoint targets use the line and pointer positions at drag start; the endpoints and their coincident partners are excluded from snapping. Projected lines remain read-only.
 
+Dragging a fit-point or control-point spline curve moves all its defining points and tangent handles together. A free spline translates without changing shape; permanent constraints take priority and may limit or deform the movement. Compute absolute targets from the gesture's starting positions, exclude those points and their coincident partners from snapping, and retain the latest release target. Individual point/handle editing remains available; projected splines remain read-only.
+
 Dragging a circle rim or arc edge first resizes it with its center held; arcs also prefer unchanged endpoint angles. Dragging an arc center prefers translation with unchanged radius and sweep. Permanent constraints take priority over these temporary preferences. Projected geometry remains read-only.
 
 Drawing previews and dragging start immediately, with one update in flight and only the newest input waiting. Display completed previews during continued movement. Background updates keep the sketch ribbon usable; commits temporarily block it. Finish sketch stays disabled throughout unfinished drawing and dragging, including gaps between responses, until geometry is committed or cancelled and the last update settles. Finish does not add unfinished geometry. Completion uses the final input. Escape, tool changes, and document suspension invalidate pending previews.
@@ -48,7 +50,11 @@ Live drawing dimensions are standalone inputs without visible captions, surround
 
 Dimension labels and numeric edit fields show up to four decimal places, trimming trailing zeros. Compact fields and high-contrast numbers follow the shared palette. Formatting preserves formulas and the full stored precision when a value is accepted unchanged.
 
-A selection of a geometry highlights shared constraints (imagine three lines connected in sequence, if one selects a first and a second line, a coincident constraint should be highlighted near where lines meet).
+Selected geometry half-highlights every directly related constraint. Selecting a line also includes constraints on its endpoints; selecting a point does not inherit constraints on its owning curves. A selected constraint half-highlights its direct geometry. For Coincident and Point-on-curve, follow coincidence chains and include curves incident to those points and curves attached by Point-on-curve. Expansion stops at those curves. Half-selection is visual only: use a 50% blend of selection orange and the viewport background, 1.5 px lines and 10.5 px points. Explicit selection takes priority; commands and Delete use only explicitly selected items.
+
+In-sketch constraints reuse the ribbon SVGs and palette. Place Equal, Parallel and Collinear beside both participating curves. Line buckets sit beside the midpoint, perpendicular to the line; Equal on circles/arcs uses the full circle's screen upper-right bounds regardless of arc sweep. Midpoint and line Horizontal/Vertical use the line bucket. Perpendicular uses a shared endpoint's point bucket when present, otherwise both line buckets. Point-on-curve, Coincident, Concentric and Tangent use the associated point, common center or tangency point. Symmetry and two-point Horizontal/Vertical use both points. Fix uses the corresponding geometry bucket (a spline's curve midpoint).
+
+Point buckets sit screen upper-right and merge at coincident locations. Each bucket reserves a square grid with `ceil(sqrt(count))` columns and rows: 3 icons use 2×2, 5 use 3×3. Use 14 px icons, 3 px spacing and a 6 px offset from geometry. Keep ordering and local placement stable; nearby geometry and annotations must not displace buckets. Draw geometry and points above overlapping icons so intersections stay visible; retain overlap picking. Recalculate on geometry or view changes. Repeated markers retain one constraint identity for selection and deletion.
 
 If sketch creates a closed region, then this region should be highlighted.
 

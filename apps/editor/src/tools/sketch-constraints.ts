@@ -1,4 +1,4 @@
-import type { ConstraintKind, SketchEntity } from "@pamatcad/sdk";
+import type { ConstraintKind, SketchEntity, SketchState } from "@pamatcad/sdk";
 
 type Operand = "point" | "line" | "circular" | "conic";
 // Selection eligibility only; the core remains responsible for solving/validation.
@@ -35,4 +35,38 @@ export function constraintSelection(kind: ConstraintKind, entities: readonly Ske
     return true;
   });
   return matches.some(s => s.length === entities.length) ? "ready" : matches.length ? "incomplete" : "invalid";
+}
+
+/** Visual relationships only; these sets never become command operands. */
+export function constraintHighlights(state: SketchState, selected: ReadonlySet<string>) {
+  const geometry = new Set<string>(), constraints = new Set<string>();
+  const operands = new Set(selected), coincidentPoints = new Set<string>();
+  for (const e of state.entities) if (selected.has(e.reference.id) && e.geometry.type === "line") {
+    operands.add(e.geometry.from); operands.add(e.geometry.to);
+  }
+  for (const c of state.constraints) {
+    const points = c.parameters.points ?? [], curves = c.parameters.curves ?? [];
+    if ([...points, ...curves].some(r => operands.has(r.id))) constraints.add(c.id);
+    if (!selected.has(c.id)) continue;
+    for (const r of [...points, ...curves]) geometry.add(r.id);
+    if (c.kind === "coincident" || c.kind === "pointOnCurve") for (const p of points) coincidentPoints.add(p.id);
+  }
+  let previousSize = -1;
+  while (previousSize !== coincidentPoints.size) {
+    previousSize = coincidentPoints.size;
+    for (const c of state.constraints) if (c.kind === "coincident" && c.parameters.points?.some(p => coincidentPoints.has(p.id))) {
+      for (const p of c.parameters.points) coincidentPoints.add(p.id);
+    }
+  }
+  for (const p of coincidentPoints) geometry.add(p);
+  for (const c of state.constraints) if (c.kind === "pointOnCurve" && c.parameters.points?.some(p => coincidentPoints.has(p.id))) {
+    for (const r of c.parameters.curves ?? []) geometry.add(r.id);
+  }
+  for (const e of state.entities) {
+    const g = e.geometry;
+    const points = g.type === "line" ? [g.from, g.to] : g.type === "arc" ? [g.center, g.from, g.to]
+      : g.type === "spline" ? g.points : "center" in g ? [g.center] : [];
+    if (points.some(id => coincidentPoints.has(id))) geometry.add(e.reference.id);
+  }
+  return { geometry, constraints };
 }

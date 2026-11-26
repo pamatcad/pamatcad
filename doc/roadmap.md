@@ -51,6 +51,8 @@ Goal: establish branching timelines early
 - branching timeline, switching between branches
 - timeline recalculation, timeline dependencies, cached geometry and error state
 
+- themes
+- shift constraints
 - double-clin selection
 - undo/redo stack
 - setting: sketch-dimension-precision

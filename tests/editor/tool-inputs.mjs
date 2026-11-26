@@ -7,11 +7,11 @@ import { testNavigation } from "./navigation.mjs";
 import { testSketchDragging } from "./sketch-drag.mjs";
 import { testSketchUpdates } from "./sketch-updates.mjs";
 import { testSketchDimensions } from "./sketch-dimensions.mjs";
-import { testSketchAppearance } from "./sketch-appearance.mjs";
+import { testSketchAppearance, testConstraintMarkers, testConstraintRelations } from "./sketch-appearance.mjs";
 import { testSketchPanel } from "./sketch-panel.mjs";
 import { testSketchModes } from "./sketch-modes.mjs";
 import { testSketchText } from "./sketch-text.mjs";
-import { testSketchSplines } from "./sketch-splines.mjs";
+import { testSketchSplines, testSplineCurveDragging } from "./sketch-splines.mjs";
 
 const require = createRequire(new URL("../../apps/editor/package.json", import.meta.url));
 const { createServer } = await import(require.resolve("vite"));
@@ -67,6 +67,7 @@ export async function testToolInputs(browser) {
     await testSketchDrawingStages(page);
     await testSketchDrawingFixes(page);
     await testSketchSplines(page);
+    await testSplineCurveDragging(page);
     await testInteractiveUpdates(page, "/@fs" + resolve("sdk/javascript/dist/index.js"));
     await testNavigation(page);
     await testSketchDragging(page);
@@ -74,6 +75,8 @@ export async function testToolInputs(browser) {
     await testSketchPanel(page);
     await testSketchDimensions(page);
     await testSketchAppearance(page);
+    await testConstraintMarkers(page);
+    await testConstraintRelations(page);
     await testSketchModes(page);
     await testSketchText(page);
   } finally { await page.close(); await server.close(); }

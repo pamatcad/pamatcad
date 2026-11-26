@@ -1,6 +1,6 @@
 import type { CircleData, CircleParameters, RectangleData, RectangleParameters, SketchData, SketchRef, SketchSupport,
   TextUpdateParameters, SketchEntityRef, Primitive, GeometryData, ConstraintKind, ConstraintParameters, DimensionKind, DimensionParameters,
-  UpdateDimension, SketchSettings, ProjectionSource, TransformSketchGeometry, SketchCurveEdit, SketchProxy } from "./generated/protocol.js";
+  UpdateDimension, SketchSettings, ProjectionSource, TransformSketchGeometry, SketchCurveEdit, SketchProxy, DragSketchPointTarget } from "./generated/protocol.js";
 import type { Transport } from "./transport.js";
 
 type PrimitiveParameters<K extends Primitive["type"]> = Extract<Primitive, { type: K }>["parameters"];
@@ -91,9 +91,10 @@ export class Sketch<P extends SketchSupport = SketchSupport> {
   transform(options: Omit<TransformSketchGeometry, "sketch">) { return this.transport.request("sketch.transform", { sketch: this.reference, ...options }); }
   construction(entities: SketchEntityRef[], construction: boolean) { return this.transport.request("sketch.construction", { sketch: this.reference, entities, construction }); }
   remove(ids: string[]) { return this.transport.request("sketch.remove", { sketch: this.reference, ids }); }
-  drag(entity: SketchEntityRef, position: [number, number] | { from: [number, number]; to: [number, number] } | { position: [number, number] }) {
+  drag(entity: SketchEntityRef, position: [number, number] | { from: [number, number]; to: [number, number] } | { position: [number, number] } | { points: DragSketchPointTarget[] }) {
     return this.transport.request("sketch.drag", Array.isArray(position)
       ? { sketch: this.reference, point: entity, position }
+      : "points" in position ? { sketch: this.reference, spline: entity, points: position.points }
       : "position" in position ? { sketch: this.reference, curve: entity, position: position.position }
       : { sketch: this.reference, line: entity, ...position });
   }

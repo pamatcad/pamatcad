@@ -63,6 +63,7 @@ export class SketchTool {
   private dragEntity?: SketchEntityRef;
   private dragStart?: Point;
   private dragLine?: { cursor: Point; from: Point; to: Point };
+  private dragSpline?: { cursor: Point; points: { point: SketchEntityRef; position: Point }[] };
   private dragExcluded = new Set<string>();
   private dragPosition?: Point;
   private dragMoved = false;
@@ -391,6 +392,7 @@ export class SketchTool {
     this.get("sketch-text-done").setAttribute("disabled", "");
     this.dragEntity = undefined;
     this.dragLine = undefined;
+    this.dragSpline = undefined;
     this.dragQueued = undefined;
     this.annotationDrag = undefined;
     this.dimensionPosition = undefined;
@@ -572,9 +574,10 @@ export class SketchTool {
     const target = this.snapped(position, this.dragExcluded);
     if (this.dragPosition && distance(this.dragPosition, target) < 1e-12) return;
     this.dragPosition = target;
-    const line = this.dragLine;
-    const translated = (point: Point): Point => [point[0] + target[0] - line!.cursor[0], point[1] + target[1] - line!.cursor[1]];
-    this.dragQueued = { entity: this.dragEntity, position: this.dragText ? [this.dragText.origin[0] + target[0] - this.dragText.cursor[0], this.dragText.origin[1] + target[1] - this.dragText.cursor[1]] : line ? { from: translated(line.from), to: translated(line.to) } : this.dragCircle ? { position: target } : target };
+    const line = this.dragLine, spline = this.dragSpline;
+    const translated = (point: Point): Point => [point[0] + target[0] - (line ?? spline)!.cursor[0], point[1] + target[1] - (line ?? spline)!.cursor[1]];
+    this.dragQueued = { entity: this.dragEntity, position: this.dragText ? [this.dragText.origin[0] + target[0] - this.dragText.cursor[0], this.dragText.origin[1] + target[1] - this.dragText.cursor[1]] : line ? { from: translated(line.from), to: translated(line.to) }
+      : spline ? { points: spline.points.map(p => ({ point: p.point, position: translated(p.position) })) } : this.dragCircle ? { position: target } : target };
     this.flushUpdates();
   }
   private flushUpdates() {
@@ -1262,6 +1265,7 @@ export class SketchTool {
     this.updateCursor();
     this.dragEntity = undefined;
     this.dragLine = undefined;
+    this.dragSpline = undefined;
     this.dragQueued = undefined;
     this.handleVersion++;
     this.version++;
@@ -1430,7 +1434,7 @@ export class SketchTool {
       const entity = pick?.kind === "geometry" ? this.state?.entities.find(entity => entity.reference.id === pick.id) : undefined;
       const frameOwner = entity && this.state?.texts.find(t => Object.values(t.frame ?? {}).some(r => r.id === entity.reference.id));
       if (frameOwner && entity.reference.id !== frameOwner.frame!.center.id) return;
-      if (!entity || entity.projected || !["point", "line", "circle", "arc"].includes(entity.geometry.type)) {
+      if (!entity || entity.projected || !["point", "line", "circle", "arc", "spline"].includes(entity.geometry.type)) {
         return;
       }
       const cursor = this.viewport.point(e);
@@ -1443,8 +1447,14 @@ export class SketchTool {
       const geometry = entity.geometry;
       this.dragCircle = geometry.type === "circle" || geometry.type === "arc";
       this.dragLine = geometry.type === "line" ? { cursor, from: [...pointOf(this.state!, geometry.from)], to: [...pointOf(this.state!, geometry.to)] } : undefined;
+      this.dragSpline = undefined;
+      if (geometry.type === "spline") {
+        const spline = this.state!.splines.find(s => s.curve.id === entity.reference.id);
+        const ids = new Set([...geometry.points, ...spline?.fitPoints.flatMap(p => [p.incoming, p.outgoing].filter(r => !!r).map(r => r.id)) ?? []]);
+        this.dragSpline = { cursor, points: [...ids].map(id => ({ point: this.state!.entities.find(e => e.reference.id === id)!.reference, position: [...pointOf(this.state!, id)] })) };
+      }
       this.dragPosition = geometry.type === "point" ? geometry.position : cursor;
-      this.dragExcluded = new Set(geometry.type === "line" ? [geometry.from, geometry.to] : geometry.type === "arc" ? [geometry.center, geometry.from, geometry.to] : geometry.type === "circle" ? [geometry.center] : [entity.reference.id]);
+      this.dragExcluded = new Set(this.dragSpline ? this.dragSpline.points.map(p => p.point.id) : geometry.type === "line" ? [geometry.from, geometry.to] : geometry.type === "arc" ? [geometry.center, geometry.from, geometry.to] : geometry.type === "circle" ? [geometry.center] : [entity.reference.id]);
       if (frameOwner) for (const ref of [...Object.values(frameOwner.frame!), ...frameOwner.geometry.points, ...frameOwner.geometry.curves]) this.dragExcluded.add(ref.id);
       // Ignore the moving endpoints and their coincident partners, keeping other snap targets.
       let previousSize = 0;
@@ -1511,6 +1521,7 @@ export class SketchTool {
       this.dragEntity = undefined;
       this.dragText = undefined;
       this.dragLine = undefined;
+      this.dragSpline = undefined;
       if (join) {
         const to = join;
         void this.run(async () => {
@@ -1531,6 +1542,7 @@ export class SketchTool {
       this.dragEntity = undefined;
       this.dragText = undefined;
       this.dragLine = undefined;
+      this.dragSpline = undefined;
       this.dragStart = undefined;
       this.hooks.changed(this.pending);
       this.flushUpdates();
@@ -1568,6 +1580,7 @@ export class SketchTool {
   async cancel() {
     this.dragEntity = undefined;
     this.dragLine = undefined;
+    this.dragSpline = undefined;
     this.dragQueued = undefined;
     this.version++;
     this.interaction++;

@@ -589,6 +589,7 @@ impl Engine {
     ) -> Result<SketchState> {
         let (reference, entity) = match &input {
             DragSketchGeometry::Point(input) => (&input.sketch, &input.point),
+            DragSketchGeometry::Spline { sketch, spline, .. } => (sketch, spline),
             DragSketchGeometry::Line { sketch, line, .. } => (sketch, line),
             DragSketchGeometry::Circle { sketch, circle, .. } => (sketch, circle),
             DragSketchGeometry::Curve { sketch, curve, .. } => (sketch, curve),
@@ -608,6 +609,26 @@ impl Engine {
             return Err(invalid("Projected geometry is read-only"));
         }
         let mut targets = match (&input, &entity.geometry) {
+            (DragSketchGeometry::Spline { spline, points, .. }, SketchGeometry::Spline { .. }) => {
+                let mut expected: std::collections::BTreeSet<_> = sketch
+                    .selected_entities(std::slice::from_ref(spline))?
+                    .into_iter()
+                    .filter(|id| matches!(sketch.entities[id].geometry, SketchGeometry::Point { .. }))
+                    .collect();
+                let mut goals = Vec::with_capacity(points.len());
+                for target in points {
+                    sketch.check_reference(&target.point)?;
+                    if !expected.remove(&target.point.id) {
+                        return Err(invalid("Spline drag requires each defining point and tangent tip exactly once"));
+                    }
+                    goals.push(DragGoal::Point(target.point.id.clone(), target.position));
+                }
+                if !expected.is_empty() {
+                    return Err(invalid("Spline drag requires every defining point and tangent tip"));
+                }
+                goals
+            }
+            (DragSketchGeometry::Spline { .. }, _) => return Err(invalid("Select a spline to drag")),
             (DragSketchGeometry::Point(input), SketchGeometry::Point { .. }) => {
                 vec![DragGoal::Point(input.point.id.clone(), input.position)]
             }

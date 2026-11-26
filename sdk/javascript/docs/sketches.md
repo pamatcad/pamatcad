@@ -58,6 +58,8 @@ Use `remove(ids)`, `construction(refs, enabled)`, `drag(point, position)`, and `
 
 `drag(line, { from: [x1, y1], to: [x2, y2] })` supplies absolute targets for both line endpoints in one solve. Endpoint order follows `state().entities[].geometry.from/to`. Permanent constraints take priority; targets do not add constraints or change DOF. During a gesture, derive targets from the starting endpoints and the total pointer displacement. With manual recompute, both endpoint coordinates are updated without solving.
 
+`drag(spline, { points: [{ point: pointRef, position: [x, y] }, ...] })` moves a whole fit/control spline through one constrained solve. Supply every distinct `geometry.points` reference plus the spline's incoming/outgoing tangent tips exactly once; order is irrelevant. Capture their positions at gesture start and add total pointer displacement to obtain repeatable absolute targets. A free spline keeps its shape; permanent constraints may limit or deform the movement. Invalid/incomplete targets and projected splines are rejected atomically. Manual recompute updates all targets without solving.
+
 `drag(curve, { position: [x, y] })` accepts a circle or arc and targets a point on its circumference. It prefers resizing with the center and arc endpoint angles held, then moves them if needed and permitted by constraints. Drag an arc's center point to translate it while preferring unchanged radius and sweep. Manual rim dragging updates the radius and arc endpoints around the existing center.
 
 Dimensions accept `annotation: { position: [x, y] }` in sketch coordinates. Updating only this field does not solve or invalidate geometry/proxies:

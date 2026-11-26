@@ -310,7 +310,7 @@ export class Viewport {
   private sketchMode = false;
   pickVertices = false;
   private sketchFrame?: PlaneFrame;
-  private sketchDisplay = new SketchDisplay();
+  private sketchDisplay = new SketchDisplay(() => this.render());
   private sketchDisplayState?: [SketchState, SketchProxy, Set<string>, SketchDisplayOptions, string?];
   private selection: SelectionItem[] = [];
   private hover?: SelectionItem;

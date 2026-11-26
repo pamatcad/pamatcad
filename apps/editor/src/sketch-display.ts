@@ -3,7 +3,9 @@ import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import { dimensionLayout, formatDimension } from "./sketch-dimensions";
-import type { SketchProxy, SketchState } from "@pamatcad/sdk";
+import { constraintBuckets, constraintIconSize, layoutConstraintBuckets, type ConstraintBucket } from "./sketch-constraint-layout";
+import { constraintHighlights } from "./tools/sketch-constraints";
+import type { ConstraintKind, SketchProxy, SketchState } from "@pamatcad/sdk";
 import type { ThemeDefinition } from "./theme";
 export type SketchPick = {
   kind: "geometry" | "dimension" | "constraint" | "text";
@@ -19,13 +21,17 @@ export type SketchDisplayOptions = {
   highlight: "none" | "constrained" | "partial" | "unconstrained";
 };
 export const sketchDisplayDefaults: SketchDisplayOptions = { lines: true, points: true, constraints: true, dimensions: true, construction: true, projections: true, highlight: "none" };
-const symbols: Record<string, string> = { coincident: "●", fix: "⊙", equal: "=", horizontal: "H", vertical: "V", parallel: "∥", perpendicular: "⊥", tangent: "T", concentric: "◎", midpoint: "M", symmetric: "↔", collinear: "—", pointOnCurve: "⊙" };
+const constraintIcons = import.meta.glob<string>("./icons/sketch-constraint-*.svg", { query: "?raw", import: "default", eager: true });
 export class SketchDisplay extends T.Group {
   inputs: { element: HTMLElement; position: [number, number, number]; dimension?: string }[] = [];
   private labels: T.Sprite[] = [];
   private arrows: { line: T.LineSegments; tip: T.Vector3; direction: T.Vector3; normal: T.Vector3 }[] = [];
   private pointTexture: T.CanvasTexture;
-  constructor() {
+  private buckets: ConstraintBucket[] = [];
+  private constraintSprites = new Map<string, T.Sprite>();
+  private iconTextures = new Map<string, T.Texture>();
+  private iconTheme = "";
+  constructor(private invalidate: () => void = () => {}) {
     super();
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 32;
@@ -44,7 +50,7 @@ export class SketchDisplay extends T.Group {
         }
         const materials = Array.isArray(node.material) ? node.material : [node.material];
         for (const material of materials) {
-          if ("map" in material && material.map instanceof T.Texture && material.map !== this.pointTexture) {
+          if ("map" in material && material.map instanceof T.Texture && material.map !== this.pointTexture && ![...this.iconTextures.values()].includes(material.map)) {
             material.map.dispose();
           }
           material.dispose();
@@ -54,13 +60,17 @@ export class SketchDisplay extends T.Group {
     this.clear();
     this.labels = [];
     this.arrows = [];
+    this.buckets = [];
+    this.constraintSprites.clear();
   }
   set(state: SketchState, proxy: SketchProxy, selected: Set<string>, options: SketchDisplayOptions, theme: ThemeDefinition, hover?: string) {
     this.clearDisplay();
     const textOwners = new Map(state.texts.flatMap(t => [...t.geometry.points, ...t.geometry.curves].map(r => [r.id, t.id] as const)));
     selected = new Set([...selected, ...[...textOwners].filter(([, owner]) => selected.has(owner)).map(([id]) => id)]);
     for (const text of state.texts) if (selected.has(text.id)) for (const ref of Object.values(text.frame ?? {})) selected.add(ref.id);
-    const positions = new Map(proxy.points.map(p => [p.entity.id, new T.Vector3(...p.position)]));
+    const related = constraintHighlights(state, selected);
+    const relatedColor = "#" + new T.Color(theme.colors.geometrySelected).convertLinearToSRGB()
+      .lerp(new T.Color(theme.colors.background).convertLinearToSRGB(), 0.5).convertSRGBToLinear().getHexString();
     const entities = new Map(state.entities.map(e => [e.reference.id, e]));
     const linked = (id: string) => {
       const geometry = entities.get(id)?.geometry;
@@ -78,10 +88,6 @@ export class SketchDisplay extends T.Group {
       }
       return [geometry.center];
     };
-    const center = (id: string): T.Vector3 => {
-      const points = linked(id).map(id => positions.get(id)).filter((p): p is T.Vector3 => !!p);
-      return points.length ? points.reduce((sum, p) => sum.add(p), new T.Vector3()).multiplyScalar(1 / points.length) : new T.Vector3(...proxy.frame.origin);
-    };
     const fixed = new Set(state.constraints.filter(c => c.kind === "fix").flatMap(c =>
       [...(c.parameters.points ?? []), ...(c.parameters.curves ?? [])].flatMap(r => {
         const geometry = entities.get(r.id)?.geometry;
@@ -96,6 +102,7 @@ export class SketchDisplay extends T.Group {
       if (selected.has(id) || id === hover || textOwners.get(id) === hover && hover !== undefined) {
         return theme.colors.geometrySelected;
       }
+      if (related.geometry.has(id)) return relatedColor;
       if (projected) {
         return theme.colors.foregroundMuted;
       }
@@ -119,11 +126,11 @@ export class SketchDisplay extends T.Group {
         line.computeLineDistances();
         const owner = textOwners.get(curve.entity.id);
         line.userData.pick = owner ? { kind: "text", id: owner } : { kind: "geometry", id: curve.entity.id };
-        line.renderOrder = selected.has(curve.entity.id) ? 10.5 : 10;
+        line.renderOrder = selected.has(curve.entity.id) ? 10.5 : related.geometry.has(curve.entity.id) ? 10.25 : 10;
         this.add(line);
         const segments = curve.points.slice(1).flatMap((p, i) => [...curve.points[i], ...p]);
         const stroke = new LineSegments2(new LineSegmentsGeometry().setPositions(segments), new LineMaterial({
-          color: material.color, linewidth: selected.has(curve.entity.id) ? 2 : 1, worldUnits: false, depthTest: false, depthWrite: false, transparent: true,
+          color: material.color, linewidth: selected.has(curve.entity.id) ? 2 : related.geometry.has(curve.entity.id) ? 1.5 : 1, worldUnits: false, depthTest: false, depthWrite: false, transparent: true,
           toneMapped: false, dashed: curve.construction, dashSize: 1, gapSize: 0.7,
         }));
         stroke.computeLineDistances();
@@ -139,9 +146,9 @@ export class SketchDisplay extends T.Group {
         if (point.construction && !options.construction || point.projected && !options.projections) {
           continue;
         }
-        const marker = new T.Points(new T.BufferGeometry().setFromPoints([new T.Vector3(...point.position)]), new T.PointsMaterial({ color: color(point.entity.id, point.projected), size: selected.has(point.entity.id) ? 14 : 7, map: this.pointTexture, alphaTest: 0.4, sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true, toneMapped: false }));
+        const marker = new T.Points(new T.BufferGeometry().setFromPoints([new T.Vector3(...point.position)]), new T.PointsMaterial({ color: color(point.entity.id, point.projected), size: selected.has(point.entity.id) ? 14 : related.geometry.has(point.entity.id) ? 10.5 : 7, map: this.pointTexture, alphaTest: 0.4, sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true, toneMapped: false }));
         marker.userData.pick = { kind: "geometry", id: point.entity.id };
-        marker.renderOrder = selected.has(point.entity.id) ? 11.5 : 11;
+        marker.renderOrder = selected.has(point.entity.id) ? 11.5 : related.geometry.has(point.entity.id) ? 11.25 : 11;
         this.add(marker);
       }
     }
@@ -175,20 +182,40 @@ export class SketchDisplay extends T.Group {
       }
     }
     if (options.constraints) {
-      for (const constraint of state.constraints) {
-        if (constraint.id.endsWith("-fixed")) {
-          continue;
-        }
-        const references = [...(constraint.parameters.points ?? []), ...(constraint.parameters.curves ?? [])];
-        if (!references.length) {
-          continue;
-        }
-        const location = references.map(r => center(r.id)).reduce((sum, p) => sum.add(p), new T.Vector3()).multiplyScalar(1 / references.length);
-        location.addScaledVector(new T.Vector3(...proxy.frame.u), -1);
-        const shared = references.every(r => selected.has(r.id) || [...selected].some(id => linked(id).includes(r.id)));
-        this.label(symbols[constraint.kind] ?? constraint.kind, location, { kind: "constraint", id: constraint.id }, shared || selected.has(constraint.id) ? theme.colors.geometrySelected : theme.colors.foregroundMuted, theme);
+      this.buckets = constraintBuckets(state, proxy);
+      for (const bucket of this.buckets) for (const constraint of bucket.constraints) {
+        const color = selected.has(constraint.id) || constraint.id === hover ? theme.colors.geometrySelected
+          : related.constraints.has(constraint.id) ? relatedColor : undefined;
+        const texture = this.constraintTexture(constraint.kind, color, theme);
+        const sprite = new T.Sprite(new T.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false, transparent: true, toneMapped: false }));
+        sprite.userData.pick = { kind: "constraint", id: constraint.id };
+        sprite.userData.bucket = bucket.key;
+        sprite.userData.icon = constraint.kind;
+        sprite.renderOrder = 8.5;
+        this.constraintSprites.set(`${bucket.key}:${constraint.id}`, sprite);
+        this.add(sprite);
       }
     }
+  }
+  private constraintTexture(kind: ConstraintKind, emphasis: string | undefined, theme: ThemeDefinition): T.Texture {
+    const palette = [theme.colors.edge, theme.colors.constructionEdge, theme.colors.geometryHighlight, theme.colors.geometrySelected, theme.colors.background].join("|");
+    if (palette !== this.iconTheme) {
+      for (const texture of this.iconTextures.values()) texture.dispose();
+      this.iconTextures.clear(); this.iconTheme = palette;
+    }
+    const key = `${kind}:${emphasis ?? "normal"}`, cached = this.iconTextures.get(key);
+    if (cached) return cached;
+    const name = kind.replace(/[A-Z]/g, letter => "-" + letter.toLowerCase());
+    const source = constraintIcons[`./icons/sketch-constraint-${name}.svg`];
+    const color = emphasis ?? theme.colors.edge;
+    const style = `<style>.icon-solid-edge{stroke:${color}}.icon-solid-edge-fill{fill:${color}}.icon-construction{stroke:${emphasis ?? theme.colors.constructionEdge}}.icon-geometry-highlight{stroke:${emphasis ?? theme.colors.geometryHighlight}}</style>`;
+    const image = new Image(), texture = new T.Texture(image);
+    texture.colorSpace = T.SRGBColorSpace;
+    image.onload = () => { texture.needsUpdate = true; this.invalidate(); };
+    // Render the original editable SVG at 4× display resolution, including its fill/dash details.
+    image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source.replace("<svg ", '<svg width="72" height="72" ').replace(">", ">" + style));
+    this.iconTextures.set(key, texture);
+    return texture;
   }
   private label(text: string, position: T.Vector3, pick: SketchPick, color: string, theme: ThemeDefinition) {
     const canvas = document.createElement("canvas");
@@ -243,16 +270,19 @@ export class SketchDisplay extends T.Group {
       label.scale.set(label.userData.width * scale, label.userData.height * scale, 1);
       const projected = (label.userData.anchor as T.Vector3).clone().project(camera);
       const x = (projected.x + 1) * width / 2, y = (1 - projected.y) * height / 2;
-      let chosen = { x, y, w: label.userData.width + 6, h: label.userData.height + 4 };
-      for (let attempt = 0; attempt < (label.userData.pick.kind === "dimension" ? 1 : 24); attempt++) {
-        const offset = attempt === 0 ? 0 : Math.ceil(attempt / 2) * 24 * (attempt % 2 ? 1 : -1);
-        chosen = { ...chosen, y: y + offset };
-        if (!placed.some(p => Math.abs(p.x - chosen.x) < (p.w + chosen.w) / 2 && Math.abs(p.y - chosen.y) < (p.h + chosen.h) / 2)) {
-          break;
-        }
-      }
+      const chosen = { x, y, w: label.userData.width + 6, h: label.userData.height + 4 };
       placed.push(chosen);
       label.position.set(chosen.x / width * 2 - 1, 1 - chosen.y / height * 2, projected.z).unproject(camera);
+    }
+    for (const layout of layoutConstraintBuckets(this.buckets, camera, width, height)) {
+      for (const position of layout.positions) {
+        const sprite = this.constraintSprites.get(`${layout.bucket.key}:${position.constraint.id}`)!;
+        sprite.visible = Number.isFinite(position.x + position.y + position.z) && position.z >= -1 && position.z <= 1;
+        if (!sprite.visible) continue;
+        sprite.position.set(position.x / width * 2 - 1, 1 - position.y / height * 2, position.z).unproject(camera);
+        const pixel = new T.Vector3((position.x + 1) / width * 2 - 1, 1 - position.y / height * 2, position.z).unproject(camera).distanceTo(sprite.position);
+        sprite.scale.setScalar(constraintIconSize * pixel);
+      }
     }
   }
   picks(ray: T.Raycaster): SketchPick[] {
@@ -262,6 +292,7 @@ export class SketchDisplay extends T.Group {
       b.object.renderOrder - a.object.renderOrder || a.distance - b.distance);
     for (const hit of hits) {
       const pick = hit.object.userData.pick as SketchPick | undefined;
+      if (pick?.kind === "constraint" && !hit.object.visible) continue;
       if (pick && !result.some(p => p.id === pick.id && p.kind === pick.kind)) {
         result.push(pick);
       }

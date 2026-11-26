@@ -3,6 +3,10 @@ import { test } from "node:test";
 import type { SketchState } from "@pamatcad/sdk";
 import { startCore } from "../../support/core.js";
 import { near } from "../../support/extrude.js";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Core, WebSocketTransport, type Transport, type Method, type Parameters } from "@pamatcad/sdk";
 
 function pointsAt(state: SketchState, x: number, y: number) {
   return state.entities.filter(e => e.geometry.type === "point" &&
@@ -307,4 +311,180 @@ test("manual recompute updates both line endpoints without solving their coincid
   assert.equal(after.status.state, "stale");
   await sketch.recompute();
   assert.notEqual((await sketch.state()).status.state, "stale");
+});
+
+function splineTargets(state: SketchState, id: string, delta: [number, number]) {
+  const g = state.entities.find(e => e.reference.id === id)!.geometry;
+  assert.equal(g.type, "spline");
+  if (g.type !== "spline") throw new Error("Expected spline");
+  const ids = new Set(g.points);
+  for (const node of state.splines.find(s => s.curve.id === id)?.fitPoints ?? []) {
+    if (node.incoming) ids.add(node.incoming.id);
+    if (node.outgoing) ids.add(node.outgoing.id);
+  }
+  return { points: [...ids].map(id => ({ point: state.entities.find(e => e.reference.id === id)!.reference,
+    position: position(state, id).map((n, axis) => n + delta[axis]!) as [number, number] })) };
+}
+
+for (const fit of [false, true]) {
+  const kind = fit ? "fit" : "control";
+  test(`whole ${kind} spline drag translates its exact curve and handles with repeatable targets`, async t => {
+    const { scene } = await startCore(t, `drag-${kind}-spline`);
+    const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+    const curve = await s.primitives.add("spline", { points: [[-6, 1], [-2, 8], [5, -5], [10, 2]], fit });
+    if (fit) await s.splines.setHandleMode((await s.state()).splines[0]!.fitPoints[1]!.point, "independent");
+    const unrelated = await s.primitives.add("line", { from: [30, 30], to: [40, 35] });
+    const before = await s.state(), proxy = await s.getProxy({ regions: false }), targets = splineTargets(before, curve.id, [7, -3]);
+    const after = await s.drag(curve.curves[0]!, targets);
+    sameContract(before, after); assert.deepEqual(after.splines, before.splines);
+    assert.deepEqual(after.entities.filter(e => e.geometry.type !== "point"), before.entities.filter(e => e.geometry.type !== "point"));
+    for (const target of targets.points) { near(position(after, target.point.id)[0], target.position[0]); near(position(after, target.point.id)[1], target.position[1]); }
+    for (const ref of unrelated.points) assert.deepEqual(position(after, ref.id), position(before, ref.id));
+    const samples = (await s.getProxy({ regions: false })).curves.find(c => c.entity.id === curve.id)!.points;
+    const oldSamples = proxy.curves.find(c => c.entity.id === curve.id)!.points;
+    assert.equal(samples.length, oldSamples.length);
+    samples.forEach((p, i) => { near(p[0], oldSamples[i]![0] + 7); near(p[1], oldSamples[i]![1] - 3); near(p[2], oldSamples[i]![2]); });
+    const repeated = await s.drag(curve.curves[0]!, { points: [...targets.points].reverse() });
+    assert.deepEqual(repeated.entities, after.entities); sameContract(after, repeated);
+  });
+
+  test(`closed ${kind} spline drag preserves closure, extrusion and Finish/reopen`, async t => {
+    const { core, scene } = await startCore(t, `drag-closed-${kind}`);
+    const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+    const curve = await s.primitives.add("spline", { points: [[0, 0], [20, 0], [20, 15], [0, 15]], fit, closed: true });
+    await s.complete();
+    const feature = await core.solid.extrude(await s.regions.only(), { length1: 3 });
+    const body = await scene.bodies.get(feature.newSolids[0]!.id), volume = (await body.properties()).volume.value;
+    await s.edit(); const before = await s.state(), targets = splineTargets(before, curve.id, [12, -7]);
+    const after = await s.drag(curve.curves[0]!, targets); sameContract(before, after);
+    assert.deepEqual(after.splines, before.splines);
+    assert.deepEqual((await s.drag(curve.curves[0]!, targets)).entities, after.entities);
+    assert.equal((await s.getProxy()).regions.length, 1);
+    await s.complete(); near((await body.properties()).volume.value, volume);
+    await s.edit(); assert.deepEqual((await s.state()).entities, after.entities);
+  });
+
+  test(`whole ${kind} spline drag honors fixed nodes and retains unrelated geometry`, async t => {
+    const { scene } = await startCore(t, `drag-fixed-node-${kind}`);
+    const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+    const curve = await s.primitives.add("spline", { points: [[0, 0], [10, 8], [20, 0]], fit });
+    const unrelated = await s.primitives.add("point", { position: [40, 40] });
+    await s.constraints.add("fix", { points: [curve.points[0]!] });
+    if (fit) {
+      const state = await s.state(), node = state.splines[0]!.fitPoints[1]!;
+      const tip = position(state, node.incoming!.id), center = position(state, node.point.id);
+      await s.dimensions.add("distance", { points: [node.point, node.incoming!], value: Math.hypot(tip[0] - center[0], tip[1] - center[1]), mode: "driving" });
+    }
+    const before = await s.state(), targets = splineTargets(before, curve.id, [2, 3]);
+    const after = await s.drag(curve.curves[0]!, targets);
+    assert.deepEqual(position(after, curve.points[0]!.id), [0, 0]);
+    assert.deepEqual(position(after, unrelated.points[0]!.id), [40, 40]);
+    assert.deepEqual(after.constraints, before.constraints); assert.deepEqual(after.splines, before.splines);
+    assert.equal(after.status.degreesOfFreedom, before.status.degreesOfFreedom);
+    after.dimensions.forEach((d, i) => near(d.computed.value, before.dimensions[i]!.computed.value));
+    assert.ok(position(after, curve.points[1]!.id)[1] > 8);
+    const repeated = await s.drag(curve.curves[0]!, targets);
+    for (const p of targets.points) { near(position(repeated, p.point.id)[0], position(after, p.point.id)[0], 1e-6); near(position(repeated, p.point.id)[1], position(after, p.point.id)[1], 1e-6); }
+  });
+
+  test(`fixed ${kind} spline drag stays fixed and manual drag applies every absolute target`, async t => {
+    const { scene } = await startCore(t, `drag-manual-${kind}`);
+    const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+    const curve = await s.primitives.add("spline", { points: [[0, 0], [10, 8], [20, 0]], fit });
+    const points = splineTargets(await s.state(), curve.id, [0, 0]).points.map(p => p.point);
+    await s.constraints.add("fix", { points });
+    const before = await s.state(), targets = splineTargets(before, curve.id, [4, 6]);
+    const fixed = await s.drag(curve.curves[0]!, targets); assert.deepEqual(fixed.entities, before.entities); sameContract(before, fixed);
+    await s.settings({ autoRecompute: false });
+    const manual = await s.drag(curve.curves[0]!, targets);
+    assert.equal(manual.status.state, "stale");
+    for (const target of targets.points) assert.deepEqual(position(manual, target.point.id), target.position);
+    assert.deepEqual(manual.constraints, before.constraints); assert.deepEqual(manual.splines, before.splines);
+    assert.deepEqual((await s.drag(curve.curves[0]!, targets)).entities, manual.entities);
+  });
+}
+
+test("whole spline drag retains shared endpoints and connected curve identities", async t => {
+  const { scene } = await startCore(t, "drag-joined-splines");
+  const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const a = await s.primitives.add("spline", { points: [[0, 0], [10, 8], [20, 0]], fit: true });
+  const b = await s.primitives.add("spline", { points: [[20, 0], [30, 0], [40, 0]] });
+  await s.splines.join({ from: a.points[2]!, to: b.points[0]! });
+  const before = await s.state(), targets = splineTargets(before, a.id, [2, 3]);
+  const after = await s.drag(a.curves[0]!, targets);
+  assert.deepEqual(after.splines, before.splines); assert.deepEqual(after.constraints, before.constraints);
+  assert.deepEqual(position(after, b.points[0]!.id), [22, 3]);
+  for (const ref of b.points.slice(1)) assert.deepEqual(position(after, ref.id), position(before, ref.id));
+  assert.equal(after.entities.find(e => e.reference.id === a.id)!.geometry.type, "spline");
+  assert.deepEqual((await s.drag(a.curves[0]!, targets)).entities, after.entities);
+});
+
+test("whole spline drag rejects incomplete, duplicate, foreign and nonfinite targets atomically", async t => {
+  const { scene } = await startCore(t, "drag-spline-invalid");
+  const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const curve = await s.primitives.add("spline", { points: [[0, 0], [10, 8], [20, 0]], fit: true });
+  const line = await s.primitives.add("line", { from: [40, 40], to: [50, 40] });
+  const other = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const foreign = (await other.primitives.add("point", { position: [4, 5] })).points[0]!;
+  const before = await s.state(), targets = splineTargets(before, curve.id, [2, 3]);
+  for (const points of [targets.points.slice(1), [...targets.points, targets.points[0]!],
+    targets.points.map((p, i) => i ? p : { ...p, point: foreign }),
+    targets.points.map((p, i) => i ? p : { ...p, point: line.points[0]! }),
+    targets.points.map((p, i) => i ? p : { ...p, point: curve.curves[0]! }),
+    targets.points.map((p, i) => i ? p : { ...p, position: [NaN, 0] as [number, number] })]) {
+    await assert.rejects(s.drag(curve.curves[0]!, { points })); assert.deepEqual(await s.state(), before);
+  }
+  await assert.rejects(s.drag(line.curves[0]!, targets), /Select a spline/); assert.deepEqual(await s.state(), before);
+});
+
+test("projected spline curves reject whole-curve dragging without mutation", async t => {
+  const { core, scene } = await startCore(t, "drag-spline-projected");
+  const base = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  await base.primitives.add("spline", { points: [[0, 0], [20, 0], [20, 15], [0, 15]], fit: true, closed: true });
+  await base.complete(); const profile = await base.regions.only();
+  const feature = await core.solid.extrude(profile, { length1: 3 });
+  const face = await feature.faces.endCap1({ profile }).only();
+  const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  await s.projections.add({ type: "face", reference: face });
+  const before = await s.state(), spline = before.entities.find(e => e.projected && e.geometry.type === "spline");
+  assert.ok(spline);
+  await assert.rejects(s.drag(spline.reference, splineTargets(before, spline.reference.id, [2, 3])), /read-only/);
+  assert.deepEqual(await s.state(), before);
+});
+
+test("native CLI host replays saved whole-spline drag commands and exact extrusion", { skip: process.env.PAMATCAD_TEST_RUNTIME === "wasm" }, async t => {
+  const commands: { jsonrpc: "2.0"; id: number; method: Method; params: Parameters<Method> }[] = [];
+  const responses: unknown[] = [];
+  const { url } = await startCore(t, "spline-drag-replay");
+  const transport = await WebSocketTransport.connect(url); t.after(() => transport.close());
+  const recording: Transport = { async request(method, params) {
+    commands.push(JSON.parse(JSON.stringify({ jsonrpc: "2.0", id: commands.length + 1, method, params })));
+    const response = await transport.request(method, params); responses.push(response); return response;
+  }, close() { transport.close(); } };
+  const core = new Core(recording), scene = await core.scene.create("Spline drag");
+  const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  for (const [fit, dx] of [[true, 0], [false, 30]] as const) {
+    const curve = await s.primitives.add("spline", { points: [[dx, 0], [dx + 20, 0], [dx + 20, 15], [dx, 15]], fit, closed: true });
+    const targets = splineTargets(await s.state(), curve.id, [2, 3]);
+    const after = await s.drag(curve.curves[0]!, targets);
+    assert.deepEqual((await s.drag(curve.curves[0]!, targets)).entities, after.entities);
+  }
+  await s.complete();
+  const regions = await s.regions.all(); assert.equal(regions.length, 2);
+  for (const profile of regions) {
+    const result = await core.solid.extrude(profile, { length1: 3 });
+    assert.ok((await (await scene.bodies.get(result.newSolids[0]!.id)).properties()).volume.value > 0);
+  }
+  const directory = await mkdtemp(join(tmpdir(), "pamatcad-spline-drag-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = join(directory, "spline-drag.jsonl");
+  await writeFile(file, commands.map(command => JSON.stringify(command)).join("\n"));
+  const replay = await startCore(t, "spline-drag-replay"), replayTransport = await WebSocketTransport.connect(replay.url);
+  t.after(() => replayTransport.close());
+  const actual = [];
+  for (const line of (await readFile(file, "utf8")).split("\n")) {
+    const command = JSON.parse(line) as typeof commands[number];
+    actual.push(await replayTransport.request(command.method, command.params));
+  }
+  assert.deepEqual(actual, responses);
 });
