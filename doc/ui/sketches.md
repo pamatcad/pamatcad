@@ -18,6 +18,8 @@ For user convenience the origin (xy/xz/yz) planes become visible during sketch c
 
 Sketch elements are selected by clicking on them. In case when there are two geometries (two lines on one another, or two overlapping points), double-click opens a small popup listing all selectable geometries at sketch point, hovering over the list items highlights the geometry.
 
+Double-click an unambiguous curve or ordinary joined endpoint to select its connected component; Shift adds it to the selection. Include branches, defining points and internal construction helpers, so slots, rectangles, line chains and connected splines can move together. Follow shared/touching endpoints (within 1e-7 mm), Coincident, Point-on-curve and Midpoint relationships; crossings without a junction and constraints such as Equal or Parallel do not join components. Hidden helpers still participate. Distinct overlapping targets retain the popup, even within one component, and choosing a row selects only that item. A unique spline fit point with its own curves/handles retains its handle-mode toggle; unrelated overlapping geometry opens the popup. Dimension, text and offset double-click editing keeps priority.
+
 With no active command, the sketch is in selection mode. Geometry, tools, and constraints remain active after each application. Completing geometry resets its construction points and typed dimensions while retaining the tool variant and construction mode. Applying an editing tool clears its operand selection. Escape discards the unfinished drawing or active command without closing the sketch; in selection mode it clears the selection. Choosing another command replaces the current one, and clicking its active ribbon button returns to selection. Delete or Backspace removes selected geometry, constraints, or dimensions, except while editing text.
 
 The viewport uses the standard arrow in selection mode, a small hairline crosshair for drawing, and the standard arrow for editing tools and constraints. Active commands add a small outline symbol without filled geometry or vertex dots; variants share their command's symbol. Constraint ribbon and cursor icons use graphite; Horizontal and Vertical include H and V, and Collinear uses a longer graphite line and a shorter geometry-highlight line on the same axis. Cursors and symbols follow the active document and disappear over panels, inputs, the navigation cube, and during camera navigation.
@@ -36,7 +38,7 @@ Dragging a circle rim or arc edge first resizes it with its center held; arcs al
 
 Drawing previews and dragging start immediately, with one update in flight and only the newest input waiting. Display completed previews during continued movement. Background updates keep the sketch ribbon usable; commits temporarily block it. Finish sketch stays disabled throughout unfinished drawing and dragging, including gaps between responses, until geometry is committed or cancelled and the last update settles. Finish does not add unfinished geometry. Completion uses the final input. Escape, tool changes, and document suspension invalidate pending previews.
 
-Points are visible small circles. Constrained, partially constrained, unconstrained, explicitly fixed and projected geometry have distinct shared [palette colors](default_palette.md#viewport-and-user-colors). Selection overrides their color and doubles line width and point size. Construction geometry is presented as dotted lines. New geometry is visibly unconstrained before DOF results are available.
+Points are visible small circles; spline fit points use squares when their handles are independent. Constrained, partially constrained, unconstrained, explicitly fixed and projected geometry have distinct shared [palette colors](default_palette.md#viewport-and-user-colors). Selection overrides their color and doubles line width and point size. Construction geometry is presented as dotted lines. New geometry is visibly unconstrained before DOF results are available.
 
 When a tool, constraint, or a geometry is selected, a part of tool window changes accordingly.
 
@@ -44,7 +46,7 @@ Every geometry displays live dimensions during creation - with an ability to nav
 
 Line clicks create a connected chain with coincident endpoints. Enter on the canvas ends the chain at the last committed endpoint and leaves Line active; Enter in a typed length field commits that segment and ends the chain. Escape discards the pending segment and exits Line. Deleting a line removes its endpoints and their constraints unless another curve uses those same endpoint entities.
 
-Drawing starts with a canvas point. Editable dimensions appear beside the draft on the canvas; the tool window has no generic X/Y/width/height inputs or geometry submission buttons. The final click or Enter from the canvas or a geometry input completes geometry using the current dimensions. Enter finishes a spline using its confirmed points. Offset, Split, Rounding, Scale and Move retain their Apply buttons.
+Drawing starts with a canvas point. Editable dimensions appear beside the draft on the canvas; the tool window has no generic X/Y/width/height inputs or geometry submission buttons. The final click or Enter from the canvas or a geometry input completes geometry using the current dimensions. Enter finishes a spline using its confirmed points. Offset, Fillet and Scale show canvas formulas and draggable live previews; release or Enter commits and Escape discards the draft. Offset, Fillet, Scale and Move use thin open arrowheads with generous invisible hit areas; solid-workspace handles retain their existing style. Move retains its Apply button. Split highlights valid intersections; click to split all editable curves at that crossing only.
 
 Live drawing dimensions are standalone inputs without visible captions, surrounding panels, or tooltips. Use 10px text and 20px height, with accessible names. Numeric values include the document's length or angle unit. Typed formulas remain visible while editing; on blur, show their evaluated value in document units and restore the source on focus.
 
@@ -89,10 +91,10 @@ Icon selectors
 - Slot: 3 point slot; center and line slot, center to center slot
 - Spline: fit point; control point. Click the first point to close; Enter finishes an open curve.
 - Text: compact multiline text area, grouped font-family dropdown, weight dropdown, Bold/Italic style icons, formula size with document units, and labeled horizontal/vertical alignment groups. Keep text Done/Cancel actions inside this section. Bold stays synchronized with weight; unavailable font styles are disabled. Guideline selection is omitted from this panel.
-- Edit/Offset: 1 sided, 2 sided (symmetric or independent), 1 or 2 lengths accordingly
-- Edit/Rounding: one radius in the tool window for all selected geometry
-- Edit/Scale: one scale rate in the tool window, a draggable arrow in a viewpoint
-- Edit/Move: draggable arrows in a viewport (rotate and move), a button to select a pivot point and copy instead of move in the tool window
+- Edit/Offset: icon variants for one side, symmetric and independent sides; one or two canvas distances and drag handles. Symmetric distance is per side. Offsets stay linked to their source curves and retain distance formulas. Double-click a generated curve or distance label to reopen the saved mode and distances. Drag saved labels or dimension lines to reposition them. During creation/editing, drag a dimension line or Alt-drag an arrow to reposition it without changing distance; ordinary arrow dragging changes distance. Each side retains its own placement. Source edits update the offset; deleting generated geometry removes its whole offset.
+- Edit/Fillet: a canvas radius formula and drag handle for selected corners. Default radius is one tenth of the shortest selected line, rounded proportionally to `1, 2, 2.5, 5 × 10ⁿ` in document units, independent of zoom. With no line, use the shortest selected curve length (sampled for splines/ellipses). Typed and reopened radii are preserved. Created arcs retain tangent connections and an editable radius dimension; double-click the radius to edit or drag its handle again. Drag inward to increase the radius and outward to decrease it.
+- Edit/Scale: a canvas scale formula and draggable arrow around a pivot selected with the crosshair icon; always modifies the selected geometry in place.
+- Edit/Move: a pivot dot, detached X/Y arrows, a 90° arc with a circular rotation grip, and a square for free XY translation. The arc has a 64 px radius and the arrows reach 104 px from the pivot, independent of zoom. Only the active control shows its formula; XY shows both lengths. Click a handle to expose its field, or focus it and press Enter/Space. Enter hides the field (advancing X to Y for XY); a blank-canvas click also hides it. Rotation is unrestricted. Apply commits the combined transform; Copy and the pivot icon remain in the tool window. Pending or rejected moves retain the last accepted geometry, handle positions and displayed values; Escape cancels the draft.
 
 ### Panel checks
 
@@ -131,6 +133,8 @@ Any solid geometry can be projected to a sketch; when using "project" the user c
 
 Projection is orthogonal along the sketch normal; selecting a face projects its boundary edges. Projected geometry is linked and read-only. If its source disappears, the cached geometry remains usable with a warning until the reference is repaired or removed.
 
+Circular projections retain circles/arcs and selectable centers/endpoints, supporting Tangent and radius/diameter dimensions. Oblique noncircular projections retain exact rational splines. Old circular projections stored as splines must be removed and projected again; incompatible cached topology is not replaced automatically.
+
 # Dimensions
 
 The Dimension tool (D) infers radius from a circle/arc, length from a line, distance from two points or a point and line, perpendicular distance from parallel lines, and angle from nonparallel lines. A driving parallel-line distance also maintains parallelism; removing it removes that equation. Cursor placement chooses the angle sector. Right-click offers other applicable measurements (diameter, horizontal/vertical distance, ellipse radii, orientation/span).
@@ -144,6 +148,8 @@ Cross-sketch formula dependencies must be acyclic. Within a sketch, driving expr
 Dimension can be driving or driven; driving dimensions are used in computation, driven are not, and driven are created when adding a driving dimension would over-constrain the sketch. Right-clicking a dimension can switch it from diving to driven and vice versa if this does not overconstrain the sketch.
 
 Dimensions can reference driven dimensions during computation, for example this approach should be possible: create a fixed length line, and add two points, lets name line ends A and B, and points C and D. Create a driven dimension between D and B; crate a driving dimension between A and C, that references the first one. Create a driving dimension between C and D, that references the second one. Now the C and D should be evently distributed and all three dimensions should be equal.
+
+While editing a sketch formula, click any other driving or driven dimension to insert its stable reference at the caret, replacing selected text. The field retains focus; the click does not select geometry or move the annotation.
 
 # Constrained and unconstrained sketches
 

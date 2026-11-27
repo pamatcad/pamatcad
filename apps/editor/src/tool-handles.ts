@@ -1,6 +1,11 @@
 import * as T from "three";
 import { SVGLoader, type StrokeStyle } from "three/addons/loaders/SVGLoader.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import lengthArrow from "./icons/handle-length.svg?raw";
+import sketchArrow from "./icons/handle-sketch-length.svg?raw";
+import moveAxis from "./icons/handle-move-axis.svg?raw";
+import moveRotate from "./icons/handle-move-rotate.svg?raw";
+import movePlane from "./icons/handle-move-plane.svg?raw";
 import type { FormulaUnit } from "@pamatcad/sdk";
 import { lengthStep, unitScale } from "./formula-input";
 
@@ -8,7 +13,7 @@ type XYZ = [number, number, number];
 export type ToolHandle = {
   id: string;
   label: string;
-  kind: "length" | "angle";
+  kind: "length" | "angle" | "plane";
   origin: XYZ;
   direction: XYZ;
   tangent: XYZ;
@@ -16,9 +21,23 @@ export type ToolHandle = {
   unit: FormulaUnit;
   /** World travel per input unit (one half for symmetric total length). */
   factor?: number;
+  style?: "thin" | "move";
+  value2?: number;
+  activate?(): void;
+  begin?(): void;
+  inputs?: { element: HTMLElement; offset: [number, number] }[];
+  /** Change the gesture direction without relocating the handle. */
+  dragSign?: 1 | -1;
   min?: number;
   max?: number;
-  change(value: number): void;
+  change(value: number, second?: number): void;
+  finish?(cancelled: boolean): void;
+  reposition?: {
+    start(event: PointerEvent): boolean;
+    move(event: PointerEvent): void;
+    finish(cancelled: boolean): void;
+  };
+  showLabel?: boolean;
 };
 
 /** Screen-sized 3D controls. Pointer capture takes precedence over camera orbit. */
@@ -26,7 +45,7 @@ export class ToolHandles {
   readonly group = new T.Group();
   private items: ToolHandle[] = [];
   private drag?: { handle: ToolHandle; pointer: number; start: T.Vector2; axis: T.Vector2; scale: number; step: number; value: number;
-    angular?: { center: T.Vector2; a: T.Vector2; b: T.Vector2; start: number } };
+    reposition?: boolean; requested?: number; requested2?: number; second?: number; plane?: { plane: T.Plane; start: T.Vector3 }; angular?: { center: T.Vector2; a: T.Vector2; b: T.Vector2; start: number; last: number; total: number } };
   private ray = new T.Raycaster();
   private labels = new Map<string, HTMLButtonElement>();
 
@@ -48,11 +67,16 @@ export class ToolHandles {
     canvas.addEventListener("pointermove", (event) => this.move(event), true);
     const stop = (event: PointerEvent) => {
       if (!this.drag || this.drag.pointer !== event.pointerId) return;
+      if (event.type === "pointerup") this.move(event);
       event.stopImmediatePropagation();
+      const handle = this.drag.handle;
+      const reposition = this.drag.reposition;
       this.drag = undefined;
       this.orbit(true);
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
       this.render();
+      if (reposition) handle.reposition?.finish(event.type !== "pointerup");
+      else handle.finish?.(event.type !== "pointerup");
     };
     canvas.addEventListener("pointerup", stop, true);
     canvas.addEventListener("pointercancel", stop, true);
@@ -80,7 +104,7 @@ export class ToolHandles {
     event.stopImmediatePropagation();
     const origin = new T.Vector3(...handle.origin);
     const direction = new T.Vector3(...handle.direction);
-    const tip = origin.clone().addScaledVector(direction, handle.kind === "length" ? handle.value * (handle.factor ?? 1) : 0);
+    const tip = origin.clone().addScaledVector(direction, handle.style !== "move" && handle.kind === "length" ? handle.value * (handle.factor ?? 1) : 0);
     const mm = this.mmPerPixel(tip);
     let axis = this.project(tip.clone().addScaledVector(direction, mm * 100)).sub(this.project(tip));
     // Looking along the axis still permits a predictable vertical drag.
@@ -91,6 +115,19 @@ export class ToolHandles {
     if (handle.kind === "angle") axis = new T.Vector2(1, 0);
     this.drag = { handle, pointer: event.pointerId, start: new T.Vector2(event.clientX, event.clientY), axis, scale,
       step: handle.kind === "angle" ? 5 : lengthStep(scale, this.canvas.clientHeight, handle.unit, handle.value), value: handle.value };
+    this.drag.second = handle.value2;
+    if (handle.kind === "plane") {
+      const plane = new T.Plane().setFromNormalAndCoplanarPoint(direction.clone().cross(new T.Vector3(...handle.tangent)).normalize(), origin);
+      const bounds = this.canvas.getBoundingClientRect();
+      this.ray.setFromCamera(new T.Vector2((event.clientX-bounds.left)/bounds.width*2-1,1-(event.clientY-bounds.top)/bounds.height*2),this.camera());
+      const start = this.ray.ray.intersectPlane(plane,new T.Vector3());
+      if (!start) { this.drag = undefined; return; }
+      this.drag.plane = { plane, start };
+    }
+    if (event.altKey && handle.reposition) {
+      if (!handle.reposition.start(event)) { this.drag = undefined; return; }
+      this.drag.reposition = true;
+    }
     if (handle.kind === "angle") {
       const bounds = this.canvas.getBoundingClientRect();
       const center = this.project(origin).add(new T.Vector2(bounds.left, bounds.top));
@@ -98,11 +135,13 @@ export class ToolHandles {
       const b = this.project(origin.clone().addScaledVector(new T.Vector3(...handle.tangent), mm * 42)).sub(this.project(origin));
       if (Math.abs(a.cross(b)) > 20) {
         const start = this.angle(new T.Vector2(event.clientX, event.clientY).sub(center), a, b);
-        this.drag.angular = { center, a, b, start };
+        this.drag.angular = { center, a, b, start, last: start, total: 0 };
       }
     }
     this.orbit(false);
     this.canvas.setPointerCapture(event.pointerId);
+    handle.begin?.();
+    handle.activate?.();
   }
 
   private move(event: PointerEvent) {
@@ -110,16 +149,37 @@ export class ToolHandles {
     if (!drag || drag.pointer !== event.pointerId) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (drag.reposition) { drag.handle.reposition!.move(event); this.render(); return; }
+    if (drag.plane) {
+      const bounds = this.canvas.getBoundingClientRect();
+      this.ray.setFromCamera(new T.Vector2((event.clientX-bounds.left)/bounds.width*2-1,1-(event.clientY-bounds.top)/bounds.height*2),this.camera());
+      const point = this.ray.ray.intersectPlane(drag.plane.plane,new T.Vector3());
+      if (!point) return;
+      const delta = point.sub(drag.plane.start);
+      const x = drag.value + Math.round(delta.dot(new T.Vector3(...drag.handle.direction))/drag.step)*drag.step;
+      const y = (drag.second ?? 0) + Math.round(delta.dot(new T.Vector3(...drag.handle.tangent))/drag.step)*drag.step;
+      if ((x !== drag.requested || y !== drag.requested2) && (x !== drag.value || y !== drag.second || drag.requested !== undefined)) {
+        drag.requested = x; drag.requested2 = y; drag.handle.change(x,y);
+      }
+      return;
+    }
     let delta = new T.Vector2(event.clientX, event.clientY).sub(drag.start).dot(drag.axis) * drag.scale;
     if (drag.angular) {
       const { center, a, b, start } = drag.angular;
-      const angle = this.angle(new T.Vector2(event.clientX, event.clientY).sub(center), a, b) - start;
-      delta = T.MathUtils.radToDeg(Math.atan2(Math.sin(angle), Math.cos(angle)));
+      const angle = this.angle(new T.Vector2(event.clientX, event.clientY).sub(center), a, b);
+      if (drag.handle.style === "move") {
+        drag.angular.total += Math.atan2(Math.sin(angle-drag.angular.last),Math.cos(angle-drag.angular.last));
+        drag.angular.last = angle; delta = T.MathUtils.radToDeg(drag.angular.total);
+      } else delta = T.MathUtils.radToDeg(Math.atan2(Math.sin(angle-start), Math.cos(angle-start)));
     }
-    let value = Math.round((drag.value + delta) / drag.step) * drag.step;
-    if (drag.handle.kind === "angle") value = Math.max(drag.handle.min ?? -85, Math.min(drag.handle.max ?? 85, value));
+    let value = drag.handle.style === "move" ? drag.value + Math.round(delta / drag.step) * drag.step : Math.round((drag.value + delta * (drag.handle.dragSign ?? 1)) / drag.step) * drag.step;
+    if (drag.handle.kind === "angle" && drag.handle.style !== "move") value = Math.max(drag.handle.min ?? -85, Math.min(drag.handle.max ?? 85, value));
     if (drag.handle.min !== undefined) value = Math.max(drag.handle.min, value);
     if (drag.handle.max !== undefined) value = Math.min(drag.handle.max, value);
+    if (drag.handle.style === "move") {
+      if (value !== drag.requested && (value !== drag.value || drag.requested !== undefined)) { drag.requested = value; drag.handle.change(value); }
+      return;
+    }
     if (value === drag.handle.value) return;
     drag.handle.value = value;
     const current = this.items.find((item) => item.id === drag.handle.id);
@@ -133,6 +193,62 @@ export class ToolHandles {
     return Math.atan2(a.cross(point) / determinant, point.cross(b) / determinant);
   }
 
+  private updateMove(item: ToolHandle) {
+    const origin = new T.Vector3(...item.origin), u = new T.Vector3(...item.direction), v = new T.Vector3(...item.tangent);
+    const mm = this.mmPerPixel(origin), angle = item.kind === "angle" ? T.MathUtils.degToRad(item.value) : 0;
+    let group = this.group.children.find(node => node.userData.handle.id === item.id);
+    if (!group) {
+      group = new T.Group();
+      const material = (role: "ink" | "fill" | "pick") => {
+        const result = new T.MeshBasicMaterial({color:role === "fill" ? this.color : this.edgeColor,side:T.DoubleSide,depthTest:false,depthWrite:false,transparent:true,opacity:role === "pick" ? 0 : 1});
+        result.userData.role = role; return result;
+      };
+      const paths = new SVGLoader().parse(item.kind === "angle" ? moveRotate : item.kind === "plane" ? movePlane : moveAxis).paths;
+      for (const path of paths) {
+        const style = path.userData!.style as StrokeStyle & { fill?: string; stroke?: string };
+        if (style.fill && style.fill !== "none") {
+          const fill = new T.Mesh(new T.ShapeGeometry(SVGLoader.createShapes(path)).scale(1,-1,1),material(style.fill === "#fff" ? "fill" : "ink"));
+          fill.raycast = () => {}; group.add(fill);
+        }
+        if (style.stroke && style.stroke !== "none") for (const subpath of path.subPaths) {
+          const line = new T.Mesh(SVGLoader.pointsToStroke(subpath.getPoints(),style).scale(1,-1,1),material("ink"));
+          line.raycast = () => {}; group.add(line);
+          if (item.kind === "angle") group.add(new T.Mesh(SVGLoader.pointsToStroke(subpath.getPoints(),{...style,strokeWidth:16}).scale(1,-1,1),material("pick")));
+        }
+      }
+      if (item.kind !== "angle") group.add(new T.Mesh(new T.PlaneGeometry(item.kind === "plane" ? 28 : 42,28).translate(item.kind === "plane" ? 18 : 92,item.kind === "plane" ? 18 : 0,0),material("pick")));
+      group.children.forEach(node => { node.renderOrder = 20; }); this.group.add(group);
+    }
+    group.userData.handle = item;
+    group.position.copy(origin); group.scale.setScalar(mm);
+    group.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(u,v,u.clone().cross(v))).multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,0,1),angle));
+    for (const node of group.children) if (node instanceof T.Mesh) node.material.color.set(node.material.userData.role === "fill" ? this.color : this.edgeColor);
+    const anchor = origin.clone();
+    if (item.kind === "angle") anchor.addScaledVector(u,mm*64*Math.cos(Math.PI/4+angle)).addScaledVector(v,mm*64*Math.sin(Math.PI/4+angle));
+    else if (item.kind === "plane") anchor.addScaledVector(u,mm*18).addScaledVector(v,mm*18);
+    else anchor.addScaledVector(u,mm*96);
+    const p = this.project(anchor);
+    let label = this.labels.get(item.id);
+    if (!label) {
+      label = document.createElement("button"); label.type = "button"; label.className = "tool-move-access"; label.dataset.handle = item.id;
+      label.onpointerdown = event => { const current = this.items.find(h => h.id === item.id); if (current) this.start(event,current); };
+      label.onfocus = () => this.items.find(h => h.id === item.id)?.activate?.();
+      label.onkeydown = event => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault(); const current = this.items.find(h => h.id === item.id); current?.activate?.();
+        const field = this.items.find(h => h.id === item.id)?.inputs?.[0]?.element.querySelector("input"); field?.focus(); field?.select();
+      };
+      this.labels.set(item.id,label); this.host.append(label);
+    }
+    label.dataset.tooltip = item.label; label.setAttribute("aria-label",item.label);
+    label.style.left = p.x+"px"; label.style.top = p.y+"px"; label.hidden = anchor.clone().project(this.camera()).z > 1;
+    for (const {element,offset} of item.inputs ?? []) {
+      const x = Math.max(element.offsetWidth/2+4,Math.min(this.canvas.clientWidth-element.offsetWidth/2-4,p.x+offset[0]));
+      const y = Math.max(element.offsetHeight/2+4,Math.min(this.canvas.clientHeight-element.offsetHeight/2-4,p.y+offset[1]));
+      element.style.left=x+"px"; element.style.top=y+"px";
+    }
+  }
+
   set(items: ToolHandle[]) {
     if (this.drag && !items.some((item) => item.id === this.drag!.handle.id)) {
       this.drag = undefined;
@@ -141,7 +257,7 @@ export class ToolHandles {
     this.items = items;
     for (const group of [...this.group.children]) {
       const previous = group.userData.handle as ToolHandle;
-      if (items.some((item) => item.id === previous.id && item.kind === previous.kind)) continue;
+      if (items.some((item) => item.id === previous.id && item.kind === previous.kind && item.style === previous.style)) continue;
       group.traverse((object) => {
         if (object instanceof T.Mesh || object instanceof T.Line) {
           object.geometry.dispose();
@@ -155,7 +271,8 @@ export class ToolHandles {
 
   update() {
     for (const supplied of this.items) {
-      const item = this.drag?.handle.id === supplied.id ? this.drag.handle : supplied;
+      if (supplied.style === "move") { this.updateMove(supplied); continue; }
+      const item = this.drag?.handle.id === supplied.id && !this.drag.reposition ? this.drag.handle : supplied;
       const origin = new T.Vector3(...item.origin), direction = new T.Vector3(...item.direction).normalize();
       const tip = origin.clone().addScaledVector(direction, item.kind === "length" ? item.value * (item.factor ?? 1) : 0);
       const mm = this.mmPerPixel(tip);
@@ -167,9 +284,15 @@ export class ToolHandles {
         if (item.kind === "length") {
           const path = new SVGLoader().parse(lengthArrow).paths[0];
           const fill = new T.ShapeGeometry(SVGLoader.createShapes(path)).scale(1, -1, 1);
+          // The existing broad arrow remains an invisible pick target for thin arrows.
+          if (item.style === "thin") material.opacity = 0;
           group.add(new T.Mesh(fill, material));
-          const outline = SVGLoader.pointsToStroke(path.subPaths[0].getPoints(), path.userData!.style as StrokeStyle).scale(1, -1, 1);
-          group.add(new T.Mesh(outline, material.clone()));
+          const stroke = item.style === "thin" ? new SVGLoader().parse(sketchArrow).paths[0] : path;
+          const parts = stroke.subPaths.map(p => SVGLoader.pointsToStroke(p.getPoints(), stroke.userData!.style as StrokeStyle));
+          const outline = mergeGeometries(parts)!.scale(1, -1, 1);
+          parts.forEach(p => p.dispose());
+          const ink = material.clone(); ink.opacity = 1;
+          group.add(new T.Mesh(outline, ink));
           const connector = new T.BufferGeometry();
           connector.setAttribute("position", new T.Float32BufferAttribute(new Float32Array(6), 3));
           connector.setAttribute("lineDistance", new T.Float32BufferAttribute([0, 0], 1));
@@ -254,7 +377,7 @@ export class ToolHandles {
       const halfWidth = label.offsetWidth / 2, halfHeight = label.offsetHeight / 2;
       label.style.left = Math.max(halfWidth, Math.min(this.canvas.clientWidth - halfWidth, p.x)) + "px";
       label.style.top = Math.max(halfHeight, Math.min(this.canvas.clientHeight - halfHeight, p.y)) + "px";
-      label.hidden = tip.clone().project(this.camera()).z > 1;
+      label.hidden = item.showLabel === false || tip.clone().project(this.camera()).z > 1;
     }
   }
 }

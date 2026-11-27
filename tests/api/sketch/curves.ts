@@ -238,3 +238,84 @@ test("removing a line removes unused endpoints and preserves neighboring geometr
   assert.ok([axis.from, axis.to].every(id => remaining.entities.some(e => e.reference.id === id)));
   await sketch.complete(); assert.equal((await sketch.regions.all()).length, 1);
 });
+
+for (const mode of ["delete", "delete-points", "remove"] as const) for (const joined of [false, true]) {
+  test(`${mode} cleans up an ${joined ? "endpoint-connected" : "isolated"} arc without removing unrelated geometry`, async t => {
+    const { core, scene } = await startCore(t, "arc-point-removal");
+    const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+    const arc = await sketch.primitives.add("arc", { center: [0, 0], radius: 10, start: 0, end: 180 });
+    const fixed = await sketch.constraints.add("fix", { points: [arc.points[0]!] });
+    const radius = await sketch.dimensions.add("radius", { curve: arc.curves[0], value: 10, mode: "driving" });
+    const pointDimension = await sketch.dimensions.add("distance", { points: [arc.points[1]!, arc.points[2]!], mode: "driven" });
+    const neighbor = joined ? await sketch.primitives.add("line", { from: [10, 0], to: [20, 0] }) : undefined;
+    const coincident = neighbor && await sketch.constraints.add("coincident", { points: [arc.points[1]!, neighbor.points[0]!] });
+    const standalone = await sketch.primitives.add("point", { position: [5, 30] });
+    const circle = await sketch.primitives.add("circle", { center: [50, 0], diameter: 8 });
+    const before = await sketch.state();
+    if (mode === "remove") await sketch.modifyCurves(arc.curves, { type: "remove", position: [0, 10] });
+    else await sketch.remove([...arc.curves, ...(mode === "delete-points" ? arc.points : [])].map(r => r.id));
+    const after = await sketch.state(), proxy = await sketch.getProxy();
+    const removed = [...arc.points, ...arc.curves].map(r => r.id);
+    assert.ok(after.entities.every(e => !removed.includes(e.reference.id)));
+    assert.ok(proxy.points.every(p => !removed.includes(p.entity.id)));
+    assert.ok(proxy.curves.every(c => !removed.includes(c.entity.id)));
+    assert.deepEqual(after.entities, before.entities.filter(e => !removed.includes(e.reference.id)));
+    assert.ok(after.entities.some(e => e.reference.id === "origin"));
+    assert.ok([...standalone.points, ...circle.points, ...circle.curves, ...(neighbor?.points ?? []), ...(neighbor?.curves ?? [])].every(r => after.entities.some(e => e.reference.id === r.id)));
+    assert.ok(after.constraints.every(c => c.id !== fixed.id && c.id !== coincident?.id));
+    assert.ok(after.dimensions.every(d => d.id !== radius.id && d.id !== pointDimension.id));
+    for (let repeat = 0; repeat < 2; repeat++) {
+      await sketch.recompute(); assert.deepEqual((await sketch.state()).entities, after.entities); assert.deepEqual(await sketch.getProxy(), proxy);
+    }
+    await sketch.complete(); await sketch.edit();
+    assert.deepEqual((await sketch.state()).entities, after.entities); assert.deepEqual(await sketch.getProxy(), proxy);
+    await sketch.complete();
+    const solid = await core.solid.extrude(await sketch.regions.only(), { length1: 3 });
+    near((await (await scene.bodies.get(solid.newSolids[0]!.id)).properties()).volume.value, 48 * Math.PI);
+  });
+}
+
+for (const mode of ["delete", "remove"] as const) {
+  test(`${mode} keeps arc centers used by slot construction lines and surviving split arcs`, async t => {
+    const { scene } = await startCore(t, "shared-arc-points");
+    const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+    const slot = await sketch.primitives.add("slot", { from: [0, 0], to: [20, 0], radius: 2 });
+    const before = await sketch.state(), caps = before.entities.filter(e => e.geometry.type === "arc");
+    for (const cap of caps) {
+      const g = cap.geometry; if (g.type !== "arc") assert.fail("Expected slot cap");
+      if (mode === "remove") {
+        const center = before.entities.find(e => e.reference.id === g.center)!.geometry;
+        if (center.type !== "point") assert.fail("Expected arc center");
+        const angle = (g.start + g.end) / 2;
+        await sketch.modifyCurves([cap.reference], { type: "remove", position: [center.position[0] + g.radius * Math.cos(angle), center.position[1] + g.radius * Math.sin(angle)] });
+      }
+      else await sketch.remove([cap.reference.id]);
+      const state = await sketch.state(), proxy = await sketch.getProxy();
+      assert.ok(state.entities.some(e => e.reference.id === g.center), "Construction centerline still uses the cap center");
+      assert.ok(state.entities.every(e => ![g.from, g.to].includes(e.reference.id)));
+      assert.ok(proxy.points.every(p => ![g.from, g.to].includes(p.entity.id)));
+      for (const line of before.entities.filter(e => e.geometry.type === "line")) assert.deepEqual(state.entities.find(e => e.reference.id === line.reference.id), line);
+    }
+    await sketch.remove([slot.curves[4]!.id]);
+    for (const cap of caps) { const g = cap.geometry; if (g.type === "arc") assert.ok(!(await sketch.state()).entities.some(e => e.reference.id === g.center)); }
+    await sketch.cancel();
+
+    const splitSketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+    const arc = await splitSketch.primitives.add("arc", { center: [0, 0], radius: 10, start: 0, end: 180 });
+    const cutter = await splitSketch.primitives.add("line", { from: [0, -5], to: [0, 15], construction: true });
+    await splitSketch.modifyCurves([...arc.curves, ...cutter.curves], { type: "split" });
+    const split = await splitSketch.state(), arcs = split.entities.filter(e => e.geometry.type === "arc");
+    assert.equal(arcs.length, 2);
+    for (const a of arcs) { assert.equal(a.geometry.type, "arc"); if (a.geometry.type === "arc") assert.equal(a.geometry.center, arc.points[0]!.id); }
+    const first = arcs[0]!, g = first.geometry; if (g.type !== "arc") assert.fail("Expected split arc");
+    if (mode === "remove") { const angle = (g.start + g.end) / 2; await splitSketch.modifyCurves([first.reference], { type: "remove", position: [10 * Math.cos(angle), 10 * Math.sin(angle)] }); }
+    else await splitSketch.remove([first.reference.id]);
+    assert.deepEqual((await splitSketch.state()).entities.find(e => e.reference.id === arcs[1]!.reference.id), arcs[1]);
+    assert.ok((await splitSketch.state()).entities.some(e => e.reference.id === arc.points[0]!.id));
+    await splitSketch.remove([arcs[1]!.reference.id]);
+    assert.ok(!(await splitSketch.state()).entities.some(e => e.reference.id === arc.points[0]!.id), "Last arc deletion releases the shared center");
+    const remaining = await splitSketch.state(), proxy = await splitSketch.getProxy();
+    await splitSketch.recompute(); assert.deepEqual(await splitSketch.getProxy(), proxy);
+    await splitSketch.complete(); await splitSketch.edit(); assert.deepEqual((await splitSketch.state()).entities, remaining.entities);
+  });
+}

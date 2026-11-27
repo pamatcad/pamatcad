@@ -411,6 +411,39 @@ impl<'a> System<'a> {
                 curves(2)?;
                 let mut a = &p.curves[0].id;
                 let mut b = &p.curves[1].id;
+                if matches!(self.geometry(b)?, SketchGeometry::Spline { .. }) {
+                    std::mem::swap(&mut a, &mut b);
+                }
+                if let (
+                    SketchGeometry::Spline {
+                        points, fit: false, ..
+                    },
+                    SketchGeometry::Arc {
+                        center, from, to, ..
+                    },
+                ) = (self.geometry(a)?, self.geometry(b)?)
+                {
+                    let same = |left: &String, right: &String| {
+                        left == right
+                            || self.sketch.constraints.values().any(|c| {
+                                c.kind == ConstraintKind::Coincident
+                                    && [left, right]
+                                        .iter()
+                                        .all(|id| c.parameters.points.iter().any(|r| &r.id == *id))
+                            })
+                    };
+                    for (end, next) in [(0, 1), (points.len() - 1, points.len() - 2)] {
+                        if let Some(point) = [from, to].into_iter().find(|p| same(&points[end], p))
+                        {
+                            let direction =
+                                sub(self.point(&points[next])?, self.point(&points[end])?);
+                            let radius = sub(self.point(point)?, self.point(center)?);
+                            return Ok(vec![dot(direction.clone(), radius.clone())
+                                .div(length(direction).mul(length(radius)))]);
+                        }
+                    }
+                    return Err(invalid("Spline tangency requires a shared arc endpoint"));
+                }
                 if matches!(self.geometry(b)?, SketchGeometry::Line { .. }) {
                     std::mem::swap(&mut a, &mut b);
                 }
@@ -727,6 +760,9 @@ pub(super) fn solve(
                                     .values()
                                     .find(|d| {
                                         d.id == token
+                                            || std::iter::once(sketch.data.id.as_str()).chain(sketch.data.name.as_deref()).any(|name| {
+                                                std::iter::once(d.id.as_str()).chain(d.parameters.name.as_deref()).any(|dimension| format!("sketches[{name}]dimension[{dimension}]") == token)
+                                            })
                                             || format!(
                                                 "dimension[{}]",
                                                 d.parameters.name.as_deref().unwrap_or("")

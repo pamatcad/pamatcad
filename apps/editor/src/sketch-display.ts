@@ -27,6 +27,7 @@ export class SketchDisplay extends T.Group {
   private labels: T.Sprite[] = [];
   private arrows: { line: T.LineSegments; tip: T.Vector3; direction: T.Vector3; normal: T.Vector3 }[] = [];
   private pointTexture: T.CanvasTexture;
+  private squarePointTexture: T.CanvasTexture;
   private buckets: ConstraintBucket[] = [];
   private constraintSprites = new Map<string, T.Sprite>();
   private iconTextures = new Map<string, T.Texture>();
@@ -41,6 +42,11 @@ export class SketchDisplay extends T.Group {
     ctx.arc(16, 16, 12, 0, Math.PI * 2);
     ctx.fill();
     this.pointTexture = new T.CanvasTexture(canvas);
+    const square = document.createElement("canvas");
+    square.width = square.height = 32;
+    const squareContext = square.getContext("2d")!;
+    squareContext.fillStyle = "white"; squareContext.fillRect(4,4,24,24);
+    this.squarePointTexture = new T.CanvasTexture(square);
   }
   clearDisplay() {
     this.traverse(node => {
@@ -50,7 +56,7 @@ export class SketchDisplay extends T.Group {
         }
         const materials = Array.isArray(node.material) ? node.material : [node.material];
         for (const material of materials) {
-          if ("map" in material && material.map instanceof T.Texture && material.map !== this.pointTexture && ![...this.iconTextures.values()].includes(material.map)) {
+          if ("map" in material && material.map instanceof T.Texture && material.map !== this.pointTexture && material.map !== this.squarePointTexture && ![...this.iconTextures.values()].includes(material.map)) {
             material.map.dispose();
           }
           material.dispose();
@@ -141,12 +147,13 @@ export class SketchDisplay extends T.Group {
       }
     }
     if (options.points) {
+      const independent = new Set(state.splines.flatMap(s => s.fitPoints.filter(p => p.mode === "independent").map(p => p.point.id)));
       for (const point of proxy.points) {
         if (textOwners.has(point.entity.id)) continue;
         if (point.construction && !options.construction || point.projected && !options.projections) {
           continue;
         }
-        const marker = new T.Points(new T.BufferGeometry().setFromPoints([new T.Vector3(...point.position)]), new T.PointsMaterial({ color: color(point.entity.id, point.projected), size: selected.has(point.entity.id) ? 14 : related.geometry.has(point.entity.id) ? 10.5 : 7, map: this.pointTexture, alphaTest: 0.4, sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true, toneMapped: false }));
+        const marker = new T.Points(new T.BufferGeometry().setFromPoints([new T.Vector3(...point.position)]), new T.PointsMaterial({ color: color(point.entity.id, point.projected), size: selected.has(point.entity.id) ? 14 : related.geometry.has(point.entity.id) ? 10.5 : 7, map: independent.has(point.entity.id) ? this.squarePointTexture : this.pointTexture, alphaTest: 0.4, sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true, toneMapped: false }));
         marker.userData.pick = { kind: "geometry", id: point.entity.id };
         marker.renderOrder = selected.has(point.entity.id) ? 11.5 : related.geometry.has(point.entity.id) ? 11.25 : 11;
         this.add(marker);

@@ -1,5 +1,6 @@
 mod display;
 mod edit;
+mod offsets;
 pub mod primitives;
 mod projections;
 mod regions;
@@ -76,6 +77,7 @@ pub struct Sketch {
     pub texts: BTreeMap<String, SketchText>,
     pub ellipse_axes: BTreeMap<String, [Option<String>; 2]>,
     pub splines: BTreeMap<String, SketchSpline>,
+    pub offsets: BTreeMap<String, SketchOffset>,
     solver_cache: solver::Cache,
     region_cache: RefCell<Option<Rc<regions::Cached>>>,
     curve_cache: RefCell<BTreeMap<String, Rc<display::CachedCurve>>>,
@@ -119,6 +121,7 @@ impl Sketch {
             texts: BTreeMap::new(),
             ellipse_axes: BTreeMap::new(),
             splines: BTreeMap::new(),
+            offsets: BTreeMap::new(),
             solver_cache: solver::Cache::default(),
             region_cache: RefCell::default(),
             curve_cache: RefCell::default(),
@@ -212,7 +215,8 @@ impl Sketch {
             constraints: self
                 .constraints
                 .values()
-                .filter(|c| c.id != "origin-fixed" && self.text_owner(&c.id).is_none())
+                .filter(|c| c.id != "origin-fixed" && self.text_owner(&c.id).is_none()
+                    && self.offset_owner(&c.id).is_none())
                 .cloned()
                 .collect(),
             dimensions: self.dimensions.values().cloned().collect(),
@@ -222,6 +226,7 @@ impl Sketch {
             projections: self.projections.values().cloned().collect(),
             texts: self.texts.values().cloned().collect(),
             splines: self.splines.values().cloned().collect(),
+            offsets: self.offsets.values().cloned().collect(),
         }
     }
     pub fn solve(
@@ -230,6 +235,7 @@ impl Sketch {
         external: &BTreeMap<String, (SketchEntityRef, FormulaQuantity<FormulaUnit>)>,
     ) -> Result<()> {
         solver::solve(self, units, external, &[])?;
+        self.refresh_offsets(units, external, true)?;
         if self.refresh_texts(units, external)? {
             solver::solve(self, units, external, &[])?;
         }
@@ -242,6 +248,7 @@ impl Sketch {
         targets: &[DragGoal],
     ) -> Result<()> {
         solver::solve(self, units, external, targets)?;
+        self.refresh_offsets(units, external, true)?;
         if self.refresh_texts(units, external)? {
             solver::solve(self, units, external, &[])?;
         }

@@ -1,0 +1,156 @@
+<div class="viz-dotted-background" id="move-control-preview">
+  <section class="mc-product" aria-label="Combined Move control draft">
+    <header class="mc-context"><span>Sketch 1</span><span class="mc-divider">/</span><span>Move</span><span class="mc-plane">XY · mm</span></header>
+    <div class="mc-workarea">
+      <canvas class="mc-canvas" aria-label="Selected sketch with combined X and Y translation arrows, a free-move handle and a rotation ring. The adjacent formula fields provide keyboard access."></canvas>
+      <form class="mc-panel" aria-label="Move formulas">
+        <div class="mc-heading"><i data-lucide="move" aria-hidden="true"></i><strong>Move</strong><button class="mc-icon cursor-interaction" type="button" data-action="pivot" aria-label="Pick pivot" aria-pressed="false" data-tooltip="Pick pivot"><i data-lucide="crosshair" aria-hidden="true"></i></button></div>
+        <div class="mc-fields">
+          <label class="mc-row" data-row="x"><span>X</span><input name="x" aria-label="Move X formula" value="0 mm" autocomplete="off" spellcheck="false"></label>
+          <label class="mc-row" data-row="y"><span>Y</span><input name="y" aria-label="Move Y formula" value="0 mm" autocomplete="off" spellcheck="false"></label>
+          <label class="mc-row" data-row="a"><span>Angle</span><input name="a" aria-label="Rotation formula" value="0 deg" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <div class="mc-options"><label><input type="checkbox" name="copy">Copy</label></div>
+        <div class="mc-actions"><button type="button" data-action="cancel" class="cursor-interaction" data-tooltip="Cancel this move">Cancel</button><button type="submit" class="mc-apply cursor-interaction" data-tooltip="Apply translation and rotation">Apply</button></div>
+      </form>
+    </div>
+    <footer class="mc-status" role="status" aria-live="polite">Drag an axis, the plane handle, or the rotation ring.</footer>
+    <span class="mc-palette" aria-hidden="true"><span data-color="bg"></span><span data-color="ink"></span><span data-color="muted"></span><span data-color="grid"></span><span data-color="handle"></span><span data-color="handleFill"></span><span data-color="selection"></span><span data-color="profile"></span><span data-color="ghost"></span><span data-color="error"></span></span>
+  </section>
+</div>
+<style>
+#move-control-preview{padding:20px 0}
+#move-control-preview .mc-product{--mc-bg:light-dark(#ffffff,#20272c);--mc-ink:light-dark(#39434b,#e3e8eb);--mc-muted:light-dark(#65727b,#aab7c0);--mc-grid:light-dark(#edf1f3,#2b343a);--mc-line:light-dark(#d5dde2,#465159);--mc-handle:light-dark(#815a36,#dcb58c);--mc-handleFill:light-dark(#f3e5d7,#483a2f);--mc-selection:light-dark(#d55e00,#ffa35d);--mc-profile:light-dark(#f5f9fc,#243744);--mc-ghost:light-dark(#aab6be,#697781);--mc-error:light-dark(#964650,#e8959d);--mc-accent:light-dark(#d6e7f3,#314e64);--mc-accentText:light-dark(#294f6d,#d5e8f6);--mc-shadow:light-dark(#39434b20,#00000055);position:relative;overflow:hidden;background:var(--mc-bg);color:var(--mc-ink);border:1px solid var(--mc-line);border-radius:5px;font:400 13px/20px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#move-control-preview .mc-product *{box-sizing:border-box}
+#move-control-preview .mc-context{height:42px;padding:0 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--mc-line);font-size:12px}
+#move-control-preview .mc-divider{color:var(--mc-ghost)}
+#move-control-preview .mc-plane{margin-left:auto;color:var(--mc-muted);margin-right:80px}
+#move-control-preview .mc-workarea{position:relative}
+#move-control-preview .mc-canvas{display:block;width:100%;height:422px;touch-action:none}
+#move-control-preview .mc-panel{position:absolute;right:24px;top:99px;width:208px;padding:0;background:var(--mc-bg);border:1px solid var(--mc-line);border-radius:5px;box-shadow:0 3px 16px var(--mc-shadow);margin:0}
+#move-control-preview .mc-heading{display:flex;align-items:center;gap:9px;height:44px;padding:0 11px;border-bottom:1px solid var(--mc-line)}
+#move-control-preview .mc-heading>svg{color:var(--mc-handle);width:20px;height:20px}
+#move-control-preview strong{font-weight:500}
+#move-control-preview button{font:inherit;color:var(--mc-ink);background:var(--mc-bg);border:1px solid var(--mc-line);border-radius:3px;min-height:30px;padding:4px 12px}
+#move-control-preview button:hover{background:var(--mc-profile)}
+#move-control-preview button.mc-icon{margin-left:auto;display:grid;place-items:center;width:30px;padding:4px;border-color:transparent;color:var(--mc-handle)}
+#move-control-preview button.mc-icon[aria-pressed=true]{background:var(--mc-handleFill);border-color:var(--mc-handle)}
+#move-control-preview .mc-icon svg{width:18px;height:18px}
+#move-control-preview .mc-fields{padding:12px;display:grid;gap:8px}
+#move-control-preview .mc-row{display:grid;grid-template-columns:43px minmax(0,1fr);gap:8px;align-items:center}
+#move-control-preview .mc-row>span{font-size:12px}
+#move-control-preview .mc-row input{font:inherit;font-variant-numeric:tabular-nums;width:100%;min-width:0;height:31px;padding:4px 8px;color:var(--mc-ink);background:var(--mc-bg);border:1px solid var(--mc-line);border-radius:3px}
+#move-control-preview .mc-row[data-active=true]>span{color:var(--mc-handle);font-weight:500}
+#move-control-preview .mc-row[data-active=true] input{border-color:var(--mc-handle);background:var(--mc-handleFill)}
+#move-control-preview .mc-options{padding:0 12px 12px;display:flex;align-items:center}
+#move-control-preview .mc-options label{display:flex;align-items:center;gap:7px;font-size:12px}
+#move-control-preview .mc-options input{accent-color:var(--mc-accentText);margin:0}
+#move-control-preview .mc-actions{border-top:1px solid var(--mc-line);display:flex;justify-content:flex-end;gap:8px;padding:10px 12px}
+#move-control-preview button.mc-apply{background:var(--mc-accent);color:var(--mc-accentText);border-color:var(--mc-accentText)}
+#move-control-preview .mc-status{min-height:36px;padding:8px 14px;font-size:12px;line-height:18px;border-top:1px solid var(--mc-line);color:var(--mc-muted)}
+#move-control-preview .mc-status[data-error=true]{color:var(--mc-error)}
+#move-control-preview .mc-palette{position:absolute;visibility:hidden;pointer-events:none}
+#move-control-preview [data-color=bg]{color:var(--mc-bg)}
+#move-control-preview [data-color=ink]{color:var(--mc-ink)}
+#move-control-preview [data-color=muted]{color:var(--mc-muted)}
+#move-control-preview [data-color=grid]{color:var(--mc-grid)}
+#move-control-preview [data-color=handle]{color:var(--mc-handle)}
+#move-control-preview [data-color=handleFill]{color:var(--mc-handleFill)}
+#move-control-preview [data-color=selection]{color:var(--mc-selection)}
+#move-control-preview [data-color=profile]{color:var(--mc-profile)}
+#move-control-preview [data-color=ghost]{color:var(--mc-ghost)}
+#move-control-preview [data-color=error]{color:var(--mc-error)}
+@media(max-width:650px){#move-control-preview .mc-canvas{height:330px}#move-control-preview .mc-panel{position:relative;right:auto;top:auto;width:calc(100% - 32px);max-width:340px;margin:0 auto 16px}#move-control-preview .mc-fields{grid-template-columns:1fr}#move-control-preview .mc-plane{margin-right:65px}}
+@media(pointer:coarse){#move-control-preview .mc-row input{font-size:16px;height:44px}#move-control-preview button{min-height:44px}#move-control-preview button.mc-icon{width:44px}#move-control-preview .mc-heading{height:52px}#move-control-preview .mc-options label{min-height:38px}}
+</style>
+<script>
+(()=>{
+  const root=document.getElementById('move-control-preview'),product=root.querySelector('.mc-product'),canvas=root.querySelector('canvas'),ctx=canvas.getContext('2d'),form=root.querySelector('form'),status=root.querySelector('.mc-status'),pivotButton=root.querySelector('[data-action=pivot]');
+  const fields=Object.fromEntries(['x','y','a'].map(k=>[k,form.elements[k]]));
+  const appearance={ring:72,reach:112,blocked:false};
+  let values={x:0,y:0,a:0},sources={x:'0 mm',y:'0 mm',a:'0 deg'},pivot=[0,0],baseline={x:0,y:0,a:0},copies=[],hover='',drag=null,picking=false;
+  let width=736,height=422,center=[260,240];
+  const format=n=>String(Math.round(n*100)/100);
+  const unit=k=>k==='a'?'deg':'mm';
+  const color=key=>getComputedStyle(root.querySelector('[data-color="'+key+'"]')).color;
+  const message=(text,error=false)=>{status.textContent=text;status.dataset.error=String(error);};
+  function point(event){const r=canvas.getBoundingClientRect();return[event.clientX-r.left,event.clientY-r.top];}
+  function origin(){return[center[0]+pivot[0]+values.x*4,center[1]+pivot[1]-values.y*4];}
+  function path(points,stroke,weight=1.5){ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.strokeStyle=stroke;ctx.lineWidth=weight;ctx.stroke();}
+  function profile(t,ghost=false){
+    ctx.save();ctx.translate(center[0]+pivot[0]+t.x*4,center[1]+pivot[1]-t.y*4);ctx.rotate(-t.a*Math.PI/180);ctx.translate(-pivot[0],-pivot[1]);
+    ctx.translate(baseline.x*4,-baseline.y*4);ctx.rotate(-baseline.a*Math.PI/180);
+    ctx.beginPath();ctx.moveTo(-108,82);ctx.lineTo(-108,-46);ctx.lineTo(53,-46);ctx.quadraticCurveTo(112,-46,112,12);ctx.lineTo(112,82);ctx.closePath();
+    ctx.fillStyle=color('profile');ctx.strokeStyle=color(ghost?'ghost':'selection');ctx.lineWidth=ghost?1:1.6;if(ghost)ctx.setLineDash([4,5]);else ctx.fill();ctx.stroke();ctx.setLineDash([]);
+    ctx.beginPath();ctx.arc(-63,31,15,0,Math.PI*2);ctx.stroke();
+    if(!ghost)for(const [x,y]of[[-108,82],[-108,-46],[53,-46],[112,12],[112,82]]){ctx.beginPath();ctx.arc(x,y,2.7,0,7);ctx.fillStyle=color('selection');ctx.fill();}
+    ctx.restore();
+  }
+  function draw(){
+    const rect=canvas.getBoundingClientRect();width=rect.width;height=rect.height;
+    const ratio=window.devicePixelRatio||1;if(canvas.width!==Math.round(width*ratio)||canvas.height!==Math.round(height*ratio)){canvas.width=Math.round(width*ratio);canvas.height=Math.round(height*ratio);}
+    ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,width,height);center=[width>650?width*.35:width*.5,height*.55];
+    ctx.lineCap='round';ctx.lineJoin='round';
+    for(let x=center[0]%32;x<width;x+=32)path([[x,0],[x,height]],color('grid'),.65);
+    for(let y=center[1]%32;y<height;y+=32)path([[0,y],[width,y]],color('grid'),.65);
+    for(const copy of copies)profile(copy,true);
+    if(values.x||values.y||values.a)profile({x:0,y:0,a:0},true);profile(values);
+    const [cx,cy]=origin(),r=appearance.ring,reach=Math.min(appearance.reach,width/2-25),ink=color('handle');
+    ctx.save();ctx.translate(cx,cy);
+    // Gaps at the positive axes separate the rotation ring from the translation stems.
+    ctx.strokeStyle=ink;ctx.lineWidth=hover==='a'?2.6:1.5;
+    for(const[a,b]of[[.15,1.5*Math.PI-.15],[1.5*Math.PI+.15,2*Math.PI-.15]]){ctx.beginPath();ctx.arc(0,0,r,a,b);ctx.stroke();}
+    const angle=(-135-values.a)*Math.PI/180;
+    ctx.beginPath();ctx.arc(Math.cos(angle)*r,Math.sin(angle)*r,5,0,7);ctx.fillStyle=hover==='a'?ink:color('bg');ctx.fill();ctx.stroke();
+    path([[8,0],[reach,0]],ink,hover==='x'?2.6:1.6);path([[reach-11,-8],[reach,0],[reach-11,8]],ink,hover==='x'?2.6:1.6);
+    path([[0,-8],[0,-reach]],ink,hover==='y'?2.6:1.6);path([[-8,-reach+11],[0,-reach],[8,-reach+11]],ink,hover==='y'?2.6:1.6);
+    ctx.fillStyle=ink;ctx.font='500 12px system-ui';ctx.textAlign='center';ctx.fillText('X',reach+17,4);ctx.fillText('Y',0,-reach-14);
+    ctx.beginPath();ctx.rect(14,-34,20,20);ctx.fillStyle=color('handleFill');ctx.fill();ctx.strokeStyle=ink;ctx.lineWidth=hover==='xy'?2.6:1.2;ctx.stroke();
+    ctx.beginPath();ctx.arc(0,0,picking?6:4,0,7);ctx.fillStyle=color('bg');ctx.fill();ctx.strokeStyle=ink;ctx.lineWidth=1.5;ctx.stroke();
+    ctx.restore();
+    for(const key of ['x','y','a']){root.querySelector('[data-row='+key+']').dataset.active=String(hover===key||hover==='xy'&&key!=='a');if(document.activeElement!==fields[key])fields[key].value=format(values[key])+' '+unit(key);}
+    pivotButton.setAttribute('aria-pressed',String(picking));
+  }
+  function hit(p){const o=origin(),x=p[0]-o[0],y=p[1]-o[1],reach=Math.min(appearance.reach,width/2-25);if(x>7&&x<42&&y<-7&&y>-42)return'xy';if(Math.abs(y)<11&&x>40&&x<reach+12)return'x';if(Math.abs(x)<11&&y<-40&&y>-reach-12)return'y';if(Math.abs(Math.hypot(x,y)-appearance.ring)<12)return'a';return'';}
+  function save(){window.openai?.setWidgetState?.({modelContent:{design:'combined-move',translation:[values.x,values.y],angle:values.a,pivot},privateContent:{values,sources,pivot,appearance}})?.catch(()=>{});}
+  function accept(next){if(appearance.blocked){message('Constraints prevent this move.',true);draw();return false;}values=next;message('Drag an axis, the plane handle, or the rotation ring.');draw();return true;}
+  canvas.addEventListener('pointerdown',e=>{
+    if(e.button!==0)return;const p=point(e);
+    if(picking){pivot=[p[0]-center[0]-values.x*4,p[1]-center[1]+values.y*4];picking=false;message('Pivot set.');draw();save();return;}
+    const mode=hit(p);if(!mode)return;e.preventDefault();drag={mode,start:p,values:{...values},sources:{...sources},origin:origin()};hover=mode;canvas.setPointerCapture(e.pointerId);draw();
+  });
+  canvas.addEventListener('pointermove',e=>{
+    const p=point(e);if(!drag){hover=hit(p);canvas.style.cursor=picking?'crosshair':hover==='x'?'ew-resize':hover==='y'?'ns-resize':hover?'move':'default';draw();return;}
+    const next={...drag.values},dx=(p[0]-drag.start[0])/4,dy=(drag.start[1]-p[1])/4;
+    if(drag.mode==='x'||drag.mode==='xy')next.x=Math.round((next.x+dx)*2)/2;
+    if(drag.mode==='y'||drag.mode==='xy')next.y=Math.round((next.y+dy)*2)/2;
+    if(drag.mode==='a'){const first=Math.atan2(drag.start[1]-drag.origin[1],drag.start[0]-drag.origin[0]),now=Math.atan2(p[1]-drag.origin[1],p[0]-drag.origin[0]);next.a=Math.round((next.a-Math.atan2(Math.sin(now-first),Math.cos(now-first))*180/Math.PI)/5)*5;}
+    if(accept(next))for(const k of ['x','y','a'])if(next[k]!==drag.values[k])sources[k]=format(next[k])+' '+unit(k);
+  });
+  function stop(e){if(!drag)return;if(e.type==='pointercancel'){values=drag.values;sources=drag.sources;}drag=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);draw();save();}
+  canvas.addEventListener('pointerup',stop);canvas.addEventListener('pointercancel',stop);canvas.addEventListener('pointerleave',()=>{if(!drag){hover='';draw();}});
+  function evaluate(source,key){
+    const dimension=key==='a'?'angle':'length';
+    let text=source.toLowerCase().replace(/\b(mm|cm|in|deg|rad|m)\b/g,(match)=>{const scales=dimension==='angle'?{deg:1,rad:180/Math.PI}:{mm:1,cm:10,m:1000,in:25.4};if(!(match in scales))throw Error('unit');return'*'+scales[match];}).replace(/\s/g,'');
+    if(!text||/[^\d.e+*/()\-]/.test(text))throw Error('formula');
+    const tokens=text.match(/(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[()+*/-]/g)||[];if(tokens.join('')!==text)throw Error('formula');let at=0;
+    const atom=()=>{const token=tokens[at++];if(token==='+'||token==='-')return(token==='-'?-1:1)*atom();if(token==='('){const n=sum();if(tokens[at++]!==')')throw Error('formula');return n;}if(token===undefined||!Number.isFinite(Number(token)))throw Error('formula');return Number(token);};
+    const product=()=>{let n=atom();while(tokens[at]==='*'||tokens[at]==='/'){const op=tokens[at++],v=atom();n=op==='*'?n*v:n/v;}return n;};
+    const sum=()=>{let n=product();while(tokens[at]==='+'||tokens[at]==='-'){const op=tokens[at++],v=product();n=op==='+'?n+v:n-v;}return n;};
+    const result=sum();if(at!==tokens.length||!Number.isFinite(result))throw Error('formula');return result;
+  }
+  for(const key of ['x','y','a']){
+    fields[key].addEventListener('focus',()=>{fields[key].value=sources[key];hover=key;draw();});
+    fields[key].addEventListener('change',()=>{try{const source=fields[key].value,next={...values,[key]:evaluate(source,key)};if(accept(next))sources[key]=source;else fields[key].value=sources[key];}catch{fields[key].value=sources[key];message('Enter a length or angle formula.',true);}save();});
+    fields[key].addEventListener('blur',()=>{hover='';draw();});
+    fields[key].addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();fields[key].blur();}if(e.key==='Escape'){fields[key].value=sources[key];fields[key].blur();}});
+  }
+  pivotButton.addEventListener('click',()=>{picking=!picking;message(picking?'Pick the pivot in the sketch.':'Pivot selection cancelled.');draw();});
+  root.querySelector('[data-action=cancel]').addEventListener('click',()=>{values={x:0,y:0,a:0};sources={x:'0 mm',y:'0 mm',a:'0 deg'};picking=false;message('Move cancelled.');draw();save();});
+  form.addEventListener('submit',e=>{e.preventDefault();if(appearance.blocked){message('Constraints prevent this move.',true);return;}if(form.elements.copy.checked)copies.push({x:0,y:0,a:0});baseline={x:baseline.x+values.x,y:baseline.y+values.y,a:baseline.a+values.a};values={x:0,y:0,a:0};sources={x:'0 mm',y:'0 mm',a:'0 deg'};message('Move applied.');draw();save();});
+  function restore(state){const saved=state?.privateContent;if(saved?.values&&Object.values(saved.values).every(Number.isFinite)){values={...values,...saved.values};sources={...sources,...saved.sources};if(Array.isArray(saved.pivot)&&saved.pivot.length===2&&saved.pivot.every(Number.isFinite))pivot=saved.pivot;if(saved.appearance)Object.assign(appearance,saved.appearance);}draw();}
+  restore(window.openai?.widgetState);window.addEventListener('openai:set_globals',event=>restore(event.detail?.globals?.widgetState));
+  new ResizeObserver(draw).observe(canvas);window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw);
+  if(globalThis.Tweak){const tweak=new Tweak({container:product,onChange:()=>{message(appearance.blocked?'Selected geometry is constrained.':'Drag an axis, the plane handle, or the rotation ring.');draw();save();}});tweak.addSlider(appearance,'ring',{label:'Rotation ring radius',min:56,max:84,unit:'px'});tweak.addSlider(appearance,'reach',{label:'Arrow reach',min:108,max:132,unit:'px'});tweak.addToggle(appearance,'blocked',{label:'Constrained geometry'});}
+})();
+</script>

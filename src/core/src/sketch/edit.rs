@@ -85,6 +85,7 @@ impl Sketch {
         for reference in &input.entities {
             self.ensure_text_outline_editable(&reference.id)?;
             self.ensure_text_frame_editable(&reference.id)?;
+            self.ensure_offset_editable(&reference.id)?;
         }
         let mut references = input.entities.clone();
         for reference in &input.entities {
@@ -408,12 +409,17 @@ impl Sketch {
         references: &[SketchEntityRef],
         operation: i32,
         values: &[f64],
+        fillet: Option<Formula<FormulaUnit>>,
     ) -> Result<SketchEditResult> {
         for r in references {
             self.check_reference(r)?;
             self.ensure_spline_helper_editable(&r.id)?;
             self.ensure_text_outline_editable(&r.id)?;
             self.ensure_text_frame_editable(&r.id)?;
+            self.ensure_offset_editable(&r.id)?;
+            if self.offsets.values().any(|o| o.sources.contains(r)) {
+                return Err(invalid("Remove dependent offsets before replacing their source curves"));
+            }
             if self.entities[&r.id].projected && operation != 1 {
                 return Err(invalid("Projected curves are read-only"));
             }
@@ -449,7 +455,15 @@ impl Sketch {
             );
         }
         let mut modified = vec![];
-        if operation == 4 {
+        if operation == 0 && values.len() == 3 {
+            modified.extend(crate::kernel::sketch::modify(
+                self,
+                &ids,
+                operation,
+                values[0],
+                Some([values[1], values[2]]),
+            )?);
+        } else if operation == 4 {
             modified.extend(crate::kernel::sketch::modify(
                 self,
                 &ids,
@@ -507,12 +521,16 @@ impl Sketch {
         });
         let mut created = vec![];
         let mut new_points = vec![];
-        for (_, kind, data) in modified {
+        let mut fillet_arcs = vec![];
+        for (source, kind, data) in modified {
             // Remove emits the source even when no surviving interval remains.
             if kind == 0 {
                 continue;
             }
             let mut geometry = self.import_curve(kind, &data)?;
+            if fillet.is_some() && source.is_none() && kind == 3 {
+                fillet_arcs.extend(geometry.curves.clone());
+            }
             if construction {
                 for reference in geometry.points.iter().chain(&geometry.curves) {
                     self.entities.get_mut(&reference.id).unwrap().construction = true;
@@ -656,6 +674,68 @@ impl Sketch {
             } else {
                 representative.push(point);
             }
+        }
+        for arc in &fillet_arcs {
+            let SketchGeometry::Arc { from, to, .. } = self.entities[&arc.id].geometry.clone()
+            else {
+                continue;
+            };
+            for endpoint in [from, to] {
+                let position = self.point_position(&endpoint)?;
+                let neighbor = created
+                    .iter()
+                    .filter(|r| r.id != arc.id && !fillet_arcs.contains(r))
+                    .find(|r| {
+                        let ends = match &self.entities[&r.id].geometry {
+                            SketchGeometry::Line { from, to }
+                            | SketchGeometry::Arc { from, to, .. } => vec![from, to],
+                            SketchGeometry::Spline { points, .. } => {
+                                vec![&points[0], points.last().unwrap()]
+                            }
+                            _ => vec![],
+                        };
+                        ends.iter().any(|p| {
+                            self.point_position(p).is_ok_and(|q| {
+                                (q[0] - position[0]).hypot(q[1] - position[1]) < LINEAR_TOLERANCE
+                            })
+                        })
+                    })
+                    .cloned()
+                    .ok_or_else(|| {
+                        invalid("Fillet must remain connected to its neighboring curves")
+                    })?;
+                self.add_constraint(
+                    ConstraintKind::Tangent,
+                    ConstraintParameters {
+                        points: vec![],
+                        curves: vec![arc.clone(), neighbor],
+                    },
+                )?;
+            }
+            let id = self.id("dimension");
+            self.dimensions.insert(
+                id.clone(),
+                SketchDimension {
+                    id,
+                    kind: DimensionKind::Radius,
+                    parameters: DimensionParameters {
+                        annotation: None,
+                        angle_branch: None,
+                        line: None,
+                        curve: Some(arc.clone()),
+                        points: vec![],
+                        curves: vec![],
+                        name: None,
+                        value: fillet.clone(),
+                        mode: DimensionMode::Driving,
+                    },
+                    computed: FormulaQuantity {
+                        value: 0.,
+                        unit: FormulaUnit::Length(LengthUnit::Mm),
+                    },
+                    dependencies: vec![],
+                },
+            );
         }
         Ok(SketchEditResult {
             created,

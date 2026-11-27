@@ -801,6 +801,11 @@ dialog::backdrop {
 .sketch-popup form { display: grid; gap: 6px; }
 .sketch-popup input, .sketch-popup select { min-width: 0; padding: 4px 6px; }
 .sketch-live-dimensions { position: absolute; inset: 0; pointer-events: none; }
+.sketch-move-field { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: auto; display: flex; align-items: center; width: 132px; height: 28px; padding: 2px; border: 1px solid var(--handle-edge); border-radius: 3px; background: var(--field-background); }
+.sketch-move-field > span { flex: 0 0 34px; text-align: center; color: var(--handle-edge); font-size: 12px; }
+.sketch-move-field > input[id] { width: 0; min-width: 0; min-height: 0; flex: 1; height: 22px; padding: 2px 4px; border: 0; color: var(--foreground-strong); background: var(--field-background); font: 12px/18px var(--font-family); font-variant-numeric: tabular-nums; }
+.tool-move-access { position: absolute; z-index: 1; transform: translate(-50%, -50%); width: 26px; height: 26px; min-height: 0; padding: 0; border: 0; background: transparent; touch-action: none; cursor: grab; }
+.tool-move-access:hover:not(:disabled), .tool-move-access:active:not(:disabled) { background: transparent; }
 .sketch-cursor-symbol { position: fixed; z-index: 60; width: 16px; height: 16px; pointer-events: none; user-select: none; }
 :is(.sketch-live-dimensions > input[id], .sketch-dimension-input) { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: auto; width: 12ch; min-width: 0; min-height: 20px; height: 20px; padding: 1px 3px; border: 1px solid var(--field-border); border-radius: 2px; background: var(--field-background); color: var(--foreground-strong); font-size: 10px; font-weight: 500; }
 

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round">
+  <title>Pick pivot</title>
+  <g class="icon-handle-edge" stroke="#815a36"><circle cx="12" cy="12" r="7"/><path d="M12 2v5m0 10v5M2 12h5m10 0h5"/></g>
+  <circle class="icon-handle-fill" cx="12" cy="12" r="1.5" fill="#815a36"/>
+</svg>

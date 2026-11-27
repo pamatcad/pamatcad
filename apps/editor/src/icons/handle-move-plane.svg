@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -28 32 32">
+  <title>Move freely in sketch plane</title>
+  <circle cx="0" cy="0" r="3" fill="#000"/>
+  <path d="M10-26H26V-10H10Z" fill="#fff" stroke="#000" stroke-width="1.5"/>
+</svg>

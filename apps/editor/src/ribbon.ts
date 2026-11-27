@@ -7,7 +7,7 @@ const icons = import.meta.glob<string>("./icons/sketch-*.svg", { query: "?raw", 
 const geometry: SketchToolName[] = ["point", "line", "rectangle", "circle", "arc", "ellipse", "slot", "spline", "text"];
 const constraints: ConstraintKind[] = ["equal", "coincident", "fix", "concentric", "midpoint", "parallel", "perpendicular", "tangent", "horizontal", "vertical", "symmetric", "collinear", "pointOnCurve"];
 const editing: SketchToolName[] = ["dimension", "project", "offset", "split", "rounding", "scale", "move", "remove"];
-const title = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
+const title = (name: string) => (name === "rounding" ? "fillet" : name).replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
 
 export function initRibbon(root: HTMLElement, changeWorkbench: (value: Workbench) => void, currentSketch: () => SketchTool | undefined) {
   const selector = root.querySelector<HTMLSelectElement>("#workbench")!;

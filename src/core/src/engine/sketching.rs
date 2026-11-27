@@ -162,7 +162,7 @@ impl Engine {
                             _ => &[],
                         })
                         .map(|r| &r.dimension),
-                );
+                ).chain(sketch.offset_dependencies());
             for r in dependencies {
                 let source = if r.sketch_id == candidate.data.id {
                     candidate
@@ -453,7 +453,20 @@ impl Engine {
     ) -> Result<SketchState> {
         self.update_sketch(&input.sketch, |sketch| {
             let mut ids = vec![];
+            let offsets = input.ids.iter().filter_map(|id| sketch.offset_owner(id).map(|o| o.id.clone()))
+                .collect::<std::collections::BTreeSet<_>>();
+            let mut removed_offset_items = std::collections::BTreeSet::new();
+            for id in offsets {
+                let offset = sketch.offsets.remove(&id).unwrap();
+                let fixed = format!("{id}-fixed");
+                sketch.constraints.remove(&fixed); sketch.fixed.remove(&fixed);
+                removed_offset_items.insert(id); removed_offset_items.insert(fixed);
+                for r in offset.sides.into_iter().flatten() {
+                    removed_offset_items.insert(r.id.clone()); ids.push(r.id);
+                }
+            }
             for id in &input.ids {
+                if removed_offset_items.contains(id) { continue; }
                 if sketch.texts.contains_key(id) {
                     if let Some(frame) = &sketch.texts[id].frame {
                         ids.extend(frame.references().iter().map(|r| r.id.clone()));
@@ -489,16 +502,22 @@ impl Engine {
             }
             input.ids = ids;
             sketch.spline_removal(&mut input.ids)?;
-            let endpoints = input
+            if sketch.offsets.values().any(|o| o.sources.iter().any(|r| input.ids.contains(&r.id))) {
+                return Err(invalid("Remove dependent offsets before deleting their source curves"));
+            }
+            let curve_points = input
                 .ids
                 .iter()
                 .filter_map(|id| match &sketch.entities.get(id)?.geometry {
-                    SketchGeometry::Line { from, to } => Some([from.clone(), to.clone()]),
+                    SketchGeometry::Line { from, to } => Some(vec![from.clone(), to.clone()]),
+                    SketchGeometry::Arc {
+                        center, from, to, ..
+                    } => Some(vec![center.clone(), from.clone(), to.clone()]),
                     _ => None,
                 })
                 .flatten()
                 .collect::<Vec<_>>();
-            if !endpoints.is_empty() {
+            if !curve_points.is_empty() {
                 let remaining = sketch
                     .entities
                     .values()
@@ -509,7 +528,7 @@ impl Engine {
                     .map(|e| e.reference.clone())
                     .collect::<Vec<_>>();
                 let used = sketch.selected_entities(&remaining)?;
-                for id in endpoints {
+                for id in curve_points {
                     if id != "origin" && !used.contains(&id) && !input.ids.contains(&id) {
                         input.ids.push(id);
                     }
@@ -597,6 +616,7 @@ impl Engine {
         let sketch = self.sketch(reference)?;
         sketch.check_reference(entity)?;
         sketch.ensure_text_outline_editable(&entity.id)?;
+        sketch.ensure_offset_editable(&entity.id)?;
         // Frame helpers are constraint references. Only the center can be dragged,
         // moving the text as a rigid object instead of deforming its rectangle.
         if let Some(text) = sketch.text_frame_owner(&entity.id) {
@@ -842,7 +862,9 @@ impl Engine {
                 .filter(|r| r.dimension.sketch_id != id)
                 .map(|r| r.dimension.sketch_id.clone())
                 .collect::<Vec<_>>();
-            for dependency in dependencies.into_iter().chain(text_dependencies) {
+            let offset_dependencies = engine.scene(scene)?.sketches[id].offset_dependencies()
+                .filter(|r| r.sketch_id != id).map(|r| r.sketch_id.clone()).collect::<Vec<_>>();
+            for dependency in dependencies.into_iter().chain(text_dependencies).chain(offset_dependencies) {
                 solve_dependencies(engine, scene, &dependency, visited)?;
             }
             engine.recompute_sketch(&SketchRef {
@@ -1124,29 +1146,115 @@ impl Engine {
         session: u64,
         input: ModifySketchCurves,
     ) -> Result<SketchEditResult> {
+        if let SketchCurveEdit::OffsetAnnotation { id, side, position } = &input.operation {
+            if !input.curves.is_empty() || *side > 1 || position.iter().any(|v| !v.is_finite()) {
+                return Err(invalid("Offset annotation requires a valid side, finite position and no curve operands"));
+            }
+            let update = |sketch: &mut Sketch| -> Result<()> {
+                sketch.ensure_editable()?;
+                let offset = sketch.offsets.get_mut(id).ok_or_else(|| invalid("Offset does not exist"))?;
+                if *side == 1 && offset.mode != SketchOffsetMode::Independent {
+                    return Err(invalid("A second offset annotation requires independent sides"));
+                }
+                offset.annotations[*side] = Some(DimensionAnnotation { position: *position });
+                Ok(())
+            };
+            // Placement has the same non-solving semantics as ordinary dimension annotations.
+            if input.preview.unwrap_or(false) {
+                let key = (session, input.sketch.scene_id.clone());
+                let mut sketch = self.sketch_previews.get(&key)
+                    .filter(|s| s.data.id == input.sketch.id).unwrap_or(self.sketch(&input.sketch)?).clone();
+                update(&mut sketch)?;
+                self.sketch_previews.insert(key, sketch);
+            } else {
+                let sketch = self.scenes.get_mut(&input.sketch.scene_id)
+                    .and_then(|s| s.sketches.get_mut(&input.sketch.id))
+                    .ok_or_else(|| invalid("Sketch does not exist"))?;
+                update(sketch)?;
+            }
+            return Ok(SketchEditResult { created: vec![], removed: vec![], removed_constraints: vec![], removed_dimensions: vec![] });
+        }
+        if let SketchCurveEdit::Offset { id, mode, distance1, distance2, annotations } = &input.operation {
+            let units = self.scene(&input.sketch.scene_id)?.data.units;
+            let external = self.external_dimensions(&input.sketch)?;
+            let mode = mode.unwrap_or(if distance2.is_some() { SketchOffsetMode::Independent } else { SketchOffsetMode::OneSided });
+            return self.update_sketch_for(session, input.preview.unwrap_or(false), &input.sketch, |s| {
+                s.set_offset(id.clone(), input.curves.clone(), mode, distance1.clone(), distance2.clone(), annotations.clone(), units, &external)
+            });
+        }
         let scene = self.scene(&input.sketch.scene_id)?;
         let length = |f: &Formula<LengthUnit>| {
             scene
                 .evaluate_formula(f, scene.data.units.length)
                 .map(|e| e.computed.value * FormulaUnit::Length(e.computed.unit).scale())
         };
-        let (operation, values) = match &input.operation {
-            SketchCurveEdit::Split => (0, vec![0.]),
-            SketchCurveEdit::Remove { position } => (4, position.to_vec()),
-            SketchCurveEdit::Offset {
-                distance1,
-                distance2,
-            } => {
-                let mut values = vec![length(distance1)?];
-                if let Some(d) = distance2 {
-                    values.push(-length(d)?);
-                }
-                if values.iter().any(|v| v.abs() < 1e-7) {
-                    return Err(invalid("Offset distances must be nonzero"));
-                }
-                (1, values)
+        let radius_formula = match &input.operation {
+            SketchCurveEdit::Fillet { radius, .. } => Some(match radius {
+                Formula::Number(n) => Formula::Number(*n),
+                Formula::Expression(s) => Formula::Expression(s.clone()),
+                Formula::Evaluated(e) => Formula::Expression(e.expression.clone()),
+            }),
+            _ => None,
+        };
+        if let SketchCurveEdit::Fillet {
+            dimension: Some(id),
+            radius,
+        } = &input.operation
+        {
+            if length(radius)? <= 0. {
+                return Err(invalid("Fillet radius must be positive"));
             }
-            SketchCurveEdit::Rounding { radius } => {
+            return self.update_sketch_for(
+                session,
+                input.preview.unwrap_or(false),
+                &input.sketch,
+                |s| {
+                    let d = s
+                        .dimensions
+                        .get_mut(id)
+                        .ok_or_else(|| invalid("Fillet radius dimension does not exist"))?;
+                    if d.kind != DimensionKind::Radius
+                        || !input
+                            .curves
+                            .iter()
+                            .any(|r| d.parameters.curve.as_ref() == Some(r))
+                    {
+                        return Err(invalid("Select the arc belonging to this radius dimension"));
+                    }
+                    d.parameters.value = radius_formula;
+                    d.parameters.mode = DimensionMode::Driving;
+                    s.bindings.remove(id);
+                    Ok(SketchEditResult {
+                        created: vec![],
+                        removed: vec![],
+                        removed_constraints: vec![],
+                        removed_dimensions: vec![],
+                    })
+                },
+            );
+        }
+        let (operation, values) = match &input.operation {
+            SketchCurveEdit::Split {
+                position,
+                tolerance,
+            } => {
+                let tolerance = tolerance.unwrap_or(1e-7);
+                if !tolerance.is_finite()
+                    || tolerance <= 0.
+                    || position.is_some_and(|p| p.iter().any(|v| !v.is_finite()))
+                {
+                    return Err(invalid(
+                        "Split needs a finite position and positive tolerance",
+                    ));
+                }
+                (
+                    0,
+                    position.map_or(vec![0.], |p| vec![tolerance, p[0], p[1]]),
+                )
+            }
+            SketchCurveEdit::Remove { position } => (4, position.to_vec()),
+            SketchCurveEdit::Offset { .. } | SketchCurveEdit::OffsetAnnotation { .. } => unreachable!(),
+            SketchCurveEdit::Rounding { radius } | SketchCurveEdit::Fillet { radius, .. } => {
                 let radius = length(radius)?;
                 if radius <= 0. {
                     return Err(invalid("Rounding radius must be positive"));
@@ -1158,7 +1266,7 @@ impl Engine {
             session,
             input.preview.unwrap_or(false),
             &input.sketch,
-            |s| s.modify_curves(&input.curves, operation, &values),
+            |s| s.modify_curves(&input.curves, operation, &values, radius_formula),
         )
     }
 }

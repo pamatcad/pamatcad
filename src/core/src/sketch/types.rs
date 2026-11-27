@@ -207,6 +207,27 @@ pub struct SketchState {
     pub projections: Vec<SketchProjection>,
     pub texts: Vec<SketchText>,
     pub splines: Vec<SketchSpline>,
+    pub offsets: Vec<SketchOffset>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SketchOffsetMode {
+    OneSided,
+    Symmetric,
+    Independent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SketchOffset {
+    pub id: String,
+    pub sources: Vec<SketchEntityRef>,
+    pub sides: Vec<Vec<SketchEntityRef>>,
+    pub mode: SketchOffsetMode,
+    pub distance1: Formula<LengthUnit>,
+    pub distance2: Option<Formula<LengthUnit>>,
+    pub annotations: [Option<DimensionAnnotation>; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -316,7 +337,12 @@ pub struct SetConstruction {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum SketchCurveEdit {
-    Split,
+    Split {
+        #[ts(optional)]
+        position: Option<[f64; 2]>,
+        #[ts(optional)]
+        tolerance: Option<f64>,
+    },
     Remove {
         position: [f64; 2],
     },
@@ -324,9 +350,25 @@ pub enum SketchCurveEdit {
         distance1: Formula<LengthUnit>,
         #[ts(optional)]
         distance2: Option<Formula<LengthUnit>>,
+        #[ts(optional)]
+        id: Option<String>,
+        #[ts(optional)]
+        mode: Option<SketchOffsetMode>,
+        #[ts(optional)]
+        annotations: Option<[Option<DimensionAnnotation>; 2]>,
+    },
+    OffsetAnnotation {
+        id: String,
+        side: usize,
+        position: [f64; 2],
     },
     Rounding {
         radius: Formula<LengthUnit>,
+    },
+    Fillet {
+        radius: Formula<LengthUnit>,
+        #[ts(optional)]
+        dimension: Option<String>,
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -683,6 +725,8 @@ pub fn declarations() -> Vec<String> {
         SketchSolveStatus::decl(),
         SketchEntityFreedom::decl(),
         SketchState::decl(),
+        SketchOffset::decl(),
+        SketchOffsetMode::decl(),
         SplineHandleMode::decl(),
         SplineFitPoint::decl(),
         SketchSpline::decl(),

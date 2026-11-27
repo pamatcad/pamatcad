@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -65 66 66">
+  <title>Rotate around pivot</title>
+  <path d="M0-64A64 64 0 0 1 40.08-49.03M49.03-40.08A64 64 0 0 1 64 0" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="45.255" cy="-45.255" r="4.5" fill="#fff" stroke="#000" stroke-width="1.5"/>
+</svg>

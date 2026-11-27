@@ -2,7 +2,7 @@ declare const __PAMATCAD_COMMAND_HELP__: Record<string, { name: string; shortDes
 const commandHelp = __PAMATCAD_COMMAND_HELP__;
 const illustrations = import.meta.glob<string>("../../../doc/api/command/**/illustration.svg", { query: "?url", import: "default", eager: true });
 
-/** One tooltip shared by the ribbon and the current tool window. */
+/** One tooltip shared by the ribbon, tool window and canvas controls. */
 export function initTooltips(roots: HTMLElement[]) {
   const tooltip = document.createElement("div");
   tooltip.id = "ui-tooltip";

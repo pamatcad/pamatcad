@@ -58,7 +58,12 @@ export function lengthStep(mmPerPixel: number, screenPixels: number, unit: Formu
   if (unit === "in" && Math.abs(value / scale) < 10) {
     return 2 ** Math.round(Math.log2(Math.max(desired, 1 / 1024))) * scale;
   }
+  return niceValue(desired) * scale;
+}
+
+/** Closest proportional decimal value, shared by drag steps and geometry defaults. */
+export function niceValue(desired: number): number {
   const power = 10 ** Math.floor(Math.log10(Math.max(desired, 1e-9)));
   const candidates = [1, 2, 2.5, 5, 10].map((n) => n * power);
-  return candidates.reduce((best, n) => Math.abs(Math.log(n / desired)) < Math.abs(Math.log(best / desired)) ? n : best) * scale;
+  return candidates.reduce((best, n) => Math.abs(Math.log(n / desired)) < Math.abs(Math.log(best / desired)) ? n : best);
 }

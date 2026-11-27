@@ -57,7 +57,7 @@ export async function testSketchModes(page) {
       await tool.hover();
       await page.waitForFunction(name => {
         const tip = document.querySelector("#ui-tooltip");
-        return !tip.hidden && tip.querySelector(".ui-tooltip-name").textContent.toLowerCase() === name;
+        return !tip.hidden && tip.querySelector(".ui-tooltip-name").textContent.toLowerCase() === (name === "rounding" ? "fillet" : name);
       }, name);
       assert.equal(await tool.getAttribute("title"), null);
       assert.equal(await tool.locator("svg").evaluate(el => getComputedStyle(el).pointerEvents), "none");
@@ -96,6 +96,21 @@ export async function testSketchModes(page) {
     await page.keyboard.press("Escape");
     assert.equal(await page.evaluate(() => window.modeCheck.tool.tool), "select"); assert.equal((await cursor()).hidden, true);
     await page.evaluate(async id => { const t = window.modeCheck.tool; await t.sketch.remove([id]); await t.reload(); }, trimming.point.points[0].id);
+
+    for (const action of ["Delete", "Backspace", "remove"]) {
+      const arc = await page.evaluate(async () => {
+        const t = window.modeCheck.tool, arc = await t.sketch.primitives.add("arc", { center: [-20, 18], radius: 4, start: 0, end: 180 });
+        await t.reload(); return arc;
+      }); await idle();
+      if (action === "remove") await page.locator('[data-tool="remove"]').click();
+      await click([-20, 22]);
+      if (action !== "remove") { assert.deepEqual(await selected(), [arc.curves[0].id]); await page.keyboard.press(action); await idle(); }
+      const cleaned = await page.evaluate(() => ({ state: window.modeCheck.tool.state, proxy: window.modeCheck.tool.proxy }));
+      assert.deepEqual(cleaned.state.entities.map(e => e.reference.id), ["origin"], action + " removes arc endpoints and center");
+      assert.deepEqual(cleaned.proxy.points.map(p => p.entity.id), ["origin"]); assert.deepEqual(cleaned.proxy.curves, []);
+      await page.keyboard.press("Escape"); await idle();
+    }
+    console.log("Arc cleanup: Delete, Backspace and Remove leave no unused endpoints or center in the sketch or display");
 
     // A new rectangle starts with fresh inputs but retains its variant and geometry mode.
     await page.getByRole("button", { name: "Construction geometry", exact: true }).click();
@@ -227,7 +242,7 @@ export async function testSketchModes(page) {
       await apply("split", [...c.curves, ...d.curves], {});
       return results;
     });
-    assert.deepEqual(operations, [["offset", 0], ["move", 0], ["angle", "15 deg"], ["scale", 0], ["rounding", 0], ["split", 0]]);
+    assert.deepEqual(operations, [["offset", 0], ["move", 0], ["angle", "0 deg"], ["scale", 0], ["rounding", 0], ["split", 0]]);
 
     // All commands have simple outline cursor assets; variants reuse the same symbol.
     const files = await readdir("apps/editor/src/icons/cursors");
@@ -275,7 +290,7 @@ export async function testSketchModes(page) {
     assert.match(decodeURIComponent((await cursor()).src), /<title>Fix<\/title>/);
     await page.locator('[data-tool="move"]').click(); await page.mouse.move(...await screen([-30, 20]));
     assert.equal((await cursor()).cursor, "default"); assert.match(decodeURIComponent((await cursor()).src), /<title>Move<\/title>/);
-    await page.locator("#sketch-move-x").hover(); assert.equal((await cursor()).hidden, true);
+    await page.locator("#sketch-pivot").hover(); assert.equal((await cursor()).hidden, true);
     await page.evaluate(() => window.modeCheck.restoreTransport());
 
     const id = await page.locator('#document-tabs [aria-selected="true"]').getAttribute("data-document");

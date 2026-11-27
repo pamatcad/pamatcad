@@ -29,12 +29,8 @@ Return `INVALID_PARAMETER` for a missing or multiple target, non-curve target, p
 # Test cases
 
 - Remove the middle and an end interval of a line intersected by two other lines; preserve both boundary curves, unrelated geometry and surviving endpoint references. Repeat with construction geometry and a projected boundary.
-- Remove an isolated line or closed curve entirely, including its unused points. Keep neighboring curves and shared endpoints.
+- Remove an isolated line, arc or closed curve entirely, including its unused endpoints/center. Keep neighboring curves and shared points, including slot centers used by construction lines and split-arc centers used by surviving arcs.
 - Trim arcs, circles, ellipses and fitted/control splines against intersecting lines; preserve exact retained shapes. Cover closed-curve seam crossings, one intersection, tangency, rotated sketch frames and near-intersection picks.
 - Reject point/multiple/projected/protected targets and a pick exactly at an intersection without mutating state. Preserve unrelated constraints; reject a trim whose removed dimension is referenced elsewhere.
 - Preview without committing, cancel, repeat, finish/reopen and replay the same captured commands through the CLI. Compare exact regions and extrusion volume after trimming an overlong rectangle side.
 - In the editor, use the ribbon and repeated curve clicks; verify empty picks, curve-over-point picking, Escape, document switching, the 16 px cursor badge and custom tooltip. Verify the refreshed tool icons retain theme roles and no native tooltips appear over their SVGs.
-
-# History
-
-2026-11-25: Implemented in the native/WASM core, generated protocol, SDK and editor. Verified curve families, seams, helper cleanup, protected geometry, preview/repeatability, CLI replay and rectangle extrusion volume; browser checks cover repeated picks, cursor, document switching and custom tooltips. Trimmed ellipses use exact rational splines; existing solid mass integration is approximate for these curves.

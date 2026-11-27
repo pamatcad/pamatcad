@@ -1,19 +1,22 @@
-import { Sketch, type Scene, type SketchState, type SketchProxy, type SketchEntityRef, type Primitive, type ConstraintKind, type DimensionKind, type SketchSupport, type GeometryData } from "@pamatcad/sdk";
+import { Sketch, type Scene, type SketchState, type SketchProxy, type SketchOffset, type SketchEntityRef, type Primitive, type ConstraintKind, type DimensionKind, type SketchSupport, type GeometryData } from "@pamatcad/sdk";
 import template from "./sketch.html?raw";
 import { drawing, drawingClicks, variants, pointOf, distance, bearing, type DrawingFields, type SketchToolName } from "./sketch-geometry";
 import { sketchDisplayDefaults, type SketchDisplayOptions, type SketchPick } from "../sketch-display";
 import { type Hit, type Point, type ViewState, Viewport } from "../viewport";
 import type { SelectionItem } from "../selection";
-import { unitScale } from "../formula-input";
+import { niceValue, unitScale } from "../formula-input";
 import type { ToolHandle } from "../tool-handles";
 const icons = import.meta.glob<string>("../icons/*.svg", { query: "?url", import: "default", eager: true });
 const toolIcons = import.meta.glob<string>("../icons/sketch-*.svg", { query: "?raw", import: "default", eager: true });
 import { dimensionChoices, dimensionLayout, formatDimension, inferDimension } from "../sketch-dimensions";
-import { constraintSelection } from "./sketch-constraints";
+import { connectedSelection, constraintSelection } from "./sketch-constraints";
 import { TextControls } from "./sketch-text";
 const editing = new Set<SketchToolName>(["select", "dimension", "project", "offset", "rounding", "scale", "move", "split", "remove"]);
-const title = (s: string) => s.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
+const title = (s: string) => (s === "rounding" ? "fillet" : s).replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
 const errorText = (e: unknown) => e instanceof Error ? e.message : String(e);
+type OffsetLabel = { id: string; from: Point; to: Point; label: Point; value: number; side: 0 | 1; offset?: string; draft: boolean };
+const moveFields = ["sketch-move-x", "sketch-move-y", "sketch-angle"] as const;
+type MoveDraft = { values: [number, number, number]; sources: [string, string, string]; pivot: Point };
 type Hooks = {
   changed(pending: boolean): void;
   proxy(proxy: SketchProxy): void;
@@ -53,12 +56,25 @@ export class SketchTool {
   private draftValid = false;
   private pivot: Point = [0, 0];
   private pickingPivot = false;
+  private moveAccepted: MoveDraft = { values: [0,0,0], sources: ["0 mm","0 mm","0 deg"], pivot: [0,0] };
+  private moveCandidate?: MoveDraft;
+  private moveInput?: string;
+  private moveGesture?: { draft: MoveDraft; state?: SketchState; proxy?: SketchProxy };
   private repairingProjection?: string;
   private changingSupport = false;
   private snapRefs = new Map<string, SketchEntityRef>();
   private dimensionKind?: DimensionKind;
+  private filletDimension?: string;
+  private editingOffset?: string;
+  private editPreview?: SketchState;
+  private editProxy?: SketchProxy;
+  private editAnnotations: OffsetLabel[] = [];
+  private shownOffsetAnnotations: OffsetLabel[] = [];
+  private offsetPositions: [Point | undefined, Point | undefined] = [undefined, undefined];
+  private splitTarget?: { position: Point; curves: SketchEntityRef[] };
+  private formulaPointer?: number;
   private dimensionPosition?: Point;
-  private annotationDrag?: { id: string; start: Point; original: Point; position: Point; moved: boolean };
+  private annotationDrag?: { id: string; start: Point; original: Point; position: Point; moved: boolean; offset?: OffsetLabel };
   private dragCircle = false;
   private dragEntity?: SketchEntityRef;
   private dragStart?: Point;
@@ -146,15 +162,20 @@ export class SketchTool {
     });
     this.get("sketch-action").onclick = () => {
       if (this.creating) return;
+      if (this.tool === "move" && (this.pending || !this.draftValid || this.moveGesture)) return;
       this.creating = true;
       void this.run(() => this.action()).finally(() => {
         this.creating = false;
         if (this.active) this.hooks.changed(this.pending);
       });
     };
+    this.get("sketch-pivot").innerHTML = toolIcons["../icons/sketch-pivot.svg"];
+    this.get("sketch-pivot").querySelector("svg")!.setAttribute("aria-hidden","true");
     this.get("sketch-pivot").onclick = () => {
-      this.pickingPivot = true;
-      this.hooks.status("Pick the transform pivot in the sketch.");
+      this.pickingPivot = !this.pickingPivot;
+      this.get("sketch-pivot").setAttribute("aria-pressed",String(this.pickingPivot));
+      this.hooks.status(this.pickingPivot ? "Pick the transform pivot in the sketch." : "Pivot selection cancelled.");
+      void this.handles();
     };
     this.get("sketch-repair-support").onclick = () => {
       this.changingSupport = true;
@@ -175,6 +196,7 @@ export class SketchTool {
       let edit = 0;
       field.addEventListener("input", () => {
         edit++;
+        if (this.tool === "move") this.moveCandidate = undefined;
         this.numericFields.delete(field.id);
         this.dirty.add(field.id);
         this.schedulePreview();
@@ -322,7 +344,7 @@ export class SketchTool {
     this.references();
     this.selectionChanged();
   }
-  private display(state = this.state, proxy = this.proxy, hover?: string) {
+  private display(state = this.tool === "move" ? this.editPreview ?? this.state : this.state, proxy = this.tool === "move" ? this.editProxy ?? this.proxy : this.proxy, hover?: string) {
     if (state && proxy && this.active) {
       if (this.annotationDrag) {
         const drag = this.annotationDrag;
@@ -332,6 +354,26 @@ export class SketchTool {
       if (candidate) {
         const unit = this.scene.units[candidate.kind === "angle" ? "angle" : "length"];
         state = { ...state, dimensions: [...state.dimensions, { id: "dimension-preview", kind: candidate.kind, parameters: candidate.parameters, computed: { value: candidate.value / unitScale[unit], unit }, dependencies: [] }] };
+      }
+      const annotations: typeof this.editAnnotations = [];
+      for (const offset of state.offsets) {
+        if (this.tool === "offset" && (offset.id === this.editingOffset || !this.state?.offsets.some(o => o.id === offset.id))) continue;
+        for (const [i, formula] of [offset.distance1, offset.distance2].entries()) {
+          if (!formula || typeof formula !== "object") continue;
+          const value = formula.computed.value * unitScale[formula.computed.unit];
+          const annotation = this.offsetAnnotation(state, offset.sources, value, i as 0 | 1, offset, proxy, false);
+          if (annotation) annotations.push(annotation);
+        }
+      }
+      if (this.tool === "offset") annotations.push(...this.editAnnotations);
+      this.shownOffsetAnnotations = annotations;
+      if (annotations.length) {
+        state = { ...state, entities: [...state.entities], dimensions: [...state.dimensions] };
+        for (const annotation of annotations) {
+          const refs = ["from", "to"].map(s => ({ sceneId: this.scene.id, sketchId: this.sketch!.id, id: annotation.id+"-"+s }));
+          refs.forEach((reference,i) => state!.entities.push({ reference, geometry: { type: "point", position: i ? annotation.to : annotation.from }, construction: true, projected: false }));
+          state.dimensions.push({ id: annotation.id, kind: "distance", parameters: { mode: "driven", points: refs, annotation: { position: annotation.label } }, computed: { value: Math.abs(annotation.value)/unitScale[this.scene.units.length], unit: this.scene.units.length }, dependencies: [] });
+        }
       }
       this.viewport.showSketch(state, proxy, this.selected, this.options, hover);
     }
@@ -397,6 +439,12 @@ export class SketchTool {
     this.annotationDrag = undefined;
     this.dimensionPosition = undefined;
     this.dimensionKind = undefined;
+    this.filletDimension = undefined;
+    this.editingOffset = undefined;
+    this.editPreview = undefined; this.editProxy = undefined;
+    this.editAnnotations = [];
+    this.offsetPositions = [undefined, undefined];
+    this.splitTarget = undefined;
     this.tool = tool;
     this.constraint = undefined;
     this.variant = variant;
@@ -407,6 +455,8 @@ export class SketchTool {
     this.dirty.clear();
     this.draftValid = false;
     this.pickingPivot = false;
+    this.get("sketch-pivot").setAttribute("aria-pressed","false");
+    this.moveInput = undefined; this.moveCandidate = undefined; this.moveGesture = undefined;
     this.version++;
     this.interaction++;
     this.previewQueued = false;
@@ -433,30 +483,45 @@ export class SketchTool {
       }
       b.append(document.createTextNode(name));
       b.setAttribute("aria-pressed", String(i === variant));
-      b.onclick = () => this.choose(tool, i);
+      b.onclick = () => {
+        if (tool === "offset" && this.editingOffset) {
+          const id = this.editingOffset, positions = this.offsetPositions; this.choose(tool, i); this.editingOffset = id; this.offsetPositions = positions;
+          this.dirty.add("sketch-offset"); this.schedulePreview();
+        }
+        else this.choose(tool, i);
+      };
       group.append(b);
     });
     for (const id of ["sketch-radius", "sketch-angle"]) {
       const label = this.get(id + "-label");
-      const inPanel = tool === "rounding" && id === "sketch-radius" || tool === "move" && id === "sketch-angle";
-      label.hidden = !inPanel;
-      (inPanel ? label : this.liveDimensions).append(this.input(id));
+      label.hidden = true;
+      (tool === "move" && id === "sketch-angle" ? this.liveDimensions.querySelector('[data-move-field="sketch-angle"]')! : this.liveDimensions).append(this.input(id));
     }
     this.input("width").setAttribute("aria-label", tool === "line" ? "Length" : "Width");
     for (const row of [...this.panel.querySelectorAll<HTMLElement>("[data-tools]"), ...this.liveDimensions.querySelectorAll<HTMLElement>("[data-tools]")]) {
       row.hidden = !row.dataset.tools!.split(" ").includes(tool);
     }
-    this.get("sketch-offset2-row").hidden = tool !== "offset" || variant !== 2;
+    this.input("sketch-offset2").hidden = tool !== "offset" || variant !== 2;
     this.input("sketch-radius").hidden = !["circle", "arc", "slot", "rounding"].includes(tool) || tool === "circle" && variant === 4 || tool === "arc" && variant === 1;
     this.input("sketch-angle").hidden = !(tool === "arc" && variant === 0 || tool === "move");
     const action = this.get("sketch-action");
-    action.hidden = !["offset", "split", "rounding", "scale", "move"].includes(tool);
-    action.removeAttribute("disabled");
+    action.hidden = tool !== "move";
+    action.toggleAttribute("disabled", tool === "move");
     action.textContent = action.hidden ? "" : "Apply " + tool;
     action.dataset.tooltip = action.textContent;
-    if (tool === "move" && previous !== "move" || tool === "arc") this.setNumericField("sketch-angle", 0);
+    if (tool === "move") {
+      moveFields.forEach(id => this.setNumericField(id,0));
+      this.moveAccepted = {values:[0,0,0],sources:moveFields.map(id=>this.fieldSource(id)) as MoveDraft["sources"],pivot:[...this.pivot]};
+      this.hooks.status("Drag an axis, the quarter arc or the XY square. Click a handle to enter a formula; Apply commits.");
+    }
+    if (tool === "arc") this.setNumericField("sketch-angle", 0);
     if (tool === "slot") this.setNumericField("sketch-radius", Math.max(1e-6, 2 * this.viewport.pixelLength) / unitScale[this.scene.units.length]);
     if (tool === "dimension") this.hooks.status("Select geometry, then click to place the dimension. Right-click for alternate measurements.");
+    if (tool === "rounding") this.seedFilletRadius();
+    if (tool === "scale") this.setNumericField("sketch-scale", 1, "");
+    if (["offset", "rounding", "scale"].includes(tool)) this.hooks.status("Select curves, then drag a handle or enter a canvas formula. Release or Enter commits; Esc cancels.");
+    if (tool === "offset") this.hooks.status("Drag to change distance; drag a dimension line or Alt-drag an arrow to reposition it. Enter commits; Esc cancels.");
+    if (tool === "split") { this.selected.clear(); this.hooks.status("Hover over an intersection, then click to split the curves there."); }
     this.updateDimensions();
     if (this.proxy) this.hooks.proxy(this.proxy);
     this.display();
@@ -465,6 +530,7 @@ export class SketchTool {
     this.hooks.changed(this.pending);
     if (discardText) void this.run(() => this.scene.discardPreview(), false, true);
     if (tool === "text") this.textControls.activate();
+    if (["offset", "rounding", "scale", "move"].includes(tool) && this.geometry().length) this.schedulePreview();
     this.flushUpdates();
   }
   private updateCursor() {
@@ -502,7 +568,7 @@ export class SketchTool {
       void this.queue.then(() => this.choose("select"));
       return;
     }
-    const discardLine = ["line", "spline"].includes(this.tool) && this.points.length > 0;
+    const discardLine = ["line", "spline"].includes(this.tool) && this.points.length > 0 || ["offset", "rounding", "scale", "move"].includes(this.tool);
     if (this.tool === "select") this.selected.clear();
     this.repairingProjection = undefined;
     this.choose("select");
@@ -513,6 +579,7 @@ export class SketchTool {
   private updateDimensions(primitive?: Primitive) {
     if (this.popup instanceof HTMLInputElement && this.popup.isConnected) return;
     if (this.tool === "circle" && [1, 2].includes(this.variant)) this.input("sketch-radius").hidden = this.points.length < 2;
+    if (["offset", "rounding", "scale", "move"].includes(this.tool)) { void this.handles(); return; }
     const visible = this.active && !editing.has(this.tool) && this.points.length > 0;
     this.liveDimensions.hidden = !visible;
     if (!visible || !this.state) {
@@ -637,6 +704,16 @@ export class SketchTool {
       }
       return;
     }
+    if (this.tool === "split") {
+      if (this.splitTarget) {
+        const target = this.splitTarget;
+        void this.run(async () => {
+          await this.sketch!.modifyCurves(target.curves, { type: "split", position: target.position, tolerance: Math.max(1e-6, this.viewport.pixelLength * 6) });
+          this.splitTarget = undefined;
+        });
+      }
+      return;
+    }
     if (this.tool === "remove") {
       const pick = hit.picks.find(p => p.kind === "geometry" && this.state?.entities.some(e =>
         e.reference.id === p.id && e.geometry.type !== "point"));
@@ -670,7 +747,9 @@ export class SketchTool {
     if (this.pickingPivot && hit.point) {
       this.pivot = hit.point;
       this.pickingPivot = false;
+      this.get("sketch-pivot").setAttribute("aria-pressed","false");
       this.handles();
+      this.schedulePreview();
       return;
     }
     if (this.tool === "dimension") {
@@ -709,7 +788,14 @@ export class SketchTool {
       this.points = [];
     }
     if (editing.has(this.tool)) {
-      this.pick(hit.picks[0], hit.additive);
+      if (this.tool === "move" && this.moveInput && !hit.picks.length) { this.moveInput = undefined; void this.handles(); return; }
+      if (["offset", "rounding", "scale"].includes(this.tool) && hit.picks[0]?.kind === "dimension") {
+        this.pick(hit.picks[0], hit.additive);
+        return;
+      }
+      this.pick(hit.picks[0], ["offset", "rounding", "scale"].includes(this.tool) || hit.additive);
+      if (this.tool === "move") this.choose("move");
+      if (["offset", "rounding", "scale"].includes(this.tool)) { this.editPreview = undefined; this.editProxy = undefined; this.schedulePreview(); }
       return;
     }
     if (!hit.point) {
@@ -748,6 +834,7 @@ export class SketchTool {
     }
   }
   move(point: Point | null) {
+    if (this.tool === "split") { this.splitHover(point); return; }
     if (this.tool === "circle" && this.variant >= 3) {
       if (point && !this.creating && this.geometry().length === (this.variant === 3 ? 2 : 3)) {
         this.points = [point]; this.cursor = undefined; this.updateDimensions(); this.schedulePreview();
@@ -832,6 +919,7 @@ export class SketchTool {
         this.selected.add(pick.id);
       }
     }
+    this.seedFilletRadius();
     this.selectionChanged();
   }
   private setNumericField(id: string, value: number, suffix?: string) {
@@ -847,9 +935,14 @@ export class SketchTool {
   }
   private async number(id: string, dimension: "length" | "angle" | "scalar" = "length") {
     let source = this.fieldSource(id).trim();
+    if (this.editingOffset && (id === "sketch-offset" || id === "sketch-offset2")) {
+      const offset = (this.editPreview ?? this.state)?.offsets.find(o => o.id === this.editingOffset);
+      const formula = id === "sketch-offset" ? offset?.distance1 : offset?.distance2;
+      if (formula && typeof formula === "object" && source === formula.expression) return formula.computed.value * unitScale[formula.computed.unit];
+    }
     for (const d of this.state?.dimensions ?? []) {
       for (const name of [d.id, d.parameters.name].filter((v): v is string => !!v).sort((a, b) => b.length - a.length)) {
-        source = source.replace(new RegExp(`(?<![\\w.])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`, "g"), `sketches[${this.sketch!.id}]dimension[${d.id}]`);
+        source = source.replace(new RegExp(`(?<![\\w.\\[])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w\\]])`, "g"), `sketches[${this.sketch!.id}]dimension[${d.id}]`);
       }
     }
     const value = await this.scene.evaluateFormula(source, { expectedDimension: dimension });
@@ -922,6 +1015,7 @@ export class SketchTool {
     this.version++;
     this.previewQueued = false;
     this.draftValid = false;
+    if (this.tool === "move") this.get("sketch-action").setAttribute("disabled","");
     this.get("sketch-text-done").setAttribute("disabled", "");
     this.hooks.changed(this.pending);
     if (!this.sketch || editing.has(this.tool) && !["offset", "rounding", "scale", "move"].includes(this.tool) || !editing.has(this.tool) && !this.points.length || !this.active) {
@@ -939,6 +1033,8 @@ export class SketchTool {
   }
   private preview() {
     const version = this.version, interaction = this.interaction, tool = this.tool;
+    const moveCandidate = this.moveCandidate;
+    let move: MoveDraft | undefined;
     this.pendingCount++;
     this.hooks.changed(true);
     this.queue = this.queue.then(async () => {
@@ -946,7 +1042,8 @@ export class SketchTool {
         return;
       }
       if (editing.has(tool)) {
-        await this.action(true);
+        if (tool === "move") move = moveCandidate ?? await this.readMove();
+        await this.action(true,move);
       }
       else {
         const primitive = await this.primitive(true);
@@ -961,6 +1058,7 @@ export class SketchTool {
       if (results[0].status === "rejected") throw results[0].reason;
       if (results[1].status === "rejected") throw results[1].reason;
       const state = results[0].value, proxy = results[1].value;
+      if (tool === "move" && version !== this.version) return;
       if (!editing.has(tool) && tool !== "text" && tool !== "spline") {
         const oldIds = new Set(this.state?.entities.map(e => e.reference.id));
         const created = state.entities.filter(e => !oldIds.has(e.reference.id));
@@ -984,17 +1082,24 @@ export class SketchTool {
         }
       }
       if (interaction === this.interaction && this.active && !this.creating) {
+        if (move) { this.moveAccepted = move; this.moveCandidate = undefined; this.writeMove(); }
+        if (["offset", "rounding", "scale", "move"].includes(tool)) { this.editPreview = state; this.editProxy = proxy; void this.handles(); }
         this.hooks.proxy(proxy);
         this.display(state, proxy);
         const waitingForRadius = tool === "slot" && !this.cursor && this.points.length === 2 && !this.dirty.has("sketch-radius");
         this.draftValid = version === this.version && !waitingForRadius;
         if (tool === "text") this.get("sketch-text-done").toggleAttribute("disabled", !this.draftValid);
         if (editing.has(tool)) this.get("sketch-action").toggleAttribute("disabled", !this.draftValid);
-        if (version === this.version) this.showError("");
+        if (version === this.version) {
+          const recovering = !this.get("sketch-error").hidden;
+          this.showError("");
+          if (recovering && ["offset", "rounding", "scale"].includes(tool)) this.hooks.status("Drag a handle or edit a canvas formula. Release or Enter commits; Esc cancels.");
+        }
       }
     }).catch(e => {
       if (interaction === this.interaction && version === this.version && this.active && !this.creating) {
         this.draftValid = false;
+        if (move) { this.moveCandidate = undefined; this.writeMove(true); void this.handles(); }
         this.showError(errorText(e));
       }
     }).finally(() => {
@@ -1097,7 +1202,7 @@ export class SketchTool {
   deleteSelected() {
     if (!this.selected.size || this.pending) return;
     return this.run(async () => {
-      await this.sketch!.remove([...this.selected]);
+      await this.sketch!.remove([...new Set([...this.selected].map(id => this.state?.offsets.find(o => id === o.id+"-distance1" || id === o.id+"-distance2")?.id ?? id))]);
       this.selected.clear();
     });
   }
@@ -1106,7 +1211,7 @@ export class SketchTool {
     const curves = this.state.entities.filter(e => e.geometry.type === "spline" && e.geometry.points.includes(id) && this.state!.splines.some(s => s.curve.id === e.reference.id));
     return curves.length === 1 && curves[0].geometry.type === "spline" && !curves[0].geometry.closed && [curves[0].geometry.points[0], curves[0].geometry.points.at(-1)].includes(id);
   }
-  private async action(preview = false) {
+  private async action(preview = false, move?: MoveDraft) {
     if (this.editingText) {
       const id = this.editingText, primitive = await this.primitive();
       if (primitive.type !== "text") return;
@@ -1123,13 +1228,14 @@ export class SketchTool {
       await this.sketch!.modifyCurves(curves, { type: "split" });
     }
     else if (this.tool === "rounding") {
-      await this.sketch!.modifyCurves(curves, { type: "rounding", radius: this.fieldSource("sketch-radius") }, { preview });
+      await this.sketch!.modifyCurves(curves, { type: "fillet", radius: this.fieldSource("sketch-radius"), dimension: this.filletDimension }, { preview });
     }
     else if (this.tool === "offset") {
-      await this.sketch!.modifyCurves(curves, { type: "offset", distance1: this.fieldSource("sketch-offset"), ...(this.variant ? { distance2: this.fieldSource(this.variant === 1 ? "sketch-offset" : "sketch-offset2") } : {}) }, { preview });
+      await this.sketch!.modifyCurves(curves, { type: "offset", id: this.editingOffset, mode: (["oneSided", "symmetric", "independent"] as const)[this.variant], distance1: this.fieldSource("sketch-offset"), annotations: [this.offsetPositions[0] ? { position: this.offsetPositions[0] } : null, this.offsetPositions[1] ? { position: this.offsetPositions[1] } : null], ...(this.variant === 2 ? { distance2: this.fieldSource("sketch-offset2") } : {}) }, { preview });
     }
     else if (this.tool === "scale" || this.tool === "move") {
-      await this.sketch!.transform({ preview, entities: entities.map(e => e.reference), pivot: this.pivot, copy: this.input("sketch-copy").checked, ...(this.tool === "scale" ? { scale: this.fieldSource("sketch-scale") } : { translation: [await this.number("sketch-move-x"), await this.number("sketch-move-y")] as Point, angle: this.fieldSource("sketch-angle") }) });
+      if (this.tool === "move") move ??= await this.readMove();
+      await this.sketch!.transform({ preview, entities: entities.map(e => e.reference), pivot: move?.pivot ?? this.pivot, copy: this.tool === "move" && this.input("sketch-copy").checked, ...(this.tool === "scale" ? { scale: this.fieldSource("sketch-scale") } : { translation: move!.values.slice(0,2) as Point, angle: move!.sources[2] }) });
     }
     if (!preview) {
       this.selected.clear();
@@ -1138,38 +1244,259 @@ export class SketchTool {
   }
   private async handles() {
     const version=++this.handleVersion;
-    if (!this.active || !this.state || !this.geometry().length || !["move", "scale"].includes(this.tool)) {
-      if (this.active) {
-        this.viewport.setHandles();
-      }
+    if (["offset", "rounding", "scale"].includes(this.tool)) { await this.editHandles(version); return; }
+    if (!this.active || !this.state || !this.geometry().length || this.tool !== "move" || this.pickingPivot) {
+      if (this.active) this.viewport.setHandles();
+      if (this.tool === "move") this.liveDimensions.hidden = true;
       return;
     }
-    const frame = this.state.frame, origin = frame.origin.map((v, i) => v + frame.u[i] * this.pivot[0] + frame.v[i] * this.pivot[1]) as [
-      number,
-      number,
-      number
-    ];
-    try {
-      const items:ToolHandle[]=[];
-      const fields=this.tool==="scale"?[["sketch-scale","Scale",frame.u,"length","scalar"] as const]:[
-        ["sketch-move-x","Move X",frame.u,"length",this.scene.units.length] as const,
-        ["sketch-move-y","Move Y",frame.v,"length",this.scene.units.length] as const,
-        ["sketch-angle","Rotate",frame.u,"angle",this.scene.units.angle] as const,
-      ];
-      for(const [id,label,direction,kind,unit] of fields) {
-        const numeric=await this.number(id,unit==="scalar"?"scalar":kind);
-        items.push({id,label,kind,unit,origin,direction,tangent:frame.v,value:numeric,
-          factor:this.tool==="scale"?10:1,min:this.tool==="scale"?1e-6:kind==="angle"?-360:undefined,max:kind==="angle"?360:undefined,
-          change:value=>{
-            this.setNumericField(id, value/unitScale[unit], unit==="scalar"?"":" "+unit);
-            this.dirty.add(id);this.schedulePreview();
-          },
-        });
+    const frame = this.state.frame, accepted = this.moveAccepted;
+    const origin = frame.origin.map((v,i)=>v+frame.u[i]*(accepted.pivot[0]+accepted.values[0])+frame.v[i]*(accepted.pivot[1]+accepted.values[1])) as [number,number,number];
+    const elements = moveFields.map(id=>this.liveDimensions.querySelector<HTMLElement>(`[data-move-field="${id}"]`)!);
+    elements.forEach((element,i)=>{ element.hidden = this.moveInput !== moveFields[i] && !(this.moveInput === "sketch-move-xy" && i < 2); });
+    this.liveDimensions.hidden = !this.moveInput;
+    this.viewport.setSketchInputs();
+    const items: ToolHandle[] = [...moveFields,"sketch-move-xy"].map((id,i)=>({
+      id,label:["Move X","Move Y","Rotate","Move freely in XY"][i],kind:i === 2 ? "angle" : i === 3 ? "plane" : "length",
+      origin,direction:i === 1 ? frame.v : frame.u,tangent:i === 1 ? frame.u : frame.v,
+      value:accepted.values[i === 3 ? 0 : i],value2:i === 3 ? accepted.values[1] : undefined,
+      unit:this.scene.units[i === 2 ? "angle" : "length"],style:"move",showLabel:false,
+      inputs:this.moveInput !== id ? [] : i === 3 ? [{element:elements[0],offset:[-100,-18]},{element:elements[1],offset:[-100,16]}] : [{element:elements[i],offset:i === 0 ? [18,30] : [80,0]}],
+      activate:()=>{ this.moveInput=id; void this.handles(); },
+      begin:()=>{
+        if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
+        this.moveGesture={draft:this.moveAccepted,state:this.editPreview,proxy:this.editProxy};
+      },
+      change:(value,second)=>{
+        const draft: MoveDraft={values:[...this.moveAccepted.values],sources:[...this.moveAccepted.sources],pivot:[...this.moveAccepted.pivot]};
+        const indices = i === 3 ? [0,1] : [i];
+        for(const index of indices){const n=index===1&&i===3 ? second! : value;draft.values[index]=n;draft.sources[index]=`${n/unitScale[this.scene.units[index===2?"angle":"length"]]} ${this.scene.units[index===2?"angle":"length"]}`;this.dirty.add(moveFields[index]);}
+        this.moveCandidate=draft; this.schedulePreview();
+      },
+      finish:cancelled=>{
+        const gesture=this.moveGesture;this.moveGesture=undefined;
+        if(cancelled&&gesture){this.moveAccepted=gesture.draft;this.moveCandidate=gesture.draft;this.editPreview=gesture.state;this.editProxy=gesture.proxy;this.writeMove(true);this.display();this.schedulePreview();}
+        void this.handles();this.hooks.changed(this.pending);
+      },
+    }));
+    this.viewport.setHandles(items);
+  }
+
+  private async readMove(): Promise<MoveDraft> {
+    const sources=moveFields.map(id=>this.fieldSource(id)) as MoveDraft["sources"],pivot:Point=[...this.pivot];
+    const values=await Promise.all(moveFields.map((id,i)=>this.number(id,i===2?"angle":"length"))) as MoveDraft["values"];
+    return {values,sources,pivot};
+  }
+
+  private writeMove(restore = false) {
+    if (restore) this.pivot = [...this.moveAccepted.pivot];
+    moveFields.forEach((id,i)=>{
+      const field=this.input(id),source=this.moveAccepted.sources[i];
+      if(document.activeElement===field&&!restore)return;
+      this.setNumericField(id,this.moveAccepted.values[i]/unitScale[this.scene.units[i===2?"angle":"length"]]);
+      this.numericFields.set(id,{text:field.value,source,formula:true});
+      if(document.activeElement===field)field.value=source;
+    });
+  }
+
+  private commitEdit(cancelled = false) {
+    if (cancelled) { this.escape(); return; }
+    if (this.creating || !this.dirty.size) return;
+    this.creating = true;
+    this.previewQueued = false;
+    this.version++;
+    void this.run(() => this.action()).finally(() => {
+      this.creating = false;
+      if (this.active) this.hooks.changed(this.pending);
+    });
+  }
+
+  private offsetAnchor(state: SketchState, sources: SketchEntityRef[], offset?: SketchOffset, proxy = this.proxy, position?: Point) {
+    const selected = sources.map(r => state.entities.find(e => e.reference.id === r.id)!).filter(Boolean);
+    if (!selected.length) return undefined;
+    const frame = state.frame;
+    const local = (p: number[]): Point => [frame.u.reduce((s,v,j)=>s+v*(p[j]-frame.origin[j]),0), frame.v.reduce((s,v,j)=>s+v*(p[j]-frame.origin[j]),0)];
+    let entity = selected[0], nearest: { point: Point; direction: Point; gap: number } | undefined;
+    if (position) for (const candidate of selected) {
+      const curve = proxy?.curves.find(c => c.entity.id === candidate.reference.id);
+      if (!curve) continue;
+      const points = curve.points.map(local);
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i-1], b = points[i], x = b[0]-a[0], y = b[1]-a[1], squared = x*x+y*y;
+        if (squared < 1e-20) continue;
+        const t = Math.max(0,Math.min(1,((position[0]-a[0])*x+(position[1]-a[1])*y)/squared));
+        const point: Point = [a[0]+x*t,a[1]+y*t], gap = distance(position,point);
+        if (!nearest || gap < nearest.gap) { entity = candidate; nearest = { point, direction: [y/Math.sqrt(squared),-x/Math.sqrt(squared)], gap }; }
       }
-      if(this.active&&version===this.handleVersion)this.viewport.setHandles(items);
-    }catch{
-      if(this.active&&version===this.handleVersion)this.viewport.setHandles();
     }
+    const g = entity.geometry;
+    let origin: Point, direction: Point;
+    if (g.type === "line") {
+      const a = pointOf(state, g.from), b = pointOf(state, g.to), length = distance(a, b);
+      const t = position ? ((position[0]-a[0])*(b[0]-a[0])+(position[1]-a[1])*(b[1]-a[1]))/(length*length) : 0.5;
+      origin = [a[0]+t*(b[0]-a[0]), a[1]+t*(b[1]-a[1])]; direction = [(b[1]-a[1])/length, (a[0]-b[0])/length];
+      if (selected.length === 1) direction = direction.map(v => -v) as Point;
+    } else if (g.type === "circle" || g.type === "arc") {
+      const center = pointOf(state, g.center);
+      let angle = position ? Math.atan2(position[1]-center[1],position[0]-center[0]) : g.type === "arc" ? (g.start+g.end)/2 : 0;
+      if (position && g.type === "arc") {
+        const sign = Math.sign(g.end-g.start), tau = 2*Math.PI, relative = ((angle-g.start)*sign%tau+tau)%tau;
+        angle = relative <= Math.abs(g.end-g.start) ? g.start+relative*sign : distance(position,pointOf(state,g.from)) < distance(position,pointOf(state,g.to)) ? g.start : g.end;
+      }
+      direction = [Math.cos(angle), Math.sin(angle)]; origin = [center[0]+g.radius*direction[0], center[1]+g.radius*direction[1]];
+      if (g.type === "arc" && g.end < g.start) direction = direction.map(v => -v) as Point;
+    } else {
+      const curve = proxy?.curves.find(c => c.entity.id === entity.reference.id);
+      if (!curve || curve.points.length < 2) return undefined;
+      const i = Math.floor((curve.points.length-1)/2);
+      const a = local(curve.points[i]), b = local(curve.points[i+1]), length = distance(a,b);
+      origin = nearest?.point ?? a; direction = nearest?.direction ?? [(b[1]-a[1])/length, (a[0]-b[0])/length];
+    }
+    // OCCT may orient a connected wire differently from its first selected curve.
+    // Choose the normal's sign from the generated first side, including open splines.
+    if (offset && typeof offset.distance1 === "object") {
+      const value = offset.distance1.computed.value * unitScale[offset.distance1.computed.unit];
+      let nearest: Point | undefined, gap = Infinity;
+      for (const curve of proxy?.curves ?? []) {
+        if (!offset.sides[0]?.some(r => r.id === curve.entity.id)) continue;
+        const points = curve.points.map(p => [frame.u.reduce((s,v,j)=>s+v*(p[j]-frame.origin[j]),0), frame.v.reduce((s,v,j)=>s+v*(p[j]-frame.origin[j]),0)] as Point);
+        for (let i = 1; i < points.length; i++) {
+          const a = points[i-1], b = points[i], x = b[0]-a[0], y = b[1]-a[1];
+          const t = Math.max(0, Math.min(1, ((origin[0]-a[0])*x+(origin[1]-a[1])*y)/(x*x+y*y)));
+          const p: Point = [a[0]+t*x,a[1]+t*y], d = distance(origin,p);
+          if (d < gap) { gap = d; nearest = p; }
+        }
+      }
+      if (nearest && ((nearest[0]-origin[0])*direction[0]+(nearest[1]-origin[1])*direction[1])*value < 0) direction = [-direction[0],-direction[1]];
+    }
+    return { origin, direction };
+  }
+
+  private offsetAnnotation(state: SketchState, sources: SketchEntityRef[], value: number, side: 0 | 1, offset: SketchOffset | undefined, proxy: SketchProxy | undefined, draft: boolean): OffsetLabel | undefined {
+    const id = draft && !this.editingOffset ? (side ? "sketch-offset2-preview" : "sketch-offset-preview") : (draft ? this.editingOffset : offset!.id)+"-distance"+(side+1);
+    const position = this.annotationDrag?.id === id ? this.annotationDrag.position : draft ? this.offsetPositions[side] : offset?.annotations[side]?.position;
+    const anchor = this.offsetAnchor(state, sources, offset, proxy, position);
+    if (!anchor) return;
+    const from = anchor.origin, axis = anchor.direction.map(v => side ? -v : v);
+    return { id, offset: offset?.id, side, draft, from, to: [from[0]+axis[0]*value,from[1]+axis[1]*value], value,
+      label: position ?? [from[0]+axis[0]*value/2-axis[1]*this.viewport.pixelLength*18,from[1]+axis[1]*value/2+axis[0]*this.viewport.pixelLength*18] };
+  }
+
+  private seedFilletRadius() {
+    if (this.tool !== "rounding" || !this.state || this.filletDimension || this.dirty.has("sketch-radius")) return;
+    const curves = this.geometry().filter(e => e.geometry.type !== "point");
+    const lines = curves.filter(e => e.geometry.type === "line");
+    const lengths = (lines.length ? lines : curves).map(e => {
+      const g = e.geometry;
+      if (g.type === "line") return distance(pointOf(this.state!,g.from),pointOf(this.state!,g.to));
+      if (g.type === "arc") return g.radius*Math.abs(g.end-g.start);
+      if (g.type === "circle") return 2*Math.PI*g.radius;
+      const points = this.proxy?.curves.find(c => c.entity.id === e.reference.id)?.points ?? [];
+      return points.slice(1).reduce((sum,p,i) => sum+Math.hypot(...p.map((v,j)=>v-points[i][j])),0);
+    }).filter(length => length > 1e-7);
+    if (lengths.length) this.setNumericField("sketch-radius", niceValue(Math.min(...lengths)/10/unitScale[this.scene.units.length]));
+  }
+
+  private editOffset(id: string) {
+    const offset = this.state?.offsets.find(o => o.id === id);
+    if (!offset) return;
+    this.selected.clear(); offset.sources.forEach(r => this.selected.add(r.id));
+    this.choose("offset", ["oneSided", "symmetric", "independent"].indexOf(offset.mode));
+    this.editingOffset = id;
+    this.offsetPositions = [offset.annotations[0]?.position, offset.annotations[1]?.position];
+    for (const [field, formula] of [["sketch-offset", offset.distance1], ["sketch-offset2", offset.distance2 ?? offset.distance1]] as const) {
+      this.input(field).value = typeof formula === "object" ? formula.expression : typeof formula === "number" ? `${formula} mm` : formula;
+      this.numericFields.delete(field);
+    }
+    this.schedulePreview(); void this.handles();
+    this.input("sketch-offset").focus(); this.input("sketch-offset").select();
+  }
+
+  private async editHandles(version: number) {
+    const selected = this.geometry().filter(e => e.geometry.type !== "point");
+    if (!this.active || !this.state || !selected.length || this.pickingPivot) {
+      if (this.active) { this.viewport.setHandles(); this.viewport.setSketchInputs(); this.liveDimensions.hidden = true; }
+      return;
+    }
+    const state = this.editPreview ?? this.state, frame = state.frame;
+    const world = (p: Point) => frame.origin.map((v, i) => v + frame.u[i] * p[0] + frame.v[i] * p[1]) as [number, number, number];
+    let origin: Point = this.pivot, direction: Point = [1, 0], dimension: string | undefined;
+    const offset = this.tool === "offset" ? state.offsets.find(o => this.editingOffset ? o.id === this.editingOffset : !this.state!.offsets.some(old => old.id === o.id)) : undefined;
+    if (this.tool === "offset") {
+      const anchor = this.offsetAnchor(state, selected.map(e => e.reference), offset, this.editProxy ?? this.proxy);
+      if (!anchor) return;
+      ({ origin, direction } = anchor);
+    } else if (this.tool === "rounding") {
+      const d = state.dimensions.find(d => this.filletDimension ? d.id === this.filletDimension : !this.state!.dimensions.some(old => old.id === d.id) && d.kind === "radius");
+      const arc = state.entities.find(e => e.reference.id === d?.parameters.curve?.id)?.geometry;
+      if (arc?.type === "arc" && d) {
+        origin = pointOf(state, arc.center); direction = [Math.cos((arc.start+arc.end)/2), Math.sin((arc.start+arc.end)/2)]; dimension = d.id;
+      } else {
+        const g = selected[0].geometry;
+        origin = g.type === "line" || g.type === "arc" ? pointOf(this.state, g.to) : [0,0]; direction = [-Math.SQRT1_2, Math.SQRT1_2];
+      }
+    }
+    const fields = this.tool === "scale" ? ["sketch-scale"] : this.tool === "rounding" ? ["sketch-radius"] : this.variant === 2 ? ["sketch-offset", "sketch-offset2"] : ["sketch-offset"];
+    const items: ToolHandle[] = [], inputs: Parameters<Viewport["setSketchInputs"]>[0] = [], annotations: typeof this.editAnnotations = [];
+    try {
+      for (const [i,id] of fields.entries()) {
+        const scalar = this.tool === "scale", value = await this.number(id, scalar ? "scalar" : "length"), factor = scalar ? 10 : 1;
+        const annotation = this.tool === "offset" ? this.offsetAnnotation(state, selected.map(e => e.reference), value, i as 0 | 1, offset, this.editProxy ?? this.proxy, true) : undefined;
+        const axis: Point = annotation && value !== 0 ? [(annotation.to[0]-annotation.from[0])/value,(annotation.to[1]-annotation.from[1])/value] : direction.map(v => i ? -v : v) as Point;
+        const at = annotation?.from ?? origin;
+        const position: Point = [origin[0]+axis[0]*value*factor/2-axis[1]*this.viewport.pixelLength*18, origin[1]+axis[1]*value*factor/2+axis[0]*this.viewport.pixelLength*18];
+        const field = this.input(id);
+        if (this.filletDimension) field.dataset.dimensionId = this.filletDimension; else delete field.dataset.dimensionId;
+        const layout = dimension && dimensionLayout(state, state.dimensions.find(d=>d.id===dimension)!);
+        const annotationId = this.tool === "offset" ? this.editingOffset ? this.editingOffset+"-distance"+(i+1) : id+"-preview" : dimension;
+        inputs.push({ element: field, position: world(annotation?.label ?? (layout ? layout.label : position)), dimension: annotationId });
+        if (annotation) annotations.push(annotation);
+        const handle: ToolHandle = { id, label: field.getAttribute("aria-label")!, kind: "length", origin: world(at), direction: frame.u.map((v,j)=>v*axis[0]+frame.v[j]*axis[1]) as [number,number,number], tangent: frame.v,
+          value, unit: scalar ? "scalar" : this.scene.units.length, factor, style: "thin", dragSign: this.tool === "rounding" ? -1 : 1, min: scalar || this.tool === "rounding" ? 1e-6 : undefined, showLabel: false,
+          change: value => { this.setNumericField(id, value/(scalar ? 1 : unitScale[this.scene.units.length]), scalar ? "" : " " + this.scene.units.length); this.dirty.add(id); this.schedulePreview(); void this.handles(); },
+          finish: cancelled => this.commitEdit(cancelled),
+          ...(annotation ? { reposition: {
+            start: (event: PointerEvent) => this.beginAnnotation(annotation.id, event),
+            move: (event: PointerEvent) => this.moveAnnotation(event),
+            finish: (cancelled: boolean) => this.finishAnnotation(cancelled),
+          } } : {}),
+        };
+        items.push(handle);
+        if (this.tool === "offset" && this.variant === 1) items.push({ ...handle, id: id+"-symmetric", direction: handle.direction.map(v=>-v) as [number,number,number] });
+      }
+      if (this.active && version === this.handleVersion) {
+        this.editAnnotations = annotations;
+        this.liveDimensions.hidden = false; this.viewport.setHandles(items); this.viewport.setSketchInputs(inputs);
+        this.display(this.editPreview ?? this.state, this.editProxy ?? this.proxy);
+      }
+    } catch { /* The preview loop reports invalid formulas without removing the editable input. */ }
+  }
+
+  private splitHover(point: Point | null) {
+    if (!this.state || !this.proxy || this.pending) return;
+    const state = this.state, frame = state.frame, helpers = new Set([...state.splines.flatMap(s => s.envelope.map(r=>r.id)), ...state.texts.flatMap(t => [...Object.values(t.frame ?? {}).map(r=>r.id), ...t.geometry.curves.map(r=>r.id)])]);
+    const curves = this.proxy.curves.filter(c => !c.projected && !helpers.has(c.entity.id) && !state.offsets.some(o => o.sources.some(r => r.id === c.entity.id) || o.sides.flat().some(r => r.id === c.entity.id)));
+    const local = (p: number[]): Point => [frame.u.reduce((s,v,j)=>s+v*(p[j]-frame.origin[j]),0), frame.v.reduce((s,v,j)=>s+v*(p[j]-frame.origin[j]),0)];
+    let best = this.viewport.pixelLength * 8;
+    this.splitTarget = undefined;
+    if (point) for (let i=0;i<curves.length;i++) for (let j=i+1;j<curves.length;j++) {
+      const a=curves[i].points.map(local), b=curves[j].points.map(local);
+      for (let k=1;k<a.length;k++) for (let l=1;l<b.length;l++) {
+        const u=[a[k][0]-a[k-1][0],a[k][1]-a[k-1][1]],v=[b[l][0]-b[l-1][0],b[l][1]-b[l-1][1]],w=[b[l-1][0]-a[k-1][0],b[l-1][1]-a[k-1][1]],cross=u[0]*v[1]-u[1]*v[0];
+        if (Math.abs(cross)<1e-12) continue;
+        const t=(w[0]*v[1]-w[1]*v[0])/cross,s=(w[0]*u[1]-w[1]*u[0])/cross;
+        if (t < -1e-8 || t > 1+1e-8 || s < -1e-8 || s > 1+1e-8) continue;
+        const at: Point=[a[k-1][0]+t*u[0],a[k-1][1]+t*u[1]];
+        if ([a,b].every(points => distance(at,points[0])<1e-7 || distance(at,points.at(-1)!)<1e-7)) continue;
+        const gap=distance(at,point);
+        if (gap>best) continue;
+        best=gap; this.splitTarget={position:at, curves:curves.map(c=>c.entity)};
+      }
+    }
+    if (!this.splitTarget) { this.display(); return; }
+    const reference = { sceneId: this.scene.id, sketchId: this.sketch!.id, id: "split-preview" }, p=this.splitTarget.position;
+    const position = frame.origin.map((v,i)=>v+frame.u[i]*p[0]+frame.v[i]*p[1]) as [number,number,number];
+    this.viewport.showSketch(state, { ...this.proxy, points: [...this.proxy.points, { entity: reference, position, construction: false, projected: false }] }, new Set([...this.selected,reference.id]), this.options);
   }
 
   private menuAt(client: Point) {
@@ -1197,6 +1524,7 @@ export class SketchTool {
     };
     value.oninput = resize;
     value.setAttribute("aria-label", "Dimension formula");
+    value.dataset.dimensionId = dimension;
     value.autocomplete = "off";
     value.spellcheck = false;
     value.onkeydown = e => {
@@ -1219,11 +1547,18 @@ export class SketchTool {
     value.focus(); value.select();
   }
   private editDimension(id: string, client: Point, context = false) {
+    const offset = this.state?.offsets.find(o => id === o.id+"-distance1" || id === o.id+"-distance2");
+    if (offset) { this.editOffset(offset.id); return; }
     const d = this.state?.dimensions.find(d => d.id === id);
     if (!d) return;
     const formula = d.parameters.value;
     const source = typeof formula === "object" ? formula.expression : typeof formula === "number" ? `${formula} ${d.kind === "angle" ? "deg" : "mm"}` : formula ?? `${d.computed.value} ${d.computed.unit}`;
     if (!context) {
+      if (d.kind === "radius" && d.parameters.curve && this.state!.constraints.filter(c => c.kind === "tangent" && c.parameters.curves?.some(r => r.id === d.parameters.curve!.id)).length >= 2) {
+        this.choose("rounding"); this.selected.clear(); this.selected.add(d.parameters.curve.id);
+        this.filletDimension = id; this.input("sketch-radius").value = source; this.numericFields.delete("sketch-radius");
+        void this.handles(); this.input("sketch-radius").focus(); this.input("sketch-radius").select(); return;
+      }
       if (d.parameters.mode === "driven") { this.hooks.status("This dimension measures the geometry. Right-click to make it driving."); return; }
       const layout = dimensionLayout(this.state!, d);
       if (layout) this.dimensionFormula(layout.label, source, async (value, changed) => { if (changed) await this.sketch!.dimensions.update(id, { value }); }, id);
@@ -1242,7 +1577,60 @@ export class SketchTool {
     });
     menu.append(rename, mode);
   }
-  private placeAnnotation(id: string, position: Point) {
+  private beginAnnotation(id: string, event: PointerEvent) {
+    if (!this.state) return false;
+    const offset = this.shownOffsetAnnotations.find(a => a.id === id);
+    const dimension = this.state.dimensions.find(d => d.id === id);
+    const label = offset?.label ?? (dimension && dimensionLayout(this.state,dimension)?.label);
+    const cursor = this.viewport.point(event);
+    if (!cursor || !label) return false;
+    this.annotationDrag = { id, start: cursor, original: [...label], position: [...label], moved: false, offset };
+    return true;
+  }
+
+  private moveAnnotation(event: PointerEvent) {
+    const drag = this.annotationDrag, cursor = this.viewport.point(event);
+    if (!drag || !cursor) return;
+    drag.position = [drag.original[0]+cursor[0]-drag.start[0],drag.original[1]+cursor[1]-drag.start[1]];
+    drag.moved ||= distance(cursor,drag.start) > this.viewport.pixelLength;
+    if (drag.offset?.draft) void this.handles();
+    else this.display();
+  }
+
+  private finishAnnotation(cancelled: boolean, additive = false) {
+    const drag = this.annotationDrag;
+    if (!drag) return;
+    this.annotationDrag = undefined;
+    if (!cancelled) {
+      if (!drag.offset?.draft) this.pick({ kind: "dimension", id: drag.id }, additive);
+      if (drag.moved) {
+        if (drag.offset?.draft) { this.offsetPositions[drag.offset.side] = drag.position; this.dirty.add("offset-placement"); }
+        else void this.placeAnnotation(drag.id,drag.position,drag.offset);
+      }
+    }
+    if (drag.offset?.draft) void this.handles();
+    else this.display();
+    this.hooks.changed(this.pending);
+  }
+
+  private placeAnnotation(id: string, position: Point, offset?: OffsetLabel) {
+    if (offset?.offset) {
+      const definition = this.state!.offsets.find(o => o.id === offset.offset)!;
+      const original = definition.annotations[offset.side];
+      definition.annotations[offset.side] = { position };
+      this.display();
+      return this.run(async () => {
+        try {
+          await this.sketch!.modifyCurves([], { type: "offsetAnnotation", id: definition.id, side: offset.side, position });
+          const current = this.state?.offsets.find(o => o.id === definition.id);
+          if (current) current.annotations[offset.side] = { position };
+        } catch (error) {
+          const current = this.state?.offsets.find(o => o.id === definition.id);
+          if (current) current.annotations[offset.side] = original;
+          this.display(); throw error;
+        }
+      }, false);
+    }
     const original = this.state!.dimensions.find(d => d.id === id)!;
     this.state = { ...this.state!, dimensions: this.state!.dimensions.map(d => d.id === id ? { ...d, parameters: { ...d.parameters, annotation: { position } } } : d) };
     this.display();
@@ -1258,6 +1646,13 @@ export class SketchTool {
     }, false);
   }
   suspend() {
+    if (this.tool === "move") {
+      if (this.moveGesture) {
+        this.moveAccepted = this.moveGesture.draft;
+        this.editPreview = this.moveGesture.state; this.editProxy = this.moveGesture.proxy;
+      }
+      this.moveGesture = undefined; this.moveCandidate = undefined; this.writeMove(true);
+    }
     this.annotationDrag = undefined;
     this.dimensionPosition = undefined;
     this.viewport.pickVertices = false;
@@ -1288,22 +1683,81 @@ export class SketchTool {
     canvas.parentElement!.append(this.liveDimensions);
     this.updateDimensions();
     canvas.addEventListener("dblclick", e => {
-      if (!this.sketch || this.pending) {
+      if (!this.sketch || this.blocking) {
         return;
       }
       e.preventDefault();
       const picks = this.viewport.sketchPicks(e);
-      const fitPoint = picks.find(p => p.kind === "geometry" && this.state?.splines.some(s => s.fitPoints.some(n => n.point.id === p.id)));
-      if (fitPoint && this.state) {
-        const node = this.state.splines.flatMap(s => s.fitPoints).find(p => p.point.id === fitPoint.id)!;
-        void this.run(() => this.sketch!.splines.setHandleMode(node.point, node.mode === "aligned" ? "independent" : "aligned"));
-        return;
-      }
+      const offset = picks[0]?.kind === "geometry" && this.state?.offsets.find(o => o.sides.flat().some(r => r.id === picks[0].id));
+      if (offset) { this.editOffset(offset.id); return; }
+      if (this.pending && this.tool !== "move" || this.creating || !this.state) return;
       if (picks[0]?.kind === "text") { this.editText(picks[0].id); return; }
       const frameText = picks[0]?.kind === "geometry" && this.state?.texts.find(t => Object.values(t.frame ?? {}).some(r => r.id === picks[0].id));
       if (frameText) { this.editText(frameText.id); return; }
       if (picks[0]?.kind === "dimension") {
         this.editDimension(picks[0].id, [e.clientX, e.clientY]);
+        return;
+      }
+      const state = this.tool === "move" ? this.editPreview ?? this.state : this.state;
+      const entities = new Map(state.entities.map(entity => [entity.reference.id, entity]));
+      const geometry = picks.flatMap(p => p.kind === "geometry" && entities.has(p.id) ? [entities.get(p.id)!] : []);
+      const points = geometry.filter(e => e.geometry.type === "point"), curves = geometry.filter(e => e.geometry.type !== "point");
+      const refs = (id: string): string[] => {
+        const g = entities.get(id)?.geometry;
+        return g?.type === "line" ? [g.from,g.to] : g?.type === "arc" ? [g.center,g.from,g.to]
+          : g?.type === "spline" ? g.points : g && "center" in g ? [g.center] : [];
+      };
+      const ends = (id: string): string[] => {
+        const g = entities.get(id)?.geometry;
+        return g?.type === "line" || g?.type === "arc" ? [g.from,g.to] : g?.type === "spline" ? [g.points[0],g.points.at(-1)!] : [];
+      };
+      const pointer = this.viewport.point(e);
+      const point = points[0] ?? (pointer && curves.flatMap(c => ends(c.reference.id)).map(id => entities.get(id)!).find(p => p?.geometry.type === "point" && distance(p.geometry.position,pointer)<=this.viewport.pixelLength*6));
+      const at = point?.geometry.type === "point" ? point.geometry.position : undefined;
+      const ownsPoint = point && curves.some(c => refs(c.reference.id).includes(point.reference.id));
+      const local = new Set(at && ownsPoint ? curves.flatMap(c => refs(c.reference.id)).filter(id => {
+        const g = entities.get(id)?.geometry; return g?.type === "point" && distance(g.position,at)<=1e-7;
+      }) : []);
+      if (point) local.add(point.reference.id);
+      let previous = -1;
+      while (previous !== local.size) {
+        previous = local.size;
+        for (const c of state.constraints) if (c.kind === "coincident" && c.parameters.points?.some(p => local.has(p.id))) {
+          for (const p of c.parameters.points) local.add(p.id);
+        }
+      }
+      const junction = !!at && points.every(p => local.has(p.reference.id)) && curves.every(c =>
+        refs(c.reference.id).some(id => local.has(id)) || state.constraints.some(relation =>
+          ["pointOnCurve","midpoint"].includes(relation.kind) && relation.parameters.points?.some(p => local.has(p.id)) && relation.parameters.curves?.some(r => r.id === c.reference.id)));
+      // A common endpoint is one target, but coincident curve spans still need the layer picker.
+      const owners = new Map(state.splines.flatMap(s => s.envelope.map(r => [r.id,s.curve.id] as const)));
+      const rays = curves.map(c => {
+        const path = (this.tool === "move" ? this.editProxy ?? this.proxy : this.proxy)?.curves.find(p => p.entity.id === c.reference.id)?.points ?? [];
+        const frame = state.frame;
+        const xy = path.map(p => [frame.u.reduce((v,u,i)=>v+u*(p[i]-frame.origin[i]),0),frame.v.reduce((v,u,i)=>v+u*(p[i]-frame.origin[i]),0)] as Point);
+        return !at || xy.length<2 ? [] : [xy, [...xy].reverse()].flatMap(p => distance(p[0],at)<=1e-7 ? [[p[1][0]-at[0],p[1][1]-at[1]] as Point] : []);
+      });
+      const layered = junction && curves.some((a,i) => curves.slice(i+1).some((b,j) =>
+        (owners.get(a.reference.id) ?? a.reference.id) !== (owners.get(b.reference.id) ?? b.reference.id) &&
+        rays[i].some(u => rays[i+j+1].some(v => u[0]*v[0]+u[1]*v[1]>0 && Math.abs(u[0]*v[1]-u[1]*v[0])<=1e-7*Math.min(Math.hypot(...u),Math.hypot(...v))))));
+      const fitPoints = points.filter(p => state.splines.some(s => s.fitPoints.some(n => n.point.id === p.reference.id)));
+      const ambiguous = picks.some(p => p.kind !== "geometry") || fitPoints.length>1 || geometry.length>1 && (!junction || layered);
+      const fitPoint = fitPoints[0];
+      if (!ambiguous && fitPoint) {
+        if (this.pending) return;
+        const node = state.splines.flatMap(s => s.fitPoints).find(p => p.point.id === fitPoint.reference.id)!;
+        void this.run(() => this.sketch!.splines.setHandleMode(node.point,node.mode === "aligned" ? "independent" : "aligned"));
+        return;
+      }
+      if (!ambiguous && geometry.length && !this.constraint && !this.pickingPivot && ["select","move","scale","offset","rounding"].includes(this.tool)) {
+        const connected = connectedSelection(this.state,geometry[0].reference.id);
+        if (!e.shiftKey) this.selected.clear();
+        for (const id of connected) this.selected.add(id);
+        if (this.tool === "move") this.choose("move");
+        else {
+          this.selectionChanged();
+          if (["scale","offset","rounding"].includes(this.tool)) { this.editPreview=undefined; this.editProxy=undefined; this.schedulePreview(); }
+        }
         return;
       }
       if (picks.length < 2) {
@@ -1367,7 +1821,7 @@ export class SketchTool {
         }
         return;
       }
-      if (e.key === "Tab" && !editing.has(this.tool)) {
+      if (e.key === "Tab" && (!editing.has(this.tool) || ["offset", "rounding", "scale"].includes(this.tool))) {
         const fields = [...this.liveDimensions.querySelectorAll<HTMLInputElement>("input"), ...this.panel.querySelectorAll<HTMLInputElement>("#sketch-config input")].filter(f => f.type !== "checkbox" && f.type !== "file" && !!f.getClientRects().length);
         if (fields.length && (e.target === canvas || e.target === document.body || e.target instanceof Element && !!e.target.closest("#sketch-ribbon") || fields.includes(e.target as HTMLInputElement))) {
           e.preventDefault();
@@ -1378,7 +1832,13 @@ export class SketchTool {
         }
       }
       const geometryInput = e.target instanceof HTMLInputElement && (this.get("sketch-config").contains(e.target) || this.liveDimensions.contains(e.target));
-      const drawingOnCanvas = e.target === canvas && !editing.has(this.tool) && this.points.length > 0;
+      if(this.tool === "move" && geometryInput && e.key === "Enter"){
+        e.preventDefault();(e.target as HTMLInputElement).blur();
+        if(this.moveInput === "sketch-move-xy" && e.target === this.input("sketch-move-x")){this.input("sketch-move-y").focus();this.input("sketch-move-y").select();}
+        else {this.moveInput=undefined;void this.handles();canvas.focus({preventScroll:true});}
+        return;
+      }
+      const drawingOnCanvas = e.target === canvas && (!editing.has(this.tool) && this.points.length > 0 || ["offset", "rounding", "scale"].includes(this.tool) && this.geometry().length > 0);
       if (e.key === "Enter" && (geometryInput || drawingOnCanvas)) {
         e.preventDefault();
         if (this.tool === "line") {
@@ -1399,6 +1859,18 @@ export class SketchTool {
       }
     }, { signal });
     document.addEventListener("pointerdown", e => {
+      const field = document.activeElement;
+      if (e.button !== 0 || e.target !== canvas || !(field instanceof HTMLInputElement) || !(field === this.popup || this.liveDimensions.contains(field) || this.get("sketch-config").contains(field)) || field.type === "checkbox") return;
+      const pick = this.viewport.sketchPicks(e).find(p => p.kind === "dimension" && this.state?.dimensions.some(d => d.id === p.id) && p.id !== field.dataset.dimensionId && p.id !== this.filletDimension);
+      if (!pick) return;
+      e.preventDefault(); e.stopImmediatePropagation(); this.formulaPointer = e.pointerId;
+      field.setRangeText(`sketches[${this.sketch!.id}]dimension[${pick.id}]`, field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, "end");
+      field.dispatchEvent(new Event("input", { bubbles: true })); field.focus({ preventScroll: true });
+    }, { capture: true, signal });
+    document.addEventListener("pointerup", e => {
+      if (e.pointerId === this.formulaPointer) { this.formulaPointer = undefined; e.preventDefault(); e.stopImmediatePropagation(); }
+    }, { capture: true, signal });
+    document.addEventListener("pointerdown", e => {
       if (this.popup?.isConnected && !this.popup.contains(e.target as Node)) {
         this.popup.remove();
         if (this.popup instanceof HTMLInputElement) this.updateDimensions();
@@ -1406,21 +1878,18 @@ export class SketchTool {
     }, { signal });
     canvas.addEventListener("pointerdown", e => {
       if (e.button === 0) canvas.focus({ preventScroll: true });
-      if (e.button !== 0 || this.tool !== "select" || this.constraint || this.pending) {
-        return;
-      }
+      if (e.button !== 0 || !["select", "offset"].includes(this.tool) || this.constraint || this.blocking || this.tool === "select" && this.pending) return;
       const pick = this.viewport.sketchPicks(e)[0];
       if (pick?.kind === "dimension" && this.state) {
-        const dimension = this.state.dimensions.find(d => d.id === pick.id), cursor = this.viewport.point(e);
-        const layout = dimension && dimensionLayout(this.state, dimension);
-        if (layout && cursor) {
+        if (this.tool === "offset" && !this.shownOffsetAnnotations.some(a => a.id === pick.id && a.draft)) return;
+        if (this.beginAnnotation(pick.id,e)) {
           e.preventDefault(); e.stopImmediatePropagation();
-          this.annotationDrag = { id: pick.id, start: cursor, original: layout.label, position: layout.label, moved: false };
           canvas.setPointerCapture(e.pointerId);
           this.hooks.changed(this.pending);
         }
         return;
       }
+      if (this.tool !== "select") return;
       if (pick?.kind === "text" && this.state) {
         const text = this.state.texts.find(t => t.id === pick.id), cursor = this.viewport.point(e);
         if (!text || !cursor) return;
@@ -1434,7 +1903,7 @@ export class SketchTool {
       const entity = pick?.kind === "geometry" ? this.state?.entities.find(entity => entity.reference.id === pick.id) : undefined;
       const frameOwner = entity && this.state?.texts.find(t => Object.values(t.frame ?? {}).some(r => r.id === entity.reference.id));
       if (frameOwner && entity.reference.id !== frameOwner.frame!.center.id) return;
-      if (!entity || entity.projected || !["point", "line", "circle", "arc", "spline"].includes(entity.geometry.type)) {
+      if (!entity || entity.projected || this.state?.offsets.some(o => o.sides.flat().some(r => r.id === entity.reference.id)) || !["point", "line", "circle", "arc", "spline"].includes(entity.geometry.type)) {
         return;
       }
       const cursor = this.viewport.point(e);
@@ -1472,14 +1941,7 @@ export class SketchTool {
     }, { capture: true, signal });
     canvas.addEventListener("pointermove", e => {
       if (this.annotationDrag && e.buttons === 1) {
-        e.stopImmediatePropagation();
-        const cursor = this.viewport.point(e), drag = this.annotationDrag;
-        if (cursor) {
-          drag.position = [drag.original[0] + cursor[0] - drag.start[0], drag.original[1] + cursor[1] - drag.start[1]];
-          drag.moved ||= distance(cursor, drag.start) > this.viewport.pixelLength;
-          this.display();
-        }
-        return;
+        e.stopImmediatePropagation(); this.moveAnnotation(e); return;
       }
       if (!this.dragEntity || e.buttons !== 1) {
         return;
@@ -1493,12 +1955,7 @@ export class SketchTool {
     }, { capture: true, signal });
     canvas.addEventListener("pointerup", e => {
       if (this.annotationDrag && e.button === 0) {
-        e.stopImmediatePropagation();
-        const drag = this.annotationDrag, cursor = this.viewport.point(e);
-        if (cursor) drag.position = [drag.original[0] + cursor[0] - drag.start[0], drag.original[1] + cursor[1] - drag.start[1]];
-        this.annotationDrag = undefined;
-        this.pick({ kind: "dimension", id: drag.id }, e.shiftKey);
-        if (drag.moved) void this.placeAnnotation(drag.id, drag.position);
+        e.stopImmediatePropagation(); this.moveAnnotation(e); this.finishAnnotation(false,e.shiftKey);
         if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
         return;
       }
@@ -1536,7 +1993,7 @@ export class SketchTool {
       }
     }, { capture: true, signal });
     const clearDrag = () => {
-      if (this.annotationDrag) { this.annotationDrag = undefined; this.display(); }
+      if (this.annotationDrag) this.finishAnnotation(true);
       // A normal release has already cleared dragEntity and must retain its queued target.
       if (this.dragEntity) this.dragQueued = undefined;
       this.dragEntity = undefined;

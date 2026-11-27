@@ -9,7 +9,7 @@ export const variants = {
   slot: ["Three points", "Center and line", "Center to center"],
   spline: ["Fit points", "Control points"], text: ["Text"],
   dimension: ["Dimension"],
-  project: ["Project"], offset: ["One sided", "Symmetric", "Independent"], rounding: ["Rounding"],
+  project: ["Project"], offset: ["One sided", "Symmetric", "Independent"], rounding: ["Fillet"],
   scale: ["Scale"], move: ["Move and rotate"], split: ["Split"], remove: ["Remove"],
 } as const;
 export type SketchToolName = keyof typeof variants;

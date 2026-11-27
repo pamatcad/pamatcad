@@ -575,7 +575,7 @@ export async function startEditor() {
     activeDocument.workbench = value;
     controls();
   }, () => activeDocument?.sketchTool);
-  initTooltips([document.querySelector<HTMLElement>(".ribbon")!, el("tool-panel")]);
+  initTooltips([document.querySelector<HTMLElement>(".ribbon")!, el("viewport")]);
   button("home").onclick = () => viewport.home();
   const cameraButton = button("camera-mode");
   const cameraModes = el("camera-modes");

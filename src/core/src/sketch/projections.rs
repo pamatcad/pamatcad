@@ -43,6 +43,16 @@ impl Sketch {
                         *from = remap[from].clone();
                         *to = remap[to].clone();
                     }
+                    SketchGeometry::Circle { center, .. } => {
+                        *center = remap[center].clone();
+                    }
+                    SketchGeometry::Arc {
+                        center, from, to, ..
+                    } => {
+                        *center = remap[center].clone();
+                        *from = remap[from].clone();
+                        *to = remap[to].clone();
+                    }
                     SketchGeometry::Spline { points, .. } => {
                         for p in points {
                             *p = remap[p].clone();

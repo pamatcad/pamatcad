@@ -14,13 +14,8 @@
       <p id="sketch-tool-empty" hidden>This tool has no configuration.</p>
       <label id="sketch-radius-label" for="sketch-radius" hidden>Radius</label>
       <label id="sketch-angle-label" for="sketch-angle" hidden>Angle</label>
-      <label data-tools="offset">Distance <input id="sketch-offset" data-tooltip="Distance" value="2" /></label>
-      <label data-tools="offset" id="sketch-offset2-row">Second distance <input id="sketch-offset2" data-tooltip="Second distance" value="2" /></label>
-      <label data-tools="scale">Scale <input id="sketch-scale" data-tooltip="Scale" value="1" /></label>
-      <label data-tools="move">Move X <input id="sketch-move-x" data-tooltip="Move X" value="0" /></label>
-      <label data-tools="move">Move Y <input id="sketch-move-y" data-tooltip="Move Y" value="0" /></label>
-      <label data-tools="move scale" class="check"><input id="sketch-copy" data-tooltip="Copy" type="checkbox" /> Copy</label>
-      <button data-tools="move scale" id="sketch-pivot" data-tooltip="Pick pivot" type="button">Pick pivot</button>
+      <label data-tools="move" class="check"><input id="sketch-copy" data-tooltip="Copy" type="checkbox" /> Copy</label>
+      <div data-tools="move scale" class="sketch-icon-options"><button id="sketch-pivot" data-tooltip="Pick pivot" aria-label="Pick pivot" aria-pressed="false" type="button"></button></div>
       <div data-tools="text" class="sketch-text-controls">
         <label>Content <textarea id="sketch-text" data-tooltip="Content" rows="3" spellcheck="false">Text</textarea></label>
         <div class="sketch-font-heading"><label for="sketch-font-family">Font</label><button id="sketch-font-import" data-tooltip="Import an OpenType/TrueType font" type="button">Import</button><input id="sketch-font" type="file" accept=".ttf,.otf,.ttc,.otc" hidden /></div>
@@ -45,6 +40,12 @@
   <p class="field-error" id="sketch-error" role="alert" hidden></p>
 </div>
 <div class="sketch-live-dimensions" hidden>
+  <label class="sketch-move-field" data-tools="move" data-move-field="sketch-move-x" hidden><span>X</span><input id="sketch-move-x" data-tools="move" data-dimension="length" aria-label="Move X" value="0" autocomplete="off" spellcheck="false" /></label>
+  <label class="sketch-move-field" data-tools="move" data-move-field="sketch-move-y" hidden><span>Y</span><input id="sketch-move-y" data-tools="move" data-dimension="length" aria-label="Move Y" value="0" autocomplete="off" spellcheck="false" /></label>
+  <label class="sketch-move-field" data-tools="move" data-move-field="sketch-angle" hidden><span>Angle</span></label>
+  <input id="sketch-offset" data-tools="offset" data-dimension="length" aria-label="Offset distance" value="2" autocomplete="off" spellcheck="false" />
+  <input id="sketch-offset2" data-tools="offset" data-dimension="length" aria-label="Second offset distance" value="2" autocomplete="off" spellcheck="false" />
+  <input id="sketch-scale" data-tools="scale" aria-label="Scale factor" value="1" autocomplete="off" spellcheck="false" />
   <input id="width" data-tools="rectangle ellipse line" data-dimension="length" aria-label="Width" value="10" autocomplete="off" spellcheck="false" />
   <input id="height" data-tools="rectangle ellipse" data-dimension="length" aria-label="Height" value="10" autocomplete="off" spellcheck="false" />
   <input id="sketch-radius" data-tooltip="Radius" data-tools="circle arc slot rounding" data-dimension="length" aria-label="Radius" value="5" autocomplete="off" spellcheck="false" />

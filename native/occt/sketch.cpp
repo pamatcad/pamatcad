@@ -17,6 +17,7 @@
 #include <GCPnts_QuasiUniformDeflection.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <GeomAPI_Interpolate.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -212,6 +213,9 @@ extern "C" int pamat_sketch_profile_proxy(const PamatShape* shape,void(*sink)(vo
 #include <GeomAdaptor_Curve.hxx>
 #include <gp_Trsf.hxx>
 
+using CurveSink=void(*)(void*,size_t,int,const double*,size_t);
+static void emit_sketch_edge(const TopoDS_Edge& edge,const gp_Trsf& local,size_t source,CurveSink sink,void* context);
+
 extern "C" int pamat_sketch_project(const PamatShape* body,int kind,size_t index,const double* frame,
     void(*sink)(void*,int,const double*,size_t),void* context,char* error,size_t error_size){
     return checked([&]{
@@ -234,14 +238,14 @@ extern "C" int pamat_sketch_project(const PamatShape* body,int kind,size_t index
             projected=Handle(Geom_Curve)::DownCast(projected->Transformed(local));
             GeomAdaptor_Curve curve(projected,first,last);
             if(curve.GetType()==GeomAbs_Line){const auto a=curve.Value(first),b=curve.Value(last);const double data[]={a.X(),a.Y(),b.X(),b.Y()};if(std::hypot(a.X()-b.X(),a.Y()-b.Y())<1e-7)sink(context,0,data,2);else sink(context,1,data,4);continue;}
-            Handle(Geom_TrimmedCurve) trimmed=new Geom_TrimmedCurve(projected,first,last);
-            auto spline=GeomConvert::CurveToBSplineCurve(trimmed);
-            if(spline->IsPeriodic())spline->SetNotPeriodic();
-            const auto n=spline->NbPoles();std::vector<double> data{static_cast<double>(spline->Degree()),static_cast<double>(n),spline->IsClosed()?1.:0.,0.};
-            for(int i=1;i<=n;++i){auto p=spline->Pole(i);data.insert(data.end(),{p.X(),p.Y()});}
-            for(int i=1;i<=spline->NbKnots();++i)for(int j=0;j<spline->Multiplicity(i);++j)data.push_back(spline->Knot(i));
-            for(int i=1;i<=n;++i)data.push_back(spline->Weight(i));
-            sink(context,4,data.data(),data.size());
+            auto edge=BRepBuilderAPI_MakeEdge(projected,first,last).Edge();
+            // Keep the historical control-point order of cached spline projections.
+            if(curve.GetType()==GeomAbs_Circle&&shape.Orientation()==TopAbs_REVERSED)edge.Reverse();
+            auto destination=std::make_pair(sink,context);
+            emit_sketch_edge(edge,gp_Trsf(),0,[](void* value,size_t,int kind,const double* data,size_t count){
+                const auto& output=*static_cast<decltype(destination)*>(value);
+                output.first(output.second,kind,data,count);
+            },&destination);
         }
     },error,error_size);
 }
@@ -260,7 +264,6 @@ extern "C" int pamat_sketch_curve_proxy(const double* frame,const PamatSketchCur
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <ChFi2d_FilletAPI.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
-using CurveSink=void(*)(void*,size_t,int,const double*,size_t);
 static void emit_sketch_edge(const TopoDS_Edge& edge,const gp_Trsf& local,size_t source,CurveSink sink,void* context){
     double first,last;auto geometry=BRep_Tool::Curve(edge,first,last);if(geometry.IsNull())return;
     geometry=Handle(Geom_Curve)::DownCast(geometry->Transformed(local));GeomAdaptor_Curve curve(geometry,first,last);
@@ -282,7 +285,37 @@ extern "C" int pamat_sketch_modify(const double* frame,const PamatSketchCurve* c
         const auto emit=[&](const TopoDS_Shape& shape,size_t source){TopTools_IndexedMapOfShape result;TopExp::MapShapes(shape,TopAbs_EDGE,result);for(const auto& e:result)emit_sketch_edge(TopoDS::Edge(e),local,source,sink,context);};
         if(operation==0){
             BOPAlgo_Builder split;NCollection_List<TopoDS_Shape> arguments;for(const auto&e:edges)arguments.Append(e);split.SetArguments(arguments);split.SetNonDestructive(true);split.SetFuzzyValue(1e-7);split.Perform();if(split.HasErrors())throw std::runtime_error("Could not split sketch curves");
-            for(size_t i=0;i<count;++i){const auto& parts=split.Modified(edges[i]);if(parts.Size()>1)for(const auto& e:parts)emit(e,i);}
+            if(!position){
+                for(size_t i=0;i<count;++i){const auto& parts=split.Modified(edges[i]);if(parts.Size()>1)for(const auto& e:parts)emit(e,i);}
+            }else{
+                const gp_Pnt origin(frame[0],frame[1],frame[2]);
+                const auto pick=origin.Translated(gp_Vec(frame[3],frame[4],frame[5])*position[0]+gp_Vec(frame[6],frame[7],frame[8])*position[1]);
+                double nearest=value;gp_Pnt crossing;bool found=false;
+                for(size_t i=0;i<count;++i)for(const auto& part:split.Modified(edges[i])){
+                    TopTools_IndexedMapOfShape vertices;TopExp::MapShapes(part,TopAbs_VERTEX,vertices);
+                    for(const auto& vertex:vertices){
+                        const auto point=BRep_Tool::Pnt(TopoDS::Vertex(vertex));
+                        const double distance=point.Distance(pick);if(distance>nearest)continue;
+                        size_t incident=0;for(const auto& edge:edges){BRepExtrema_DistShapeShape measure(vertex,edge);if(measure.IsDone()&&measure.Value()<1e-7)++incident;}
+                        if(incident>=2){nearest=distance;crossing=point;found=true;}
+                    }
+                }
+                if(!found)throw std::invalid_argument("No splittable intersection near this position");
+                bool changed=false;
+                for(size_t i=0;i<count;++i){
+                    double first,last;auto curve=BRep_Tool::Curve(edges[i],first,last);
+                    GeomAPI_ProjectPointOnCurve projection(crossing,curve,first,last);
+                    if(!projection.NbPoints()||projection.LowerDistance()>1e-7)continue;
+                    const double at=projection.LowerDistanceParameter();
+                    if(crossing.Distance(curve->Value(first))<1e-7||crossing.Distance(curve->Value(last))<1e-7)continue;
+                    for(const auto& interval:{std::pair<double,double>{first,at},{at,last}}){
+                        auto part=BRepBuilderAPI_MakeEdge(curve,interval.first,interval.second).Edge();
+                        if(edges[i].Orientation()==TopAbs_REVERSED)part.Reverse();emit(part,i);
+                    }
+                    changed=true;
+                }
+                if(!changed)throw std::invalid_argument("This intersection is already split");
+            }
         }else if(operation==4){
             if(!position||!std::isfinite(position[0])||!std::isfinite(position[1]))throw std::invalid_argument("Remove requires a finite sketch position");
             std::vector<TopoDS_Edge> parts;
@@ -344,7 +377,10 @@ extern "C" int pamat_sketch_modify(const double* frame,const PamatSketchCurve* c
             }
         }else if(operation==1){
             BRepBuilderAPI_MakeWire wire;NCollection_List<TopoDS_Shape> list;for(const auto&e:edges)list.Append(e);wire.Add(list);if(!wire.IsDone())throw std::invalid_argument("Offset requires connected curves");
-            BRepOffsetAPI_MakeOffset offset(wire.Wire(),GeomAbs_Arc,false);offset.Perform(value);if(!offset.IsDone())throw std::runtime_error("Could not offset sketch curves");emit(offset.Shape(),count);
+            BRepOffsetAPI_MakeOffset offset;
+            if(wire.Wire().Closed())offset.Init(BRepBuilderAPI_MakeFace(gp_Pln(axes),wire.Wire(),true).Face(),GeomAbs_Arc,false);
+            else{offset.Init(BRepBuilderAPI_MakeFace(gp_Pln(axes)).Face(),GeomAbs_Arc,true);offset.AddWire(wire.Wire());}
+            offset.Perform(value);if(!offset.IsDone())throw std::runtime_error("Could not offset sketch curves");emit(offset.Shape(),count);
         }else if(operation==2){
             std::vector<TopoDS_Edge> fillets;bool changed=false;
             for(size_t i=0;i<count;++i)for(size_t j=i+1;j<count;++j){

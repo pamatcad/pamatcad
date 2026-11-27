@@ -7,6 +7,129 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Core, WebSocketTransport, type Transport, type Method, type Parameters } from "@pamatcad/sdk";
 
+test("positioned split cuts one crossing only, retains other intersections and rejects invalid picks atomically", async t => {
+  const { scene } = await startCore(t, "split-position");
+  const s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const a = await s.primitives.add("line", { from: [0,0], to: [30,0] });
+  const b = await s.primitives.add("line", { from: [10,-10], to: [10,10] });
+  const c = await s.primitives.add("line", { from: [20,-10], to: [20,10] });
+  const refs = [...a.curves,...b.curves,...c.curves], before = await s.state();
+  for (const operation of [{ type: "split" as const, position: [4,4] as [number,number] }, { type: "split" as const, position: [10,0] as [number,number], tolerance: -1 }]) {
+    await assert.rejects(s.modifyCurves(refs,operation)); assert.deepEqual(await s.state(),before);
+  }
+  const preview = await s.modifyCurves(refs,{type:"split",position:[10,0]},{preview:true});
+  assert.deepEqual(await s.state(),before); await scene.discardPreview();
+  const split = await s.modifyCurves(refs,{type:"split",position:[10,0]}); assert.deepEqual(split,preview);
+  assert.equal(split.created.length,4); assert.equal(split.removed.length,2);
+  let state=await s.state(); assert.deepEqual(state.entities.find(e=>e.reference.id===c.id),before.entities.find(e=>e.reference.id===c.id));
+  const all=state.entities.filter(e=>e.geometry.type!=="point").map(e=>e.reference);
+  await assert.rejects(s.modifyCurves(all,{type:"split",position:[10,0]}),/split|intersection/);
+  assert.deepEqual(await s.state(),state);
+  await s.modifyCurves(all,{type:"split",position:[20,0]});
+  state=await s.state(); assert.equal(state.entities.filter(e=>e.geometry.type==="line").length,7);
+});
+
+test("positioned split on a circle cuts only the chosen crossing and preserves exact geometry", async t => {
+  const { scene } = await startCore(t,"split-circle-position");
+  const s=await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const circle=await s.primitives.add("circle",{center:[0,0],diameter:20});
+  const line=await s.primitives.add("line",{from:[0,-15],to:[0,15]});
+  const result=await s.modifyCurves([...circle.curves,...line.curves],{type:"split",position:[0,10]});
+  assert.equal(result.created.length,4);
+  const state=await s.state(), arcs=state.entities.filter(e=>e.geometry.type==="arc"); assert.equal(arcs.length,2);
+  for(const arc of arcs) if(arc.geometry.type==="arc") near(arc.geometry.radius,10);
+  assert.equal(state.entities.filter(e=>e.geometry.type==="line").length,2);
+  await s.recompute(); assert.deepEqual((await s.state()).entities,state.entities);
+});
+
+test("offset open lines and reversed arcs uses the sketch plane and preserves source geometry", async t => {
+  const {scene}=await startCore(t,"offset-open");
+  for(const plane of [scene.construction.builtin.planes.xy,scene.construction.builtin.planes.yz]) {
+    const s=await scene.sketches.create(plane);
+    const line=await s.primitives.add("line",{from:[0,0],to:[20,0]}),arc=await s.primitives.add("arc",{center:[30,0],radius:10,start:90,end:0});
+    const before=await s.state();
+    const parallel=await s.modifyCurves(line.curves,{type:"offset",distance1:"2 mm"});assert.equal(parallel.created.length,1);
+    const circular=await s.modifyCurves(arc.curves,{type:"offset",distance1:"2 mm"});assert.equal(circular.created.length,1);
+    const state=await s.state();
+    for(const ref of [...line.points,...line.curves,...arc.points,...arc.curves]) assert.deepEqual(state.entities.find(e=>e.reference.id===ref.id),before.entities.find(e=>e.reference.id===ref.id));
+    const geometry=state.entities.find(e=>e.reference.id===parallel.created[0]!.id)!.geometry;assert.equal(geometry.type,"line");
+    if(geometry.type==="line") for(const id of [geometry.from,geometry.to]) {const p=state.entities.find(e=>e.reference.id===id)!.geometry;if(p.type!=="point")assert.fail();near(p.position[1],2);}
+    const offsetArc=state.entities.find(e=>e.reference.id===circular.created[0]!.id)!.geometry;assert.equal(offsetArc.type,"arc");if(offsetArc.type==="arc")near(offsetArc.radius,8);
+    await s.recompute();assert.deepEqual((await s.state()).entities,state.entities);await s.cancel();
+  }
+});
+
+for (const neighbor of ["line", "arc", "spline"] as const) test(`fillet retains an editable formula and tangent ${neighbor} connections`, async t => {
+  const { scene }=await startCore(t,"fillet-"+neighbor), s=await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const a=await s.primitives.add("line",{from:[0,0],to:[20,0]});
+  const b=neighbor==="line" ? await s.primitives.add("line",{from:[20,0],to:[20,20]}) : neighbor==="arc" ? await s.primitives.add("arc",{center:[30,0],radius:10,start:180,end:90}) : await s.primitives.add("spline",{points:[[20,0],[20,7],[24,14],[25,20]],fit:false});
+  const before=await s.state();
+  await s.modifyCurves([a.curves[0]!,b.curves[0]!],{type:"fillet",radius:"2 mm"},{preview:true}); assert.deepEqual(await s.state(),before); await scene.discardPreview();
+  await s.modifyCurves([a.curves[0]!,b.curves[0]!],{type:"fillet",radius:"2 mm"});
+  let state=await s.state(); const radius=state.dimensions.find(d=>d.kind==="radius")!; assert.ok(radius); near(radius.computed.value,2);
+  const curve=radius.parameters.curve!;
+  assert.equal(state.constraints.filter(c=>c.kind==="tangent"&&c.parameters.curves?.some(r=>r.id===curve.id)).length,2);
+  const ids=state.entities.map(e=>e.reference.id);
+  const other=await s.primitives.add("line",{from:[-10,-10],to:[-6,-10]});
+  await s.constraints.add("fix",{curves:other.curves});
+  const driven=await s.dimensions.add("length",{line:other.curves[0],mode:"driven",name:"reference"});
+  const source=`sketches[${s.id}]dimension[${driven.id}] / 2`;
+  await s.dimensions.update(radius.id,{value:source});
+  await s.modifyCurves([curve],{type:"fillet",radius:"3 mm",dimension:radius.id});
+  state=await s.state(); near(state.dimensions.find(d=>d.id===radius.id)!.computed.value,3);
+  assert.ok(ids.every(id=>state.entities.some(e=>e.reference.id===id)));
+  for(let i=0;i<3;i++){ await s.recompute(); assert.deepEqual((await s.state()).entities,state.entities); }
+  state=await s.state();
+  await assert.rejects(s.modifyCurves([curve],{type:"fillet",radius:-2,dimension:radius.id})); assert.deepEqual(await s.state(),state);
+  await s.complete(); await s.edit(); assert.deepEqual((await s.state()).entities,state.entities);
+  await s.dimensions.update(radius.id,{value:source}); near((await s.state()).dimensions.find(d=>d.id===radius.id)!.computed.value,2);
+});
+
+test("filleted rectangle remains exactly extrudable and radius edits preserve its region", async t => {
+  const { core,scene }=await startCore(t,"fillet-region"),s=await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const rectangle=await s.primitives.add("rectangle",{from:[0,0],to:[20,20]});
+  await s.modifyCurves(rectangle.lines,{type:"fillet",radius:2});
+  const state=await s.state(); assert.equal(state.dimensions.length,4);
+  const proxy=await s.getProxy(); assert.equal(proxy.regions.length,1);
+  for(let i=0;i<3;i++){await s.recompute();assert.deepEqual((await s.state()).entities,state.entities);}
+  await s.complete(); const solid=await core.solid.extrude(await s.regions.only(),{length1:2}),body=await scene.bodies.get(solid.newSolids[0]!.id);
+  near((await body.properties()).volume.value,2*(400-4*(4-Math.PI)),1e-5);
+});
+
+test("interactive fillet, linked offset and positioned split replay public commands with identical geometry", { skip: process.env.PAMATCAD_TEST_RUNTIME === "wasm" }, async t => {
+  const commands: { method: Method; params: Parameters<Method> }[] = [], responses: unknown[] = [];
+  const { url } = await startCore(t, "interactive-edit-replay");
+  const transport = await WebSocketTransport.connect(url); t.after(() => transport.close());
+  const core = new Core({ async request(method, params) {
+    commands.push(JSON.parse(JSON.stringify({ method, params })));
+    const result = await transport.request(method, params); responses.push(result); return result;
+  }, close() { transport.close(); } });
+  const scene = await core.scene.create("interactive-edit-replay"), s = await scene.sketches.create(scene.construction.builtin.planes.xy);
+  const rectangle = await s.primitives.add("rectangle", { from: [0,0], to: [20,20] });
+  await s.modifyCurves(rectangle.lines, { type: "fillet", radius: "2 mm" });
+  const radius = (await s.state()).dimensions[0]!;
+  await s.dimensions.update(radius.id, { value: "2.5 mm" }); await s.recompute(); await s.getProxy();
+  const a = await s.primitives.add("line", { from: [30,0], to: [40,10], construction: true });
+  const b = await s.primitives.add("line", { from: [30,10], to: [40,0], construction: true });
+  await s.modifyCurves([...a.curves,...b.curves], { type: "split", position: [35,5] });
+  const source = await s.primitives.add("circle", { center: [60,60], diameter: 10, construction: true });
+  const offset = await s.modifyCurves(source.curves, { type: "offset", distance1: "2 mm" });
+  await s.construction(offset.created, true);
+  const definition = (await s.state()).offsets[0]!;
+  await s.modifyCurves(source.curves, { type: "offset", id: definition.id, distance1: "3 mm" });
+  await s.drag(source.curves[0]!, { position: [66,60] }); await s.recompute();
+  await s.modifyCurves([], { type: "offsetAnnotation", id: definition.id, side: 0, position: [60,72] });
+  await s.state();
+  await s.complete(); const solid = await core.solid.extrude(await s.regions.only(), { length1: 2 });
+  await (await scene.bodies.get(solid.newSolids[0]!.id)).properties();
+  const directory = await mkdtemp(join(tmpdir(), "pamatcad-interactive-edit-")); t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = join(directory, "commands.jsonl"); await writeFile(file, commands.map((command,i)=>JSON.stringify({jsonrpc:"2.0",id:i+1,...command})).join("\n"));
+  const replay = await startCore(t, "interactive-edit-replay"), target = await WebSocketTransport.connect(replay.url); t.after(()=>target.close());
+  const actual=[];
+  for(const line of (await readFile(file,"utf8")).split("\n")) { const command=JSON.parse(line) as typeof commands[number]; actual.push(await target.request(command.method,command.params)); }
+  assert.deepEqual(actual,responses);
+});
+
 test("Remove trims one line interval, preserves cutters and endpoints, and supports preview and repeated clicks", async t => {
   const { scene } = await startCore(t, "remove-line");
   const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
@@ -157,6 +280,44 @@ test("Remove uses projected boundaries without changing their read-only geometry
   const result = await sketch.modifyCurves(line.curves, { type: "remove", position: [5, 5] });
   assert.equal(result.created.length, 2);
   assert.deepEqual((await sketch.state()).entities.filter(e => e.projected), projected);
+});
+
+test("arc deletion cleanup and its surviving exact shape replay the same public commands", { skip: process.env.PAMATCAD_TEST_RUNTIME === "wasm" }, async t => {
+  const commands: { jsonrpc: "2.0"; id: number; method: Method; params: Parameters<Method> }[] = [];
+  const responses: unknown[] = [], snapshots = [];
+  for (let repeat = 0; repeat < 2; repeat++) {
+    const { url } = await startCore(t, "arc-delete-replay");
+    const transport = await WebSocketTransport.connect(url); t.after(() => transport.close());
+    const recording: Transport = { async request(method, params) {
+      if (repeat === 0) commands.push(JSON.parse(JSON.stringify({ jsonrpc: "2.0", id: commands.length + 1, method, params })));
+      const result = await transport.request(method, params);
+      if (repeat === 0) responses.push(result);
+      return result;
+    }, close() { transport.close(); } };
+    const core = new Core(recording), scene = await core.scene.create("Arc cleanup");
+    const sketch = await scene.sketches.create(scene.construction.builtin.planes.xy);
+    const arc = await sketch.primitives.add("arc", { center: [0, 0], radius: 5, start: 0, end: 180 });
+    await sketch.dimensions.add("radius", { curve: arc.curves[0], value: 5, mode: "driving" });
+    await sketch.primitives.add("circle", { center: [40, 0], diameter: 8 });
+    await sketch.remove([arc.curves[0]!.id]);
+    const state = await sketch.state();
+    assert.ok(arc.points.every(r => !state.entities.some(e => e.reference.id === r.id)));
+    await sketch.recompute(); await sketch.recompute();
+    await sketch.complete(); await sketch.edit(); assert.deepEqual((await sketch.state()).entities, state.entities); await sketch.complete();
+    const result = await core.solid.extrude(await sketch.regions.only(), { length1: 2 });
+    const body = await scene.bodies.get(result.newSolids[0]!.id), properties = await body.properties();
+    near(properties.volume.value, 32 * Math.PI);
+    snapshots.push({ state: await sketch.state(), proxy: await scene.getProxyFor(result.newSolids[0]!), properties });
+  }
+  assert.deepEqual(snapshots[0], snapshots[1]);
+  const directory = await mkdtemp(join(tmpdir(), "pamatcad-arc-delete-replay-")); t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = join(directory, "commands.jsonl"); await writeFile(file, commands.map(command => JSON.stringify(command)).join("\n"));
+  const { url } = await startCore(t, "arc-delete-replay"), transport = await WebSocketTransport.connect(url); t.after(() => transport.close());
+  const replayed = [];
+  for (const line of (await readFile(file, "utf8")).split("\n")) {
+    const command = JSON.parse(line) as typeof commands[number]; replayed.push(await transport.request(command.method, command.params));
+  }
+  assert.deepEqual(replayed, responses);
 });
 
 test("Remove produces a repeatable exact extrusion and replays captured public commands through the CLI", { skip: process.env.PAMATCAD_TEST_RUNTIME === "wasm" }, async t => {

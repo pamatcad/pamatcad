@@ -96,6 +96,15 @@ export function constraintBuckets(state: SketchState, proxy: SketchProxy): Const
         break;
       }
       case "tangent": {
+        if (refs.some(r => entities.get(r.id)?.type === "spline")) {
+          const ends = refs.map(r => {
+            const g = entities.get(r.id);
+            const ids = g?.type === "spline" ? [g.points[0], g.points.at(-1)!] : g?.type === "arc" || g?.type === "line" ? [g.from, g.to] : [];
+            return ids.map(point).filter(p => !!p);
+          });
+          atPoint(ends[0]?.find(p => ends[1]?.some(q => p.distanceToSquared(q) <= toleranceSquared)), c);
+          break;
+        }
         const circles = refs.map(r => circular(r.id)).filter(c => !!c);
         const segment = refs.map(r => line(r.id)).find(l => !!l);
         if (segment && circles.length) {

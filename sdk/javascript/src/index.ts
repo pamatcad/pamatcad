@@ -13,6 +13,7 @@ export type { TriangleMesh, ProxyFace, ProxyEdge, EdgeRef, BodyRef, CircleParame
 
 export type { SketchEntityRef, SketchEntity, SketchGeometry, SketchDimension, SketchConstraint, SketchState, SketchSolveStatus, ConstraintKind, ConstraintParameters, DimensionKind, DimensionMode, DimensionParameters, PointParameters, LineParameters, ArcParameters, EllipseParameters, SlotParameters, SplineParameters, DragSketchPointTarget } from "./generated/protocol.js";
 export type { ProjectionSource, SketchProjection, VertexRef } from "./generated/protocol.js";
+export type { SketchOffset, SketchOffsetMode } from "./generated/protocol.js";
 
 export type { Primitive, GeometryData, RectangleData, CircleData, SketchSupport, TextParameters, SketchCurveEdit, TransformSketchGeometry, ScalarUnit } from "./generated/protocol.js";
 export type { BodyVertex, SketchEntityFreedom } from "./generated/protocol.js";
